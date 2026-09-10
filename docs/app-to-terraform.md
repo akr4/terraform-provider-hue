@@ -94,7 +94,7 @@ room の children は device UUID、zone は light UUID です。
 hue-tf pull --new
 ```
 
-現在の state に含まれない room・zone・scene を種類ごとに UUID・名前付きで表示します。
+現在の state に含まれない room・zone・scene・behavior_instance を種類ごとに UUID・名前付きで表示します。
 scene は所属する部屋/ゾーンも表示します。
 子 module や `for_each` で import 済みの UUID も除外します。
 
@@ -153,3 +153,9 @@ terraform plan -target=module.bedroom
 
 既存リソースの module 化には `moved` ブロックを使います。移行の最初の plan は target を付けず全体で確認し、
 追加・変更・削除がゼロであることを確認したうえで、ユーザー自身が apply してアドレスの移動を state に保存します。
+
+## スイッチの割り当て
+
+`hue_behavior_instance` の新規取り込みと、name・enabled・リテラル jsonencode configuration の pull に対応します。
+機器 UUID と behavior UUID の違い、import 手順、参照式やコメントを含む場合の制約は
+[スイッチ管理](switch-management.md) を参照してください。

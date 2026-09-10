@@ -54,6 +54,9 @@ func New() *Bridge {
 			b.resources[kind][id.ID] = item
 		}
 	}
+	b.resources["behavior_instance"] = map[string]json.RawMessage{}
+	b.resources["behavior_script"] = map[string]json.RawMessage{}
+	b.resources["button"] = map[string]json.RawMessage{}
 	b.Server = httptest.NewTLSServer(http.HandlerFunc(b.serve))
 	return b
 }
@@ -152,7 +155,7 @@ func (b *Bridge) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		success(w, data)
 	case "POST", "PUT":
-		if kind != "room" && kind != "zone" && kind != "scene" {
+		if kind != "room" && kind != "zone" && kind != "scene" && kind != "behavior_instance" {
 			failure(w, 405, "read only")
 			return
 		}
@@ -179,6 +182,30 @@ func (b *Bridge) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		var patch map[string]json.RawMessage
 		_ = json.Unmarshal(body, &patch)
+		if kind == "behavior_instance" {
+			if r.Method != "PUT" {
+				failure(w, 405, "behavior creation not supported")
+				return
+			}
+			for key := range patch {
+				if key != "metadata" && key != "configuration" && key != "enabled" {
+					failure(w, 400, "read-only behavior field")
+					return
+				}
+			}
+			if raw, ok := patch["configuration"]; ok {
+				if hue.ValidateConfiguration(raw) != nil {
+					failure(w, 400, "invalid configuration")
+					return
+				}
+			}
+			status := "running"
+			if string(patch["enabled"]) == "false" {
+				status = "disabled"
+			}
+			value["status"], _ = json.Marshal(status)
+			value["last_error"] = json.RawMessage(`""`)
+		}
 		if kind == "scene" {
 			if _, ok := patch["palette"]; ok {
 				failure(w, 400, "palette is read only in fake v0")

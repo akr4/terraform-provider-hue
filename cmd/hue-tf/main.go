@@ -38,7 +38,7 @@ func run(ctx context.Context, args []string, out, errout io.Writer) error {
 }
 func runWith(ctx context.Context, args []string, out, errout io.Writer, deps dependencies) error {
 	if len(args) == 0 {
-		return errors.New("usage: hue-tf init | ls <room|zone|scene|light|device> [--json] | raw /clip/v2/<path> | pull [module.NAME.]hue_TYPE.NAME [--write] | pull --new [RESOURCE_UUID hue_TYPE.NAME [--write]]")
+		return errors.New("usage: hue-tf init | ls <room|zone|scene|light|device|switch|behavior_instance|behavior_script|button> [--json] | raw /clip/v2/<path> | pull [module.NAME.]hue_TYPE.NAME [--write] | pull --new [RESOURCE_UUID hue_TYPE.NAME [--write]]")
 	}
 	if args[0] == "pull" {
 		return pullScene(ctx, args[1:], out, deps)
@@ -60,7 +60,7 @@ func runWith(ctx context.Context, args []string, out, errout io.Writer, deps dep
 	}
 	if args[0] == "ls" {
 		switch args[1] {
-		case "room", "zone", "scene", "light", "device":
+		case "room", "zone", "scene", "light", "device", "switch", "behavior_instance", "behavior_script", "button":
 		default:
 			return errors.New("unsupported resource type")
 		}
@@ -83,6 +83,9 @@ func runWith(ctx context.Context, args []string, out, errout io.Writer, deps dep
 		}
 		_, err = fmt.Fprintln(out, string(data))
 		return err
+	}
+	if args[1] == "switch" {
+		return listSwitches(ctx, client, out, len(args) == 3)
 	}
 	var data []json.RawMessage
 	if err := client.Get(ctx, "/clip/v2/resource/"+args[1], &data); err != nil {

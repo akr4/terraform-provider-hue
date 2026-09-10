@@ -17,7 +17,7 @@ func pullScene(ctx context.Context, args []string, out io.Writer, deps dependenc
 		return pullNew(ctx, args[1:], out, deps)
 	}
 	if len(args) < 1 || len(args) > 2 || (len(args) == 2 && args[1] != "--write") {
-		return fmt.Errorf("usage: hue-tf pull hue_room.NAME|hue_zone.NAME|hue_scene.NAME [--write]")
+		return fmt.Errorf("usage: hue-tf pull [module.NAME.]hue_TYPE.NAME [--write]")
 	}
 	address := args[0]
 	kind, name, err := pull.ResourceAddress(address)
@@ -63,6 +63,12 @@ func pullScene(ctx context.Context, args []string, out io.Writer, deps dependenc
 			return e
 		}
 		change, err = pull.Prepare(dir, name, baseline, scene)
+	} else if kind == "behavior_instance" {
+		b, e := hue.GetOne[hue.BehaviorInstance](ctx, client, kind, baseline.ID)
+		if e != nil {
+			return e
+		}
+		change, err = pull.PrepareBehavior(dir, name, baseline, b)
 	} else {
 		group, e := hue.GetOne[hue.Group](ctx, client, kind, baseline.ID)
 		if e != nil {
@@ -75,6 +81,8 @@ func pullScene(ctx context.Context, args []string, out io.Writer, deps dependenc
 	}
 	if kind == "scene" {
 		fmt.Fprintln(out, "Scope: on, brightness, mirek/kelvin, color_xy and temperature/color mode switches; other scene attributes are not synchronized.")
+	} else if kind == "behavior_instance" {
+		fmt.Fprintln(out, "Scope: name, enabled and literal jsonencode configuration; references and comments are preserved by refusing replacement.")
 	} else {
 		fmt.Fprintln(out, "Scope: name, archetype and literal children membership.")
 	}

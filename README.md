@@ -4,7 +4,7 @@
 are already registered on a Hue bridge.**
 
 A Terraform Plugin Framework provider (protocol v6) for Philips Hue API v2.
-Manage rooms, zones, and scenes, and look up lights and devices by UUID.
+Manage rooms, zones, scenes and existing switch behaviors, and look up lights and devices by UUID.
 
 This is an initial v0 implementation with synthetic fake-bridge tests. Import,
 scene updates/deletion, and app-to-Terraform pull have also been exercised on a
@@ -47,7 +47,9 @@ prompts go to stderr. Protect the printed application key like a password.
 
 `hue-tf ls scene` also shows the group type, name, and UUID, sorted by group.
 This distinguishes scenes with the same name in different rooms or zones.
-`--json` returns the original resource objects.
+`--json` returns the original resource objects for API resource types.
+`hue-tf ls switch` joins switch devices with their behavior assignments; its JSON output contains the same summary rows.
+See [switch management](docs/switch-management.md) for import and editing.
 
 `hue-tf pull hue_scene.NAME` previews saved scene on/off, brightness, temperature and xy color changes from the app.
 Add `--write` to update existing numeric and boolean literals in `.tf`, preserving comments and
@@ -56,7 +58,7 @@ also supported when the saved scene changes modes. See [the app-to-Terraform wor
 and state synchronization.
 `hue-tf pull hue_room.NAME` and `hue-tf pull hue_zone.NAME` pull literal names,
 archetypes, and children membership.
-`hue-tf pull --new` lists unmanaged rooms, zones, and scenes. Use
+`hue-tf pull --new` lists unmanaged rooms, zones, scenes and behavior instances. Use
 `hue-tf pull --new RESOURCE_UUID hue_TYPE.NAME [--write]` to preview or create a
 new `.tf` definition and print the native Terraform import command.
 Addresses may include local modules, such as
@@ -113,7 +115,7 @@ resource "hue_scene" "evening" {
 
 Rooms contain **device** UUIDs. Zones contain **light** UUIDs. Children are sets;
 scene actions are keyed by light UUID. Group changes replace a scene. Resource
-deletion removes it from the bridge. Import uses the bridge UUID:
+deletion for rooms/zones/scenes removes it from the bridge. Behavior instances are import-only and cannot be deleted by this provider. Import uses the bridge UUID:
 
 ```hcl
 import {

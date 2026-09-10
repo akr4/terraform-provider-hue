@@ -14,7 +14,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-// Inventory includes all managed room, zone and scene IDs, including indexed and module instances.
+// Inventory includes all managed room, zone, scene and behavior instance IDs, including indexed and module instances.
 func Inventory(data []byte, scope ...string) (map[string]bool, map[string]string, error) {
 	var state struct {
 		Resources []struct {
@@ -35,7 +35,7 @@ func Inventory(data []byte, scope ...string) (map[string]bool, map[string]string
 			continue
 		}
 		for _, i := range r.Instances {
-			if r.Type == "hue_scene" || r.Type == "hue_room" || r.Type == "hue_zone" {
+			if r.Type == "hue_scene" || r.Type == "hue_room" || r.Type == "hue_zone" || r.Type == "hue_behavior_instance" {
 				scenes[i.Attributes.ID] = true
 			}
 			if (r.Type == "hue_room" || r.Type == "hue_zone") && r.Module == moduleScope(scope) && len(i.IndexKey) == 0 && r.Provider == `provider["registry.terraform.io/akr4/hue"]` {

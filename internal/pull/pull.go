@@ -19,12 +19,15 @@ import (
 )
 
 type Baseline struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	Archetype string   `json:"archetype"`
-	Children  []string `json:"children"`
-	Group     string   `json:"group"`
-	Actions   map[string]struct {
+	ScriptID      string   `json:"script_id"`
+	Enabled       bool     `json:"enabled"`
+	Configuration string   `json:"configuration"`
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Archetype     string   `json:"archetype"`
+	Children      []string `json:"children"`
+	Group         string   `json:"group"`
+	Actions       map[string]struct {
 		Brightness *float64 `json:"brightness"`
 		On         *bool    `json:"on"`
 		Mirek      *int64   `json:"mirek"`

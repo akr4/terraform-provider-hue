@@ -68,7 +68,7 @@ func (p *hueProvider) Configure(ctx context.Context, req provider.ConfigureReque
 	resp.ResourceData = client
 }
 func (p *hueProvider) Resources(context.Context) []func() resource.Resource {
-	return []func() resource.Resource{func() resource.Resource { return &groupResource{kind: "room", childKind: "device"} }, func() resource.Resource { return &groupResource{kind: "zone", childKind: "light"} }, func() resource.Resource { return &sceneResource{} }}
+	return []func() resource.Resource{func() resource.Resource { return &groupResource{kind: "room", childKind: "device"} }, func() resource.Resource { return &groupResource{kind: "zone", childKind: "light"} }, func() resource.Resource { return &sceneResource{} }, func() resource.Resource { return &behaviorResource{} }}
 }
 func (p *hueProvider) DataSources(context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{func() datasource.DataSource { return &lookupDataSource{kind: "light"} }, func() datasource.DataSource { return &lookupDataSource{kind: "device"} }}

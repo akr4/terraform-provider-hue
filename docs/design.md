@@ -14,7 +14,8 @@ Philips Hue の設定（room / zone / scene）を GUI ではなくコードで�
 ### 非ゴール（v0）
 
 - light / device のペアリング（bridge への登録）。Hue アプリで行う前提
-- automation（behavior_instance）、entertainment、grouped_light の管理
+- behavior_instance の新規作成・削除、entertainment、grouped_light の管理
+  - 既存 behavior_instance の import・設定更新は対応する（[スイッチ管理](switch-management.md)）。
 - light 自体の設定（名前、powerup など）の管理
 - Hue API v1 のサポート
 
@@ -252,7 +253,7 @@ action object:
 | コマンド | 内容 |
 |---|---|
 | `hue-tf init` | mDNS で bridge を探索し、リンクボタン押下を待って application key を発行する。結果を環境変数の形式で表示する（`export HUE_BRIDGE_HOST=…` / `export HUE_BRIDGE_APPLICATION_KEY=…`） |
-| `hue-tf ls <type>` | room / zone / scene / light / device を表形式または `--json` で一覧表示する |
+| `hue-tf ls <type>` | room / zone / scene / light / device / behavior_instance / behavior_script / button、および switch の対応表を表形式または `--json` で一覧表示する |
 | `hue-tf raw <path>` | 任意の v2 エンドポイントに GET し、レスポンスをそのまま出力する |
 
 ### v1 以降の候補
@@ -332,3 +333,11 @@ action object:
 - 新規定義の生成と state への登録は別操作。ユーザーが import した後に plan で差分を確認する。
 
 詳細な対応範囲、コメント保持の制約、state の同期手順は [アプリからの取り込み手順](app-to-terraform.md) を参照する。
+
+## 17. 既存スイッチ割り当て
+
+`hue_behavior_instance` は既存 behavior_instance を import して name・enabled・configuration を管理する。
+configuration は jsonencode で表現する JSON オブジェクト全体とし、機種・script ごとの構造を保持する。
+script_id と実行状態は読み取り専用。POST / DELETE は実行せず、作成や割り当て削除はアプリで行う。
+CLI は ls switch による機器との対応表示、pull --new による定義生成、リテラル configuration の pull に対応する。
+運用手順・制約・API 参照は [スイッチ管理](switch-management.md) を参照。

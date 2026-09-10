@@ -60,7 +60,7 @@ func pullNew(ctx context.Context, args []string, out io.Writer, deps dependencie
 	var resources []json.RawMessage
 	if len(args) == 0 {
 		count := 0
-		for _, resourceKind := range []string{"room", "zone", "scene"} {
+		for _, resourceKind := range []string{"room", "zone", "scene", "behavior_instance"} {
 			var items []json.RawMessage
 			if err = client.Get(ctx, "/clip/v2/resource/"+resourceKind, &items); err != nil {
 				return err
@@ -132,6 +132,8 @@ func pullNew(ctx context.Context, args []string, out io.Writer, deps dependencie
 	var src []byte
 	if kind == "scene" {
 		src, err = pull.NewScene(selected, name, groups)
+	} else if kind == "behavior_instance" {
+		src, err = pull.NewBehavior(selected, name)
 	} else {
 		src, err = pull.NewGroup(selected, kind, name)
 	}
