@@ -15,7 +15,7 @@ import (
 )
 
 // Inventory includes all managed room, zone and scene IDs, including indexed and module instances.
-func Inventory(data []byte) (map[string]bool, map[string]string, error) {
+func Inventory(data []byte, scope ...string) (map[string]bool, map[string]string, error) {
 	var state struct {
 		Resources []struct {
 			Mode, Type, Name, Module, Provider string
@@ -38,7 +38,7 @@ func Inventory(data []byte) (map[string]bool, map[string]string, error) {
 			if r.Type == "hue_scene" || r.Type == "hue_room" || r.Type == "hue_zone" {
 				scenes[i.Attributes.ID] = true
 			}
-			if (r.Type == "hue_room" || r.Type == "hue_zone") && r.Module == "" && len(i.IndexKey) == 0 && r.Provider == `provider["registry.terraform.io/akr4/hue"]` {
+			if (r.Type == "hue_room" || r.Type == "hue_zone") && r.Module == moduleScope(scope) && len(i.IndexKey) == 0 && r.Provider == `provider["registry.terraform.io/akr4/hue"]` {
 				groups[i.Attributes.ID] = r.Type + "." + r.Name
 			}
 		}
@@ -175,7 +175,7 @@ func WriteNew(path string, src []byte) error {
 	return nil
 }
 
-func AddressReserved(data []byte, kind, name string) bool {
+func AddressReserved(data []byte, kind, name string, scope ...string) bool {
 	var state struct {
 		Resources []struct{ Mode, Type, Name, Module string }
 	}
@@ -183,9 +183,16 @@ func AddressReserved(data []byte, kind, name string) bool {
 		return true
 	}
 	for _, r := range state.Resources {
-		if r.Mode == "managed" && r.Module == "" && r.Type == "hue_"+kind && r.Name == name {
+		if r.Mode == "managed" && r.Module == moduleScope(scope) && r.Type == "hue_"+kind && r.Name == name {
 			return true
 		}
 	}
 	return false
+}
+
+func moduleScope(scope []string) string {
+	if len(scope) > 0 {
+		return scope[0]
+	}
+	return ""
 }

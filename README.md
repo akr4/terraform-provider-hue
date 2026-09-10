@@ -59,6 +59,10 @@ archetypes, and children membership.
 `hue-tf pull --new` lists unmanaged rooms, zones, and scenes. Use
 `hue-tf pull --new RESOURCE_UUID hue_TYPE.NAME [--write]` to preview or create a
 new `.tf` definition and print the native Terraform import command.
+Addresses may include local modules, such as
+`module.bedroom.hue_scene.evening`. Run from the root configuration directory;
+pull edits the local module source. Shared module sources and indexed instances
+are refused to avoid modifying other instances.
 
 Both the provider and CLI use `HUE_BRIDGE_HOST` and
 `HUE_BRIDGE_APPLICATION_KEY`. Provider attributes override the environment.

@@ -33,7 +33,7 @@ type Baseline struct {
 	} `json:"actions"`
 }
 
-// State accepts only a single root resource, avoiding module/provider alias ambiguity.
+// State resolves a full address while rejecting indexed instances and provider aliases.
 func State(data []byte, address string) (Baseline, error) {
 	var state struct {
 		Resources []struct {
@@ -51,7 +51,11 @@ func State(data []byte, address string) (Baseline, error) {
 	}
 	count := 0
 	for _, r := range state.Resources {
-		if r.Module != "" || r.Mode != "managed" || r.Type+"."+r.Name != address {
+		candidate := r.Type + "." + r.Name
+		if r.Module != "" {
+			candidate = r.Module + "." + candidate
+		}
+		if r.Mode != "managed" || candidate != address {
 			continue
 		}
 		if r.Provider != `provider["registry.terraform.io/akr4/hue"]` {

@@ -327,7 +327,8 @@ action object:
 - `pull --new UUID hue_TYPE.NAME`: 新規定義と `terraform import` コマンドを提示する。
 - デフォルトはプレビュー。`--write` 指定時のみ `.tf` を更新・生成する。既存ファイルの更新はバックアップを作成する。
 - 既存リソースは state の UUID で対応付ける。実機・state・HCL の値を比較し、ローカル編集との競合は自動解決しない。
-- root module の直接定義を対象にする。変数・計算式、module 内リソース、count/for_each の編集には対応しない。
+- root とその配下の単独使用ローカル module の直接定義を対象にする。完全な module アドレスで対応付ける。
+  変数・計算式、共有/外部 source、count/for_each、provider alias の編集には対応しない。
 - 新規定義の生成と state への登録は別操作。ユーザーが import した後に plan で差分を確認する。
 
 詳細な対応範囲、コメント保持の制約、state の同期手順は [アプリからの取り込み手順](app-to-terraform.md) を参照する。

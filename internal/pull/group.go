@@ -14,8 +14,17 @@ import (
 
 func ResourceAddress(address string) (kind, name string, err error) {
 	parts := strings.Split(address, ".")
-	if len(parts) != 2 || !hclsyntax.ValidIdentifier(parts[1]) {
-		return "", "", fmt.Errorf("expected hue_room.NAME, hue_zone.NAME or hue_scene.NAME")
+	if len(parts) < 2 || len(parts)%2 != 0 {
+		return "", "", fmt.Errorf("expected [module.NAME.]hue_TYPE.NAME")
+	}
+	for i := 0; i < len(parts)-2; i += 2 {
+		if parts[i] != "module" || !hclsyntax.ValidIdentifier(parts[i+1]) {
+			return "", "", fmt.Errorf("only unindexed module addresses are supported")
+		}
+	}
+	parts = parts[len(parts)-2:]
+	if !hclsyntax.ValidIdentifier(parts[1]) {
+		return "", "", fmt.Errorf("invalid resource name")
 	}
 	kind = strings.TrimPrefix(parts[0], "hue_")
 	if parts[0] != "hue_"+kind || (kind != "room" && kind != "zone" && kind != "scene") {

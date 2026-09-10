@@ -286,3 +286,56 @@ func TestPullColorModeCLI(t *testing.T) {
 		}
 	}
 }
+
+func TestPullModuleCLI(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
+	if err := os.MkdirAll("rooms/bedroom", 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("main.tf", []byte(`module "bedroom" { source = "./rooms/bedroom" }`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("rooms/bedroom/room.tf", []byte(`resource "hue_room" "bedroom" {
+ name = "Old"
+ archetype = "bedroom"
+ children = []
+}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	const sid = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+	b := fakebridge.New()
+	defer b.Close()
+	b.Put("room", id, hue.Group{ID: id, Type: "room", Metadata: hue.Metadata{Name: "New", Archetype: "bedroom"}})
+	b.Put("scene", sid, hue.Scene{ID: sid, Metadata: hue.Metadata{Name: "New scene"}, Group: hue.Reference{RID: id, RType: "room"}, Actions: []hue.SceneAction{}})
+	deps := dependencies{newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) {
+		return []byte(`{"resources":[{"mode":"managed","module":"module.bedroom","type":"hue_room","name":"bedroom","provider":"provider[\"registry.terraform.io/akr4/hue\"]","instances":[{"attributes":{"id":"` + id + `","name":"Old","archetype":"bedroom","children":[]}}]}]}`), nil
+	}}
+	if err := runWith(context.Background(), []string{"pull", "module.bedroom.hue_room.bedroom", "--write"}, &bytes.Buffer{}, &bytes.Buffer{}, deps); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile("rooms/bedroom/room.tf")
+	if !strings.Contains(string(got), `"New"`) {
+		t.Fatal(string(got))
+	}
+	var out bytes.Buffer
+	if err := runWith(context.Background(), []string{"pull", "--new", sid, "module.bedroom.hue_scene.new_scene", "--write"}, &out, &bytes.Buffer{}, deps); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile("rooms/bedroom/scene_new_scene.tf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "hue_room.bedroom.id") || !strings.Contains(out.String(), "terraform import 'module.bedroom.hue_scene.new_scene'") {
+		t.Fatal(string(got), out.String())
+	}
+	if _, err := os.Stat("scene_new_scene.tf"); !os.IsNotExist(err) {
+		t.Fatal("wrote root file")
+	}
+	for _, r := range b.Requests() {
+		if r.Method != "GET" {
+			t.Fatal("bridge mutation")
+		}
+	}
+}

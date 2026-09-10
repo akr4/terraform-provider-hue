@@ -25,6 +25,11 @@ func pullScene(ctx context.Context, args []string, out io.Writer, deps dependenc
 		return err
 	}
 
+	dir, err := pull.ModuleDir(".", address)
+	if err != nil {
+		return err
+	}
+
 	key := os.Getenv("HUE_BRIDGE_APPLICATION_KEY")
 	if key == "" {
 		return fmt.Errorf("HUE_BRIDGE_APPLICATION_KEY is required")
@@ -57,13 +62,13 @@ func pullScene(ctx context.Context, args []string, out io.Writer, deps dependenc
 		if e != nil {
 			return e
 		}
-		change, err = pull.Prepare(".", name, baseline, scene)
+		change, err = pull.Prepare(dir, name, baseline, scene)
 	} else {
 		group, e := hue.GetOne[hue.Group](ctx, client, kind, baseline.ID)
 		if e != nil {
 			return e
 		}
-		change, err = pull.PrepareGroup(".", kind, name, baseline, group)
+		change, err = pull.PrepareGroup(dir, kind, name, baseline, group)
 	}
 	if err != nil {
 		return err

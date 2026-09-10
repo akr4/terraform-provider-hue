@@ -38,7 +38,7 @@ func run(ctx context.Context, args []string, out, errout io.Writer) error {
 }
 func runWith(ctx context.Context, args []string, out, errout io.Writer, deps dependencies) error {
 	if len(args) == 0 {
-		return errors.New("usage: hue-tf init | ls <room|zone|scene|light|device> [--json] | raw /clip/v2/<path> | pull hue_TYPE.NAME [--write] | pull --new [RESOURCE_UUID hue_TYPE.NAME [--write]]")
+		return errors.New("usage: hue-tf init | ls <room|zone|scene|light|device> [--json] | raw /clip/v2/<path> | pull [module.NAME.]hue_TYPE.NAME [--write] | pull --new [RESOURCE_UUID hue_TYPE.NAME [--write]]")
 	}
 	if args[0] == "pull" {
 		return pullScene(ctx, args[1:], out, deps)

@@ -45,14 +45,14 @@ Bridge と Terraform state への書き込みは行いません。
 
 ## 対応範囲と競合
 
-- root module の `hue_scene.NAME` を1件ずつ指定します。UUID は `terraform state pull` から取得します。
+- `hue_scene.NAME` または `module.NAME.hue_scene.NAME` を1件ずつ指定します。UUID は `terraform state pull` の完全なアドレスで対応付けます。
 - `.tf` の `actions` と各 action が直接書かれたオブジェクトで、キーを定数として解決できる必要があります。
 - 既存の数値・真偽値部分だけを置き換えます。リソース名、group の参照、コメント、空白は保持します。
 - xy 座標は provider と同じ小数4桁への丸めと許容差 0.001 で比較し、丸め差だけでは更新しません。
 - `.tf` の対象属性が state と異なり、実機とも一致しない場合は、ローカル編集と判断して停止します。
   変数、関数、計算式も上書きしません。1件でも非対応や競合がある場合、そのファイルは変更しません。
 - state は前回同期時の比較基準です。先に refresh-only や再 import で更新すると、変更元を判別できなくなります。
-- `count`、`for_each`、子 module、provider alias、JSON 形式の設定、override ファイルには未対応です。
+- `count`、`for_each`、provider alias、JSON 形式の設定、override ファイルには未対応です。
 - 色モード切り替え以外の属性の追加・削除、action の追加・削除、シーンの削除は取り込みません。
 - 色温度↔カラーの切り替えは取り込めます。実機で一方だけが保存されている場合、
   `mirek` / `kelvin` → `color_xy`、または `color_xy` → `mirek` に属性を置き換えます。
@@ -79,7 +79,7 @@ room の children は device UUID、zone は light UUID です。
 所属の追加・削除を取り込み、順序だけの違いは無視します。名称の引用符や
 `${...}` も、Terraform の式として解釈されないようにエスケープします。
 
-3属性を直接定義した root リソースが対象です。変数参照や計算式、state と異なるローカル編集があれば停止します。
+3属性を直接定義したリソースが対象です。変数参照や計算式、state と異なるローカル編集があれば停止します。
 `children` リスト内にコメントがあり所属変更が必要な場合も、注釈を失わないよう停止します。
 属性の後ろのコメントと、`lifecycle` など他の設定は保持します。
 プレビュー・バックアップ・state 同期の手順はシーンと共通です。
@@ -109,7 +109,7 @@ hue-tf pull --new ZONE_UUID hue_zone.downstairs --write
 
 `--write` は `<種類>_<リソース名>.tf`（例: `scene_bedroom_evening.tf`）を新規作成し、次に実行するコマンドを表示します。
 既存ファイルや同名のリソース定義・state アドレスは上書きしません。
-UUID が root module の標準 provider で管理されている room/zone に対応する場合は、
+UUID が生成先と同じ module の標準 provider で管理されている room/zone に対応する場合は、
 `group = hue_room.bedroom.id` のような参照を生成します。それ以外は UUID を直接記載します。
 
 生成された `.tf` を確認し、表示された import コマンドをユーザー自身で実行してください。
@@ -128,3 +128,28 @@ room・zone は name、archetype、children と `prevent_destroy = true` を生�
 scene は name、group、speed、auto_dynamic、image_id と provider が対応する actions を生成します。
 palette は provider の読み取り専用属性なので設定には生成しません。
 actions に gradient、effects などの未対応項目がある場合、生成を中止して報告します。
+
+
+## ローカル module 内のリソース
+
+Terraform の root ディレクトリから、完全なアドレスで指定します。
+
+```sh
+hue-tf pull module.bedroom.hue_room.bedroom
+hue-tf pull module.bedroom.hue_scene.evening --write
+hue-tf pull --new SCENE_UUID module.bedroom.hue_scene.new_scene --write
+terraform plan -target=module.bedroom
+```
+
+`source = "./rooms/bedroom"` のようなローカル module の元ファイルを編集します。
+ネストした `module.floor.module.bedroom.hue_scene.evening` も指定できます。
+生成された import コマンドにも module を含む完全なアドレスを使用します。
+同じ module 内の room/zone は直接参照し、別 module の group は UUID で参照します。
+
+対応範囲は root ディレクトリ配下のローカル source、単一インスタンス、標準 provider の継承です。
+同一ソースを複数の module 呼び出しで共有している場合、他のインスタンスを巻き込まないよう停止します。
+外部/ダウンロード済みソース、root 外の source、module の count/for_each/providers 指定は編集しません。
+`terraform get` で module を登録し、既存 state のアドレスを移行してから pull を使ってください。
+
+既存リソースの module 化には `moved` ブロックを使います。移行の最初の plan は target を付けず全体で確認し、
+追加・変更・削除がゼロであることを確認したうえで、ユーザー自身が apply してアドレスの移動を state に保存します。

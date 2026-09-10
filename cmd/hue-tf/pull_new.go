@@ -17,12 +17,22 @@ func pullNew(ctx context.Context, args []string, out io.Writer, deps dependencie
 		return fmt.Errorf("usage: hue-tf pull --new [RESOURCE_UUID hue_TYPE.NAME [--write]]")
 	}
 	name, kind := "", ""
+	dir, scope := ".", ""
 	if len(args) > 0 {
 		var err error
 		kind, name, err = pull.ResourceAddress(args[1])
 		if err != nil {
 			return err
 		}
+	}
+
+	if len(args) > 0 {
+		var err error
+		dir, err = pull.ModuleDir(".", args[1])
+		if err != nil {
+			return err
+		}
+		scope = pull.ModuleAddress(args[1])
 	}
 
 	key := os.Getenv("HUE_BRIDGE_APPLICATION_KEY")
@@ -39,7 +49,7 @@ func pullNew(ctx context.Context, args []string, out io.Writer, deps dependencie
 	if err != nil {
 		return fmt.Errorf("cannot read Terraform state; use the existing Terraform directory and workspace")
 	}
-	managed, groups, err := pull.Inventory(data)
+	managed, groups, err := pull.Inventory(data, scope)
 	if err != nil {
 		return err
 	}
@@ -112,10 +122,10 @@ func pullNew(ctx context.Context, args []string, out io.Writer, deps dependencie
 	if selected == nil {
 		return fmt.Errorf("resource UUID was not found for the selected type on the bridge")
 	}
-	if pull.AddressReserved(data, kind, name) {
+	if pull.AddressReserved(data, kind, name, scope) {
 		return fmt.Errorf("hue_%s.%s already exists in state; choose another name", kind, name)
 	}
-	path, err := pull.NewResourcePath(".", kind, name)
+	path, err := pull.NewResourcePath(dir, kind, name)
 	if err != nil {
 		return err
 	}
