@@ -4,7 +4,7 @@
 are already registered on a Hue bridge.**
 
 A Terraform Plugin Framework provider (protocol v6) for Philips Hue API v2.
-Manage rooms, zones, scenes and existing switch behaviors, and look up lights and devices by UUID.
+Manage rooms, zones, scenes and switch behaviors, and look up lights and devices by UUID.
 
 This is an initial v0 implementation with synthetic fake-bridge tests. Import,
 scene updates/deletion, and app-to-Terraform pull have also been exercised on a
@@ -115,7 +115,7 @@ resource "hue_scene" "evening" {
 
 Rooms contain **device** UUIDs. Zones contain **light** UUIDs. Children are sets;
 scene actions are keyed by light UUID. Group changes replace a scene. Resource
-deletion for rooms/zones/scenes removes it from the bridge. Behavior instances are import-only and cannot be deleted by this provider. Import uses the bridge UUID:
+deletion for rooms/zones/scenes removes it from the bridge. Deleting a behavior instance removes its assignment; the paired device remains. Import uses the bridge UUID:
 
 ```hcl
 import {

@@ -183,12 +183,15 @@ func (b *Bridge) serve(w http.ResponseWriter, r *http.Request) {
 		var patch map[string]json.RawMessage
 		_ = json.Unmarshal(body, &patch)
 		if kind == "behavior_instance" {
-			if r.Method != "PUT" {
-				failure(w, 405, "behavior creation not supported")
-				return
+			if r.Method == "POST" {
+				var script string
+				if json.Unmarshal(patch["script_id"], &script) != nil || script == "" {
+					failure(w, 400, "script_id required")
+					return
+				}
 			}
 			for key := range patch {
-				if key != "metadata" && key != "configuration" && key != "enabled" {
+				if key != "metadata" && key != "configuration" && key != "enabled" && !(r.Method == "POST" && (key == "script_id" || key == "type")) {
 					failure(w, 400, "read-only behavior field")
 					return
 				}

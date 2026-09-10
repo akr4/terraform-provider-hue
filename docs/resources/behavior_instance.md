@@ -3,22 +3,24 @@
 page_title: "hue_behavior_instance Resource - hue"
 subcategory: ""
 description: |-
-  Manage an existing Hue behavior instance, including switch button and rotary assignments. Import an instance created in the Hue app. Creation and deletion on the bridge are not supported; use a removed block with destroy = false to stop managing it.
+  Manage Hue behavior instances, including switch button and rotary assignments. Creation requires script_id. Deleting this resource deletes the assignment from the bridge, not the physical device.
 ---
 
 # hue_behavior_instance (Resource)
 
-Manage an existing Hue behavior instance, including switch button and rotary assignments. Import an instance created in the Hue app. Creation and deletion on the bridge are not supported; use a removed block with destroy = false to stop managing it.
+Manage Hue behavior instances, including switch button and rotary assignments. Creation requires script_id. Deleting this resource deletes the assignment from the bridge, not the physical device.
 
 ## Example Usage
 
 ```terraform
-# Import a behavior instance created by the Hue app before applying.
+# Use the script UUID and device/button UUIDs from your bridge.
+# Import first when adopting an existing assignment.
 # Configuration varies by script/model. Start with hue-tf pull --new output;
 # this example illustrates one button on a generic switch script.
 resource "hue_behavior_instance" "switch" {
-  name    = "Study switch"
-  enabled = true
+  name      = "Study switch"
+  enabled   = true
+  script_id = "55555555-5555-4555-8555-555555555555"
   configuration = jsonencode({
     device   = { rid = "22222222-2222-4222-8222-222222222222", rtype = "device" }
     model_id = "RWL022"
@@ -47,11 +49,14 @@ resource "hue_behavior_instance" "switch" {
 - `enabled` (Boolean) Enable or disable this behavior.
 - `name` (String) Behavior instance name; does not rename the physical device.
 
+### Optional
+
+- `script_id` (String) Behavior script UUID. Required for creation, optional for imported instances. Changing it replaces the behavior.
+
 ### Read-Only
 
 - `id` (String) Behavior instance UUID (not the switch device UUID).
 - `last_error` (String) Last runtime error reported by the bridge.
-- `script_id` (String) Read-only behavior script UUID.
 - `status` (String) Runtime status reported by the bridge.
 
 ## Import

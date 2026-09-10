@@ -10,7 +10,6 @@ import (
 
 	"github.com/akr4/terraform-provider-hue/internal/fakebridge"
 	"github.com/akr4/terraform-provider-hue/internal/hue"
-	framework "github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
@@ -32,13 +31,6 @@ func TestBehaviorJSONEquality(t *testing.T) {
 		if sameJSON([]byte(tt.a), []byte(tt.b)) != tt.equal {
 			t.Fatalf("%s / %s", tt.a, tt.b)
 		}
-	}
-}
-func TestBehaviorDeletionGuard(t *testing.T) {
-	var resp framework.DeleteResponse
-	(&behaviorResource{}).Delete(context.Background(), framework.DeleteRequest{}, &resp)
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("deletion must require explicit state removal")
 	}
 }
 func TestAccBehaviorInstance(t *testing.T) {
@@ -120,11 +112,86 @@ func TestAccBehaviorValidation(t *testing.T) {
 	resource.Test(t, resource.TestCase{ProtoV6ProviderFactories: factories(b), Steps: []resource.TestStep{
 		{Config: config(`[]`), ExpectError: regexp.MustCompile("must be a JSON object")},
 		{Config: config(`null`), ExpectError: regexp.MustCompile("must be a JSON object")},
-		{Config: config(`{}`), ExpectError: regexp.MustCompile("Import required")},
+		{Config: config(`{}`), ExpectError: regexp.MustCompile("Script ID required for creation")},
 	}})
 	for _, r := range b.Requests() {
 		if r.Method != "GET" {
 			t.Fatal("invalid config wrote to bridge")
+		}
+	}
+}
+
+func TestAccBehaviorCreate(t *testing.T) {
+	b := fakebridge.New()
+	defer b.Close()
+	addr := "hue_behavior_instance.test"
+	config := func(script, name string) string {
+		return accProvider + fmt.Sprintf(`
+resource "hue_behavior_instance" "test" {
+ name = %q
+ enabled = true
+ script_id = %q
+ configuration = jsonencode({ device = { rid = %q, rtype = "device" }, buttons = {} })
+}`, name, script, fakebridge.DeviceID)
+	}
+	var firstID string
+	resource.Test(t, resource.TestCase{ProtoV6ProviderFactories: factories(b), CheckDestroy: func(_ *terraform.State) error {
+		if b.Count("behavior_instance") != 0 {
+			return fmt.Errorf("behavior remains")
+		}
+		return nil
+	}, Steps: []resource.TestStep{
+		{Config: config(behaviorScriptID, "Switch"), Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr(addr, "script_id", behaviorScriptID), resource.TestCheckResourceAttr(addr, "status", "running"), func(s *terraform.State) error { firstID = s.RootModule().Resources[addr].Primary.ID; return nil })},
+		{Config: config(behaviorScriptID, "Switch"), PlanOnly: true},
+		{ResourceName: addr, ImportState: true, ImportStateVerify: true},
+		{Config: config(behaviorScriptID, "Renamed")},
+		{Config: config("66666666-6666-4666-8666-666666666666", "Renamed"), Check: func(s *terraform.State) error {
+			if s.RootModule().Resources[addr].Primary.ID == firstID {
+				return fmt.Errorf("script change did not replace behavior")
+			}
+			return nil
+		}},
+		{Config: config("66666666-6666-4666-8666-666666666666", "Renamed"), PlanOnly: true},
+	}})
+	creates, deletes := 0, 0
+	for _, r := range b.Requests() {
+		if r.Method == "POST" {
+			creates++
+			var body map[string]json.RawMessage
+			_ = json.Unmarshal(r.Body, &body)
+			if len(body) != 5 || body["script_id"] == nil || body["type"] == nil {
+				t.Fatalf("invalid creation payload %s", r.Body)
+			}
+		}
+		if r.Method == "DELETE" {
+			deletes++
+		}
+		if r.Method == "PUT" {
+			var body map[string]json.RawMessage
+			_ = json.Unmarshal(r.Body, &body)
+			if body["script_id"] != nil {
+				t.Fatal("updated immutable script")
+			}
+		}
+	}
+	if creates != 2 || deletes != 2 {
+		t.Fatalf("creates=%d deletes=%d", creates, deletes)
+	}
+}
+func TestAccBehaviorDuplicate(t *testing.T) {
+	b := fakebridge.New()
+	defer b.Close()
+	b.Put("behavior_instance", behaviorTestID, hue.BehaviorInstance{ID: behaviorTestID, Type: "behavior_instance", ScriptID: behaviorScriptID, Configuration: json.RawMessage(`{"device":{"rid":"22222222-2222-4222-8222-222222222222","rtype":"device"}}`)})
+	resource.Test(t, resource.TestCase{ProtoV6ProviderFactories: factories(b), Steps: []resource.TestStep{{Config: accProvider + fmt.Sprintf(`
+resource "hue_behavior_instance" "test" {
+ name = "Duplicate"
+ enabled = true
+ script_id = %q
+ configuration = jsonencode({device = {rid = %q, rtype = "device"}})
+}`, behaviorScriptID, fakebridge.DeviceID), ExpectError: regexp.MustCompile("already has behavior")}}})
+	for _, r := range b.Requests() {
+		if r.Method != "GET" {
+			t.Fatal("wrote duplicate assignment")
 		}
 	}
 }

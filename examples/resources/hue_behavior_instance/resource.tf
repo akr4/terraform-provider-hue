@@ -1,9 +1,11 @@
-# Import a behavior instance created by the Hue app before applying.
+# Use the script UUID and device/button UUIDs from your bridge.
+# Import first when adopting an existing assignment.
 # Configuration varies by script/model. Start with hue-tf pull --new output;
 # this example illustrates one button on a generic switch script.
 resource "hue_behavior_instance" "switch" {
-  name    = "Study switch"
-  enabled = true
+  name      = "Study switch"
+  enabled   = true
+  script_id = "55555555-5555-4555-8555-555555555555"
   configuration = jsonencode({
     device   = { rid = "22222222-2222-4222-8222-222222222222", rtype = "device" }
     model_id = "RWL022"

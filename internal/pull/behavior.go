@@ -43,6 +43,7 @@ func NewBehavior(raw json.RawMessage, name string) ([]byte, error) {
 	body := f.Body().AppendNewBlock("resource", []string{"hue_behavior_instance", name}).Body()
 	body.SetAttributeValue("name", cty.StringVal(b.Metadata.Name))
 	body.SetAttributeValue("enabled", cty.BoolVal(b.Enabled))
+	body.SetAttributeValue("script_id", cty.StringVal(b.ScriptID))
 	body.SetAttributeRaw("configuration", hclwrite.TokensForFunctionCall("jsonencode", hclwrite.TokensForValue(v)))
 	return f.Bytes(), nil
 }

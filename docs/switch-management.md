@@ -1,7 +1,7 @@
 # スイッチの設定管理
 
-`hue_behavior_instance` は Hue アプリで作成した既存のボタン・ダイヤル割り当てを管理するリソースです。
-機器のペアリングはアプリで行います。behavior の新規作成・実機からの削除は対応していません。
+`hue_behavior_instance` はボタン・ダイヤル割り当ての作成・import・更新・削除に対応します。
+機器のペアリングはアプリで行います。ペアリング済みの機器なら、割り当ては `.tf` から作成できます。
 
 ## 対象を特定して取り込む
 
@@ -32,14 +32,34 @@ terraform plan -target=module.bedroom.hue_behavior_instance.switch
 
 生成した定義を確認してから import し、`No changes` を確認します。
 CLI の `pull --write` はファイルだけを変更し、state や Bridge は変更しません。
-新規作成・削除や実際のボタン動作を復旧する必要がある場合は、まずアプリで設定を用意します。
+新規割り当ての場合は import せず、下記の作成手順を使用します。
+
+## 未設定のスイッチに割り当てを作る
+
+1. `hue-tf ls switch` で対象の device UUID と既存割り当ての有無を確認します。
+2. `hue-tf ls button --json` の owner.rid と metadata.control_id で、その機器の各ボタン UUID を確認します。
+3. `hue-tf ls behavior_script --json` で機種に対応する script UUID を確認します。
+4. `hue_behavior_instance` に name、enabled、script_id、configuration を定義します。
+
+configuration は同型の機器の設定やスクリプト仕様を参考にし、device と各 button は対象機器の UUID を使用します。
+room / scene は Terraform の resource.id を参照できます。動作は暗黙に補完されないので、必要なボタンをすべて定義します。
+script_id は新規作成時に必須です。import 済みの設定では省略でき、設定した script_id の変更は置換になります。
+重要な割り当てには `lifecycle { prevent_destroy = true }` を付け、意図しない削除や置換を防げます。
+
+plan が想定する割り当ての作成だけを示すことを確認し、ユーザー自身で apply します。
+同じ device を参照する behavior が見つかると、新規作成を中止して既存 UUID の import を案内します。
+これは作成直前の確認であり、他のクライアントとの同時作成を原子的に防ぐものではありません。
+
+API は新規作成用の dry-run を提供しないため、plan は API の受理や実際のボタン動作を検証しません。
+apply 後に `ls switch` の状態と実際のボタン操作を確認してください。
 
 ## 編集する
 
-生成される属性は `name`、`enabled`、`configuration = jsonencode({...})` です。
+生成される属性は `name`、`enabled`、`script_id`、`configuration = jsonencode({...})` です。
 configuration はスクリプト固有の構造をすべて保持します。時間帯、長押し、巡回、ダイヤル、未知の追加項目も
-一部だけを抽出せず出力します。`script_id`、`status`、`last_error` は読み取り専用です。
-Bridge に送信するのは metadata.name、enabled、configuration のみで、実行中の state や dependees は送信しません。
+一部だけを抽出せず出力します。`status`、`last_error` は読み取り専用です。
+作成時に type・script_id・metadata.name・enabled・configuration を送信し、更新時は metadata.name・enabled・configuration のみを送信します。
+実行中の state や dependees は送信しません。
 `name` は behavior の名前であり、機器自体の名前ではありません。
 
 シーン参照を変更する例（configuration 内の該当する recall オブジェクト）:
@@ -74,7 +94,8 @@ configuration 内に resource.id などの式がある場合も、参照を UUID
 
 ## 管理をやめる
 
-削除 apply はエラーになります。アプリの割り当てを残して管理だけを外すには、resource ブロックを次に置き換えます
+resource ブロックを削除して apply すると、実機の割り当ても削除されます。機器自体はペアリング済みのまま残ります。
+割り当てを残して管理だけを外すには、resource ブロックを次に置き換えます
 （`removed` は Terraform 1.7 以降）。部屋 module の中なら from は module 内の相対アドレスです。
 
 ```hcl
@@ -86,12 +107,14 @@ removed {
 }
 ```
 
-ユーザーが plan / apply で state から外した後、必要ならアプリで割り当てを削除します。
+無効化だけでよければ `enabled = false` を使用します。
 
 ## API 参照
 
 - [OpenHue BehaviorInstancePut schema](https://github.com/openhue/openhue-api/blob/main/src/behavior_instance/schemas/BehaviorInstancePut.yaml)
 - [OpenHue BehaviorInstanceGet schema](https://github.com/openhue/openhue-api/blob/main/src/behavior_instance/schemas/BehaviorInstanceGet.yaml)
 
-公開スキーマの取得・更新項目と、Bridge が返す既存設定に合わせた実装です。
+- [node-hue API reference (create/deleteBehaviorInstance)](https://github.com/rodney42/node-hue#api-reference)
+
+公開 API クライアントの作成・削除メソッド、公開スキーマの取得・更新項目、Bridge が返す既存設定に合わせた実装です。
 script-specific configuration の完全なスキーマ検証は Bridge が行います。
