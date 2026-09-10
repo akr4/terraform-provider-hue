@@ -315,3 +315,19 @@ action object:
 - scene の `palette` の書き込み対応（v1）
 - rate limit の固定値の最終調整（実機での測定後）
 - light の設定（name / powerup）を管理する `resource "hue_light"` の要否（v1）
+
+## 16. アプリから Terraform への取り込み
+
+`hue-tf pull` は実機からローカルの HCL 定義に変更候補を取り込む。Bridge や state へは書き込まない。
+
+- `pull hue_room.NAME` / `pull hue_zone.NAME`: name、archetype、children のリテラルを更新する。
+  children は所属集合として比較する。
+- `pull hue_scene.NAME`: on、brightness、mirek/kelvin、color_xy と色温度↔カラーの切り替えを取り込む。
+- `pull --new`: state に未登録の room・zone・scene を列挙する。
+- `pull --new UUID hue_TYPE.NAME`: 新規定義と `terraform import` コマンドを提示する。
+- デフォルトはプレビュー。`--write` 指定時のみ `.tf` を更新・生成する。既存ファイルの更新はバックアップを作成する。
+- 既存リソースは state の UUID で対応付ける。実機・state・HCL の値を比較し、ローカル編集との競合は自動解決しない。
+- root module の直接定義を対象にする。変数・計算式、module 内リソース、count/for_each の編集には対応しない。
+- 新規定義の生成と state への登録は別操作。ユーザーが import した後に plan で差分を確認する。
+
+詳細な対応範囲、コメント保持の制約、state の同期手順は [アプリからの取り込み手順](app-to-terraform.md) を参照する。

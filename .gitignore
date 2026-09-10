@@ -1,0 +1,12 @@
+/bin/
+/dist/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+.env
+.tfplugindocs.*/
+/.local/
+
+# Local pull backups and temporary files
+.hue-pull-*
