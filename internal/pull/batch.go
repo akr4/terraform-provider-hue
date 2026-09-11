@@ -260,6 +260,13 @@ func equalValue(a, b cty.Value, field string) bool {
 	if absent(a) || absent(b) {
 		return absent(a) && absent(b)
 	}
+	if a.Type() == cty.String && b.Type() == cty.String && (field == "configuration" || strings.HasSuffix(field, ".gradient") || strings.HasSuffix(field, ".effects")) {
+		av, ae := configurationValue([]byte(a.AsString()))
+		bv, be := configurationValue([]byte(b.AsString()))
+		if ae == nil && be == nil {
+			return av.RawEquals(bv)
+		}
+	}
 	// Terraform uses sets for children and pads optional object fields with nulls.
 	if field == "children" {
 		a = sortStrings(a)
@@ -362,7 +369,7 @@ func (c *Change) mergeExpr(expr hclsyntax.Expression, old, remote cty.Value, ctx
 					return fmt.Errorf("conflict at %s: removed locally and changed on bridge", path)
 				}
 				at := obj.Range().End.Byte - 1
-				c.Edits = append(c.Edits, Edit{Start: at, End: at, After: "\n" + string(hclwrite.TokensForValue(cty.StringVal(k)).Bytes()) + " = " + string(hclwrite.TokensForValue(rv).Bytes()) + "\n", Field: path})
+				c.Edits = append(c.Edits, Edit{Start: at, End: at, After: "\n" + string(hclwrite.TokensForValue(cty.StringVal(k)).Bytes()) + " = " + string(syncValueTokens(rv, path).Bytes()) + "\n", Field: path})
 				continue
 			}
 			if absent(rv) {
@@ -837,4 +844,14 @@ func (c *Change) mergeTuple(seq *hclsyntax.TupleConsExpr, old, remote cty.Value,
 		c.Edits = append(c.Edits, Edit{Start: at, End: at, After: text.String(), Field: field})
 	}
 	return nil
+}
+
+func syncValueTokens(v cty.Value, field string) hclwrite.Tokens {
+	if v.Type() == cty.String && (strings.HasSuffix(field, ".gradient") || strings.HasSuffix(field, ".effects")) {
+		obj, err := configurationValue([]byte(v.AsString()))
+		if err == nil {
+			return hclwrite.TokensForFunctionCall("jsonencode", hclwrite.TokensForValue(obj))
+		}
+	}
+	return hclwrite.TokensForValue(v)
 }

@@ -66,7 +66,9 @@ hue-tf pull --module downstairs.washroom
 
 name、archetype、children、scene の group・speed・auto_dynamic・image_id・actions、behavior の name・enabled・script_id・configuration が対象です。
 scene の palette など、読み取り専用属性は `.tf` に生成しません。
-scene actions に gradient/effects など provider が扱えない項目がある場合は停止します。
+scene actions の `gradient` と `effects` は `jsonencode({...})` の JSON オブジェクトとして保持します。
+これらを定義から省略した場合、provider は実機から読んだ設定を維持します。JSON 内の項目単位の pull にも対応します。
+`dynamics` など、その他の未対応の action 項目がある場合は停止します。
 `color_hex` は xy から元の値を損失なく復元できないため、`color_xy` を使用してください。
 
 既存の resource 名、module、参照式、コメントを保持し、変更されたリテラルだけを編集します。
@@ -112,6 +114,7 @@ pull 実行中はアプリでの編集や別プロセスでの apply を避け�
 `import` ブロックと `terraform plan -generate-config-out=...` は初回取り込み用の定義を生成できますが、既存 `.tf` の継続的な逆同期ではありません。
 この CLI は Bridge 内の対象発見、既存 `.tf` の更新と削除、衝突検出を担い、state 操作は Terraform に任せます。
 
+- [Hue scene action の gradient/effects スキーマ](https://github.com/openhue/openhue-api/blob/main/src/scene/schemas/ActionPost.yaml)
 - [Terraform import コマンド](https://developer.hashicorp.com/terraform/cli/import)
 - [import ブロックからの設定生成](https://developer.hashicorp.com/terraform/language/import/generating-configuration)
 

@@ -68,7 +68,7 @@ func NewScene(raw json.RawMessage, name string, groups map[string]string) ([]byt
 	for _, a := range details.Actions {
 		for key := range a.Action {
 			switch key {
-			case "on", "dimming", "color", "color_temperature":
+			case "on", "dimming", "color", "color_temperature", "gradient", "effects":
 			default:
 				return nil, fmt.Errorf("scene contains unsupported action field %s; definition was not generated", key)
 			}
@@ -101,6 +101,16 @@ func NewScene(raw json.RawMessage, name string, groups map[string]string) ([]byt
 			return nil, fmt.Errorf("duplicate action target")
 		}
 		fields := map[string]cty.Value{}
+		for key, raw := range map[string]json.RawMessage{"gradient": a.Action.Gradient, "effects": a.Action.Effects} {
+			if len(raw) == 0 || string(raw) == "null" {
+				continue
+			}
+			if _, err := configurationValue(raw); err != nil {
+				return nil, fmt.Errorf("invalid %s action: %w", key, err)
+			}
+			fields[key] = cty.StringVal(string(raw))
+		}
+
 		if a.Action.On != nil {
 			fields["on"] = cty.BoolVal(a.Action.On.On)
 		}
@@ -116,7 +126,7 @@ func NewScene(raw json.RawMessage, name string, groups map[string]string) ([]byt
 		actions[a.Target.RID] = cty.ObjectVal(fields)
 	}
 	b.SetAttributeValue("actions", cty.ObjectVal(actions))
-	return f.Bytes(), nil
+	return sceneJSONExpressions(f.Bytes())
 }
 
 // NewResourcePath refuses existing declarations and files, including overrides.
@@ -195,4 +205,41 @@ func moduleScope(scope []string) string {
 		return scope[0]
 	}
 	return ""
+}
+
+func sceneJSONExpressions(src []byte) ([]byte, error) {
+	f, d := hclsyntax.ParseConfig(src, "generated.tf", hcl.InitialPos)
+	if d.HasErrors() {
+		return nil, fmt.Errorf("invalid generated scene")
+	}
+	c := &Change{Original: src}
+	b := f.Body.(*hclsyntax.Body).Blocks[0]
+	actions, err := object(b.Body.Attributes["actions"].Expr)
+	if err != nil {
+		return nil, err
+	}
+	for _, action := range actions {
+		fields, err := object(action)
+		if err != nil {
+			return nil, err
+		}
+		for _, key := range []string{"gradient", "effects"} {
+			e := fields[key]
+			if e == nil {
+				continue
+			}
+			v, d := e.Value(nil)
+			if d.HasErrors() {
+				return nil, fmt.Errorf("invalid JSON action")
+			}
+			obj, err := configurationValue([]byte(v.AsString()))
+			if err != nil {
+				return nil, err
+			}
+			r := e.Range()
+			c.Edits = append(c.Edits, Edit{Start: r.Start.Byte, End: r.End.Byte, After: string(hclwrite.TokensForFunctionCall("jsonencode", hclwrite.TokensForValue(obj)).Bytes())})
+		}
+	}
+	c.finish()
+	return hclwrite.Format(c.Updated), nil
 }

@@ -33,6 +33,8 @@ type sceneModel struct {
 	Palette     types.String  `tfsdk:"palette"`
 }
 type actionModel struct {
+	Gradient   types.String  `tfsdk:"gradient"`
+	Effects    types.String  `tfsdk:"effects"`
 	On         types.Bool    `tfsdk:"on"`
 	Brightness types.Float64 `tfsdk:"brightness"`
 	Mirek      types.Int64   `tfsdk:"mirek"`
@@ -42,7 +44,7 @@ type actionModel struct {
 }
 
 var xyTypes = map[string]attr.Type{"x": types.Float64Type, "y": types.Float64Type}
-var actionTypes = map[string]attr.Type{"on": types.BoolType, "brightness": types.Float64Type, "mirek": types.Int64Type, "kelvin": types.Int64Type, "color_xy": types.ObjectType{AttrTypes: xyTypes}, "color_hex": types.StringType}
+var actionTypes = map[string]attr.Type{"gradient": types.StringType, "effects": types.StringType, "on": types.BoolType, "brightness": types.Float64Type, "mirek": types.Int64Type, "kelvin": types.Int64Type, "color_xy": types.ObjectType{AttrTypes: xyTypes}, "color_hex": types.StringType}
 var actionType = types.ObjectType{AttrTypes: actionTypes}
 
 func known(v attr.Value) bool { return !v.IsNull() && !v.IsUnknown() }
@@ -58,7 +60,7 @@ func readXY(v types.Object) (hue.XY, bool) {
 	return hue.XY{X: x.ValueFloat64(), Y: y.ValueFloat64()}, xok && yok && known(x) && known(y)
 }
 func emptyAction() actionModel {
-	return actionModel{On: types.BoolNull(), Brightness: types.Float64Null(), Mirek: types.Int64Null(), Kelvin: types.Int64Null(), XY: types.ObjectNull(xyTypes), Hex: types.StringNull()}
+	return actionModel{Gradient: types.StringNull(), Effects: types.StringNull(), On: types.BoolNull(), Brightness: types.Float64Null(), Mirek: types.Int64Null(), Kelvin: types.Int64Null(), XY: types.ObjectNull(xyTypes), Hex: types.StringNull()}
 }
 func actionsFrom(ctx context.Context, m types.Map) (map[string]actionModel, diag.Diagnostics) {
 	result := map[string]actionModel{}
@@ -81,6 +83,8 @@ func (r *sceneResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 		"image_id":     schema.StringAttribute{Optional: true, Computed: true, Description: "Image resource UUID. Preserved on import."},
 		"palette":      schema.StringAttribute{Computed: true, Description: "Read-only palette as canonical JSON. Never sent in create or update requests."},
 		"actions": schema.MapNestedAttribute{Required: true, Description: "Actions keyed by light UUID.", NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
+			"gradient":   schema.StringAttribute{Optional: true, Computed: true, Description: "Gradient action as a JSON object; use jsonencode. Preserved from the bridge when omitted."},
+			"effects":    schema.StringAttribute{Optional: true, Computed: true, Description: "Effect action as a JSON object; use jsonencode. Preserved from the bridge when omitted."},
 			"on":         schema.BoolAttribute{Optional: true, Description: "On/off state."},
 			"brightness": schema.Float64Attribute{Optional: true, Description: "Brightness from 0 to 100."},
 			"mirek":      schema.Int64Attribute{Optional: true, Computed: true, Description: "Color temperature, 153–500. Conflicts with kelvin; may omit both."},
@@ -145,6 +149,13 @@ func (r *sceneResource) ValidateConfig(ctx context.Context, req resource.Validat
 }
 func validateAction(a actionModel) []string {
 	var errs []string
+	for key, value := range map[string]types.String{"gradient": a.Gradient, "effects": a.Effects} {
+		if known(value) {
+			if err := hue.ValidateConfiguration([]byte(value.ValueString())); err != nil {
+				errs = append(errs, key+" must be a JSON object.")
+			}
+		}
+	}
 	if !a.Mirek.IsNull() && !a.Kelvin.IsNull() {
 		errs = append(errs, "mirek and kelvin cannot both be configured.")
 	}
@@ -213,6 +224,20 @@ func (r *sceneResource) body(ctx context.Context, m sceneModel, config sceneMode
 			return scene, fmt.Errorf("missing configured action %s", id)
 		}
 		action := hue.Action{}
+		for field, value := range map[string]types.String{"gradient": a.Gradient, "effects": a.Effects} {
+			if !known(value) {
+				continue
+			}
+			raw := json.RawMessage(value.ValueString())
+			if err := hue.ValidateConfiguration(raw); err != nil {
+				return scene, fmt.Errorf("invalid %s action: %w", field, err)
+			}
+			if field == "gradient" {
+				action.Gradient = raw
+			} else {
+				action.Effects = raw
+			}
+		}
 		if known(a.On) {
 			action.On = &hue.On{On: a.On.ValueBool()}
 		}
@@ -244,6 +269,8 @@ func (r *sceneResource) body(ctx context.Context, m sceneModel, config sceneMode
 // is equivalent in xy/mirek space, including clipping to hardware capabilities.
 func reconcileAction(prior actionModel, actual hue.Action, light hue.Light) actionModel {
 	next := emptyAction()
+	next.Gradient = sceneJSONValue(prior.Gradient, actual.Gradient)
+	next.Effects = sceneJSONValue(prior.Effects, actual.Effects)
 	if actual.On != nil {
 		next.On = types.BoolValue(actual.On.On)
 	}
@@ -525,6 +552,12 @@ func (r *sceneResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 	resp.Diagnostics.Append(resp.Plan.Set(ctx, &planned)...)
 }
 func planAction(config, planned, prior actionModel) actionModel {
+	if config.Gradient.IsNull() {
+		planned.Gradient = prior.Gradient
+	}
+	if config.Effects.IsNull() {
+		planned.Effects = prior.Effects
+	}
 	if config.Hex.IsNull() && config.XY.IsNull() {
 		planned.Hex = types.StringNull()
 		planned.XY = types.ObjectNull(xyTypes)
@@ -554,4 +587,15 @@ func planAction(config, planned, prior actionModel) actionModel {
 		}
 	}
 	return planned
+}
+
+// Keep equivalent user JSON (including jsonencode formatting) stable in state.
+func sceneJSONValue(prior types.String, raw json.RawMessage) types.String {
+	if len(raw) == 0 || string(raw) == "null" {
+		return types.StringNull()
+	}
+	if known(prior) && sameJSON([]byte(prior.ValueString()), raw) {
+		return prior
+	}
+	return types.StringValue(string(raw))
 }

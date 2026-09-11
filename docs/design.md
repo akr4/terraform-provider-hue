@@ -326,6 +326,7 @@ action object:
 - 新規は root に生成する。`--module NAME[.NAME...]` は新規の配置先と既存リソースの対象範囲を指定する。
   Hue の部屋による絞り込みではなく、既存リソースの配置は state に従う。
 - 初回は一括で取り込み、その後 `moved` ブロックを使って通常の Terraform 操作で module に整理できる。
+- scene actions の gradient・effects は JSON オブジェクトとして取り込み、provider でも保持・更新する。
 - state は Terraform 標準の import・state rm・refresh-only で更新する。独自の state JSON 書き換えは行わない。
 - 前回 pull の基準を別途保持し、Terraform refresh 後もローカル編集との衝突を検出する。
 - 変更されない参照式・コメントを保持し、衝突・参照切れ・未対応の式があれば全体を書き込み前に停止する。

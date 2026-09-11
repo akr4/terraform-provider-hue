@@ -69,10 +69,12 @@ type ActionColor struct {
 	XY XY `json:"xy"`
 }
 type Action struct {
-	On               *On          `json:"on,omitempty"`
-	Dimming          *Dimming     `json:"dimming,omitempty"`
-	Color            *ActionColor `json:"color,omitempty"`
-	ColorTemperature *Temperature `json:"color_temperature,omitempty"`
+	Gradient         json.RawMessage `json:"gradient,omitempty"`
+	Effects          json.RawMessage `json:"effects,omitempty"`
+	On               *On             `json:"on,omitempty"`
+	Dimming          *Dimming        `json:"dimming,omitempty"`
+	Color            *ActionColor    `json:"color,omitempty"`
+	ColorTemperature *Temperature    `json:"color_temperature,omitempty"`
 }
 type SceneAction struct {
 	Target Reference `json:"target"`
