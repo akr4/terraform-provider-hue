@@ -318,21 +318,21 @@ action object:
 
 ## 16. アプリから Terraform への取り込み
 
-`hue-tf pull` は実機からローカルの HCL 定義に変更候補を取り込む。Bridge や state へは書き込まない。
+`hue-tf pull` は実機を読み、Terraform 定義への追加・変更・削除をまとめてプレビューする。
+`--write` は `.tf` と state を更新し、Bridge には書き込まない。
 
-- `pull hue_room.NAME` / `pull hue_zone.NAME`: name、archetype、children のリテラルを更新する。
-  children は所属集合として比較する。
-- `pull hue_scene.NAME`: on、brightness、mirek/kelvin、color_xy と色温度↔カラーの切り替えを取り込む。
-- `pull --new`: state に未登録の room・zone・scene を列挙する。
-- `pull --new UUID [--module NAME[.NAME...]]`: 種類と名前を自動決定し、root または指定したローカル module に新規定義を生成する。`--write` なしではプレビューのみ。
-- `pull --new UUID hue_TYPE.NAME`: 新規定義と `terraform import` コマンドを提示する。
-- デフォルトはプレビュー。`--write` 指定時のみ `.tf` を更新・生成する。既存ファイルの更新はバックアップを作成する。
-- 既存リソースは state の UUID で対応付ける。実機・state・HCL の値を比較し、ローカル編集との競合は自動解決しない。
-- root とその配下の単独使用ローカル module の直接定義を対象にする。完全な module アドレスで対応付ける。
-  変数・計算式、共有/外部 source、count/for_each、provider alias の編集には対応しない。
-- 新規定義の生成と state への登録は別操作。ユーザーが import した後に plan で差分を確認する。
+- 新規・既存・削除は UUID と state から判定し、通常の操作に `--new` は不要。
+- 引数なしは対応する全リソース。UUID または完全なアドレスで1件を指定できる。
+- 新規は root に生成する。`--module NAME[.NAME...]` は新規の配置先と既存リソースの対象範囲を指定する。
+  Hue の部屋による絞り込みではなく、既存リソースの配置は state に従う。
+- 初回は一括で取り込み、その後 `moved` ブロックを使って通常の Terraform 操作で module に整理できる。
+- state は Terraform 標準の import・state rm・refresh-only で更新する。独自の state JSON 書き換えは行わない。
+- 前回 pull の基準を別途保持し、Terraform refresh 後もローカル編集との衝突を検出する。
+- 変更されない参照式・コメントを保持し、衝突・参照切れ・未対応の式があれば全体を書き込み前に停止する。
+- 書き込み前に復旧情報を保存する。state 操作前の失敗はファイルを戻し、state 操作中の中断は復旧情報を残して再実行を止める。
+- 互換用の `pull --new` は従来どおり定義生成のみとし、別途 import が必要。
 
-詳細な対応範囲、コメント保持の制約、state の同期手順は [アプリからの取り込み手順](app-to-terraform.md) を参照する。
+詳細な対応範囲、衝突判定、state の同期と復旧は [アプリからの取り込み手順](app-to-terraform.md) を参照する。
 
 ## 17. スイッチ割り当て
 
@@ -341,5 +341,5 @@ name・enabled・configuration と、新規作成時に必要な script_id を�
 configuration は jsonencode で表現する JSON オブジェクト全体とし、機種・script ごとの構造を保持する。
 script_id の変更は置換。実行状態は読み取り専用。割り当て削除は機器のペアリングを解除しない。
 同じ device を参照する割り当てがある場合、新規作成せず既存の import を案内する。
-CLI は ls switch による機器との対応表示、pull --new による定義生成、リテラル configuration の pull に対応する。
+CLI は ls switch による機器との対応表示、pull による新規取り込み・更新・削除、configuration 内のリテラル単位のマージ に対応する。
 運用手順・制約・API 参照は [スイッチ管理](switch-management.md) を参照。

@@ -17,6 +17,7 @@ func TestPullCLI(t *testing.T) {
 	t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
 	const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 	const original = `resource "hue_scene" "night" {
+ name = "Night"
  group = hue_room.bedroom.id
  actions = {
   "light" = { brightness = 20, on = true, mirek = 346, color_xy = { x = 0.3, y = 0.4 } } # keep
@@ -28,8 +29,8 @@ func TestPullCLI(t *testing.T) {
 	}
 	b := fakebridge.New()
 	defer b.Close()
-	b.Put("scene", id, hue.Scene{ID: id, Group: hue.Reference{RID: "group"}, Actions: []hue.SceneAction{{Target: hue.Reference{RID: "light", RType: "light"}, Action: hue.Action{On: &hue.On{On: false}, ColorTemperature: &hue.Temperature{Mirek: 400}, Color: &hue.ActionColor{XY: hue.XY{X: 0.5, Y: 0.2}}, Dimming: &hue.Dimming{Brightness: 10}}}}})
-	deps := dependencies{newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) {
+	b.Put("scene", id, hue.Scene{ID: id, Metadata: hue.Metadata{Name: "Night"}, Group: hue.Reference{RID: "group", RType: "room"}, Actions: []hue.SceneAction{{Target: hue.Reference{RID: "light", RType: "light"}, Action: hue.Action{On: &hue.On{On: false}, ColorTemperature: &hue.Temperature{Mirek: 400}, Color: &hue.ActionColor{XY: hue.XY{X: 0.5, Y: 0.2}}, Dimming: &hue.Dimming{Brightness: 10}}}}})
+	deps := dependencies{terraform: mockPullTerraform, newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) {
 		return []byte(`{"resources":[{"mode":"managed","type":"hue_scene","name":"night","provider":"provider[\"registry.terraform.io/akr4/hue\"]","instances":[{"attributes":{"id":"` + id + `","group":"group","actions":{"light":{"brightness":20,"on":true,"mirek":346,"color_xy":{"x":0.3,"y":0.4}}}}}]}]}`), nil
 	}}
 	for _, write := range []bool{false, true} {
@@ -39,7 +40,7 @@ func TestPullCLI(t *testing.T) {
 		}
 		var out bytes.Buffer
 		if err := runWith(context.Background(), args, &out, &bytes.Buffer{}, deps); err != nil {
-			t.Fatal(err)
+			t.Fatal(err, out.String())
 		}
 		if !strings.Contains(out.String(), "20 -> 10") {
 			t.Fatal(out.String())
@@ -75,7 +76,7 @@ func TestPullNewCLI(t *testing.T) {
 	defer b.Close()
 	const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 	b.Put("scene", id, hue.Scene{ID: id, Metadata: hue.Metadata{Name: "New scene"}, Group: hue.Reference{RID: "group", RType: "room"}, Actions: []hue.SceneAction{}})
-	deps := dependencies{newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) { return []byte(`{"resources":[]}`), nil }}
+	deps := dependencies{terraform: mockPullTerraform, newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) { return []byte(`{"resources":[]}`), nil }}
 	for _, write := range []bool{false, true} {
 		args := []string{"pull", "--new", id, "hue_scene.new_scene"}
 		if write {
@@ -83,7 +84,7 @@ func TestPullNewCLI(t *testing.T) {
 		}
 		var out bytes.Buffer
 		if err := runWith(context.Background(), args, &out, &bytes.Buffer{}, deps); err != nil {
-			t.Fatal(err)
+			t.Fatal(err, out.String())
 		}
 		if !strings.Contains(out.String(), "terraform import 'hue_scene.new_scene'") {
 			t.Fatal(out.String())
@@ -108,7 +109,7 @@ func TestPullNewListing(t *testing.T) {
 	const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 	b.Put("scene", id, hue.Scene{ID: id, Metadata: hue.Metadata{Name: "New candidate"}, Group: hue.Reference{RID: "group", RType: "room"}})
 	imported := false
-	deps := dependencies{newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) {
+	deps := dependencies{terraform: mockPullTerraform, newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) {
 		if imported {
 			return []byte(`{"resources":[{"mode":"managed","module":"module.lights","type":"hue_scene","name":"test","instances":[{"index_key":"new","attributes":{"id":"` + id + `"}}]}]}`), nil
 		}
@@ -153,7 +154,7 @@ func TestPullGroupCLI(t *testing.T) {
 			b := fakebridge.New()
 			defer b.Close()
 			b.Put(kind, id, hue.Group{ID: id, Type: kind, Metadata: hue.Metadata{Name: "New", Archetype: "other"}})
-			deps := dependencies{newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) {
+			deps := dependencies{terraform: mockPullTerraform, newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) {
 				return []byte(`{"resources":[{"mode":"managed","type":"hue_` + kind + `","name":"test","provider":"provider[\"registry.terraform.io/akr4/hue\"]","instances":[{"attributes":{"id":"` + id + `","name":"Old","archetype":"other","children":[]}}]}]}`), nil
 			}}
 			for _, write := range []bool{false, true} {
@@ -178,7 +179,7 @@ func TestPullGroupCLI(t *testing.T) {
 				}
 			}
 			for _, r := range b.Requests() {
-				if r.Method != "GET" || r.Path != "/clip/v2/resource/"+kind+"/"+id {
+				if r.Method != "GET" {
 					t.Fatal(r)
 				}
 			}
@@ -195,7 +196,7 @@ func TestPullNewGroupCLI(t *testing.T) {
 			defer b.Close()
 			const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 			b.Put(kind, id, hue.Group{ID: id, Type: kind, Metadata: hue.Metadata{Name: "New group candidate", Archetype: "other"}})
-			deps := dependencies{newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) { return []byte(`{"resources":[]}`), nil }}
+			deps := dependencies{terraform: mockPullTerraform, newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) { return []byte(`{"resources":[]}`), nil }}
 			var list bytes.Buffer
 			if err := runWith(context.Background(), []string{"pull", "--new"}, &list, &bytes.Buffer{}, deps); err != nil {
 				t.Fatal(err)
@@ -238,6 +239,7 @@ func TestPullColorModeCLI(t *testing.T) {
 	t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
 	const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 	const src = `resource "hue_scene" "night" {
+ name = "Night"
  group = hue_room.bedroom.id
  actions = {
   "light" = { mirek = 346 } # saved color
@@ -249,8 +251,8 @@ func TestPullColorModeCLI(t *testing.T) {
 	}
 	b := fakebridge.New()
 	defer b.Close()
-	b.Put("scene", id, json.RawMessage(`{"id":"`+id+`","group":{"rid":"group","rtype":"room"},"actions":[{"target":{"rid":"light","rtype":"light"},"action":{"color_temperature":{"mirek":null},"color":{"xy":{"x":0.3,"y":0.4}}}}]}`))
-	deps := dependencies{newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) {
+	b.Put("scene", id, json.RawMessage(`{"id":"`+id+`","metadata":{"name":"Night"},"group":{"rid":"group","rtype":"room"},"actions":[{"target":{"rid":"light","rtype":"light"},"action":{"color_temperature":{"mirek":null},"color":{"xy":{"x":0.3,"y":0.4}}}}]}`))
+	deps := dependencies{terraform: mockPullTerraform, newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) {
 		return []byte(`{"resources":[{"mode":"managed","type":"hue_scene","name":"night","provider":"provider[\"registry.terraform.io/akr4/hue\"]","instances":[{"attributes":{"id":"` + id + `","group":"group","actions":{"light":{"mirek":346,"kelvin":2890}}}}]}]}`), nil
 	}}
 	for _, write := range []bool{false, true} {
@@ -277,7 +279,7 @@ func TestPullColorModeCLI(t *testing.T) {
 	if err := runWith(context.Background(), []string{"pull", "hue_scene.night"}, &out, &bytes.Buffer{}, deps); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "No supported resource changes.") {
+	if !strings.Contains(out.String(), "Pull: 0 new, 0 changed files, 0 deleted, 0 blocked.") {
 		t.Fatal(out.String())
 	}
 	for _, r := range b.Requests() {
@@ -309,7 +311,7 @@ func TestPullModuleCLI(t *testing.T) {
 	defer b.Close()
 	b.Put("room", id, hue.Group{ID: id, Type: "room", Metadata: hue.Metadata{Name: "New", Archetype: "bedroom"}})
 	b.Put("scene", sid, hue.Scene{ID: sid, Metadata: hue.Metadata{Name: "New scene"}, Group: hue.Reference{RID: id, RType: "room"}, Actions: []hue.SceneAction{}})
-	deps := dependencies{newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) {
+	deps := dependencies{terraform: mockPullTerraform, newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) {
 		return []byte(`{"resources":[{"mode":"managed","module":"module.bedroom","type":"hue_room","name":"bedroom","provider":"provider[\"registry.terraform.io/akr4/hue\"]","instances":[{"attributes":{"id":"` + id + `","name":"Old","archetype":"bedroom","children":[]}}]}]}`), nil
 	}}
 	if err := runWith(context.Background(), []string{"pull", "module.bedroom.hue_room.bedroom", "--write"}, &bytes.Buffer{}, &bytes.Buffer{}, deps); err != nil {

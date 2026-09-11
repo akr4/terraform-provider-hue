@@ -24,18 +24,14 @@ hue-tf ls behavior_script
 取り込むのは **behavior UUID** です。device / button / script UUID とは異なります。
 
 ```sh
-# 名前を自動生成して bedroom module に配置
-hue-tf pull --new BEHAVIOR_UUID --module bedroom
-# リソース名を指定する場合
-hue-tf pull --new BEHAVIOR_UUID module.bedroom.hue_behavior_instance.switch
-hue-tf pull --new BEHAVIOR_UUID module.bedroom.hue_behavior_instance.switch --write
-terraform import module.bedroom.hue_behavior_instance.switch BEHAVIOR_UUID
-terraform plan -target=module.bedroom.hue_behavior_instance.switch
+# 新規・既存を自動判定し、定義と state を取り込む
+hue-tf pull BEHAVIOR_UUID --module bedroom
+hue-tf pull BEHAVIOR_UUID --module bedroom --write
 ```
 
-生成した定義を確認してから import し、`No changes` を確認します。
-CLI の `pull --write` はファイルだけを変更し、state や Bridge は変更しません。
-新規割り当ての場合は import せず、下記の作成手順を使用します。
+新規の場合、behavior の名前から Terraform のリソース名を生成します。
+既存の場合は state のアドレスを維持します。通常の `pull --write` では追加の import は不要です。
+Bridge に割り当て自体が存在しない場合は、下記の作成手順を使用します。
 
 ## 未設定のスイッチに割り当てを作る
 
@@ -89,11 +85,10 @@ hue-tf pull module.bedroom.hue_behavior_instance.switch
 hue-tf pull module.bedroom.hue_behavior_instance.switch --write
 ```
 
-name、enabled、リテラルオブジェクトの jsonencode configuration が対象です。
-state と異なるローカル編集があれば上書きせず停止します。
-configuration 内に resource.id などの式がある場合も、参照を UUID に置き換えないよう停止します。
-変更が必要な configuration 内にコメントがある場合は停止するため、手動で差分を反映してください。
-名前や属性末尾など、置換範囲外のコメントは保持します。
+name、enabled、script_id、jsonencode configuration が対象です。
+変更されたリテラルを項目ごとに取り込み、変更されていない resource.id 参照やコメントを保持します。
+両側で同じ項目を異なる値へ変更した場合や、式・コメントを失わず更新できない場合は停止します。
+詳細は [取り込み手順](app-to-terraform.md) を参照してください。
 
 ## 管理をやめる
 

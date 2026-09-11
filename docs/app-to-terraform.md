@@ -1,180 +1,120 @@
-# アプリで変更した設定を Terraform に取り込む
+# アプリから Terraform への取り込み
 
-`hue-tf pull` は room・zone・scene の変更を実機から取り込みます。
+`hue-tf pull` は Bridge 上の設定を Terraform に取り込みます。実機への書き込みは行いません。
+room・zone・scene・behavior_instance が対象です。新規・変更・削除を state の UUID と照合して判定します。
 
-`hue-tf pull hue_scene.NAME` は、import 済みのシーンについて、Hue アプリで保存した
-on/off・明るさ・色温度・色を既存の `.tf` に取り込むコマンドです。
-対応する属性は **`on`、`brightness`、`mirek` / `kelvin`、`color_xy.x` / `color_xy.y` の既存リテラル**です。
-点灯中のライトの明るさではなく、シーンに保存された action を読み取ります。
+## 基本操作
 
-## 手順
-
-Terraform の作業ディレクトリで、通常の CLI 設定と `HUE_BRIDGE_HOST` /
-`HUE_BRIDGE_APPLICATION_KEY` を設定して実行します。`hue-tf` は PATH 上にあるものとします。
-
-1. 最初に対象のシーンを import し、`terraform plan` で差分がないことを確認します。
-2. アプリでシーンの明るさを変更し、シーンを保存します。
-3. 変更候補を確認します。
+Terraform のルートディレクトリから実行します。既存の provider 設定、backend、workspace を使用します。
+`HUE_BRIDGE_HOST` と `HUE_BRIDGE_APPLICATION_KEY` は Terraform が使う Bridge と一致させてください。
+provider に host / application_key を直接設定する場合は環境変数と同じリテラル値にしてください。変数などの式で指定されている場合は照合できないため停止します。
+初回は provider と backend を準備し、ローカル module は `terraform get` で登録してください。
 
 ```sh
-hue-tf pull hue_scene.bedroom_late_night
+hue-tf pull
+hue-tf pull --write
 ```
 
-出力例:
+引数なしでは追加する定義・既存定義の編集・実機から削除済みのリソース・衝突を表示します。
+プレビューは `.tf`、state、同期基準を変更しません。`--write` は全対象の検査後に実行し、個別の確認は求めません。
+衝突や未対応の式などが一つでもある場合、全体を書き込み前に停止します。
 
-```text
-bedroom.tf: hue_scene.bedroom_late_night actions["ライトのUUID"].brightness: 20 -> 10
-```
+| 実機の状態 | `pull --write` の処理 |
+|---|---|
+| state に未登録 | resource 定義を生成し、`terraform import` で登録 |
+| 登録済みで変更あり | 既存定義の値を更新し、refresh-only で state を更新 |
+| 登録済みで実機から削除済み | resource 定義と不要な import ブロックを除去し、`terraform state rm` で登録解除 |
+| 初回の取り込み | 対応する全リソースを新規取り込み |
 
-4. `.tf` に取り込みます。実行時に実機とファイルを再取得するため、候補は最新の値になります。
+state の JSON を独自に書き換えたり `state push` したりはしません。
+state の更新には `plan -refresh-only` の保存済み plan を使い、リソース変更がないことを JSON で検査してから apply します。
+通常の `terraform apply` は実行しません。出力値や読み取り専用属性は Terraform の refresh に従います。
+
+実機へ `.tf` の変更を送る場合は、従来どおり `terraform plan` と `terraform apply` を使用します。
+
+## 取り込み範囲と配置
 
 ```sh
-hue-tf pull hue_scene.bedroom_late_night --write
-```
+# state のアドレスを指定せず、1件だけ取り込む
+hue-tf pull RESOURCE_UUID --write
 
-`--write` がない場合、ファイルは変更しません。変更前のファイルは同じディレクトリに
-`.hue-pull-backup-*` という名前で保存します。バックアップには元のファイル全体が含まれます。
-Bridge と Terraform state への書き込みは行いません。
-
-5. Git 管理している設定なら `git diff` で変更を確認し、`terraform plan` で `No changes` を確認します。
-   Git 管理対象外の検証ディレクトリでは、表示されたバックアップと `diff -u` で比較できます。
-   差分が残る場合は内容を確認し、通常の apply でアプリの変更を戻さないようにしてください。
-6. 次回の比較基準となる state を更新するため、`terraform plan -refresh-only` を確認し、
-   ユーザー自身で `terraform apply -refresh-only` を実行します。その後、設定をコミットします。
-   refresh-only は `.tf` を更新しないため、取り込み前には実行しないでください。
-
-## 対応範囲と競合
-
-- `hue_scene.NAME` または `module.NAME.hue_scene.NAME` を1件ずつ指定します。UUID は `terraform state pull` の完全なアドレスで対応付けます。
-- `.tf` の `actions` と各 action が直接書かれたオブジェクトで、キーを定数として解決できる必要があります。
-- 既存の数値・真偽値部分だけを置き換えます。リソース名、group の参照、コメント、空白は保持します。
-- xy 座標は provider と同じ小数4桁への丸めと許容差 0.001 で比較し、丸め差だけでは更新しません。
-- `.tf` の対象属性が state と異なり、実機とも一致しない場合は、ローカル編集と判断して停止します。
-  変数、関数、計算式も上書きしません。1件でも非対応や競合がある場合、そのファイルは変更しません。
-- state は前回同期時の比較基準です。先に refresh-only や再 import で更新すると、変更元を判別できなくなります。
-- `count`、`for_each`、provider alias、JSON 形式の設定、override ファイルには未対応です。
-- 色モード切り替え以外の属性の追加・削除、action の追加・削除、シーンの削除は取り込みません。
-- 色温度↔カラーの切り替えは取り込めます。実機で一方だけが保存されている場合、
-  `mirek` / `kelvin` → `color_xy`、または `color_xy` → `mirek` に属性を置き換えます。
-  行末コメントと他の action は保持します。色オブジェクト内部にコメントがある場合は、
-  注釈を失わないよう停止します。カラーから色温度へ戻す際の生成形式は `mirek` です。
-- `color_hex` は xy からの逆変換で情報が失われるため未対応です。色を取り込む場合は `color_xy` を使用します。
-- 名前、group、speed、palette、gradient、effects などは同期しません。
-  このコマンドの「No supported resource changes」は、シーン全体の `No changes` を意味しません。
-
-このコマンドは明示的な取り込み用です。常時同期や競合の自動解決は行いません。
-
-## room・zone の変更を取り込む
-
-```sh
-hue-tf pull hue_room.bedroom
-hue-tf pull hue_room.bedroom --write
-terraform plan -target=hue_room.bedroom
-
-hue-tf pull hue_zone.living
-```
-
-room・zone は `name`、`archetype`、`children` に対応します。
-room の children は device UUID、zone は light UUID です。
-所属の追加・削除を取り込み、順序だけの違いは無視します。名称の引用符や
-`${...}` も、Terraform の式として解釈されないようにエスケープします。
-
-3属性を直接定義したリソースが対象です。変数参照や計算式、state と異なるローカル編集があれば停止します。
-`children` リスト内にコメントがあり所属変更が必要な場合も、注釈を失わないよう停止します。
-属性の後ろのコメントと、`lifecycle` など他の設定は保持します。
-プレビュー・バックアップ・state 同期の手順はシーンと共通です。
-
-## アプリで新規作成したリソースを取り込む
-
-既存の Terraform 作業ディレクトリ・workspace で実行します。
-`terraform state pull` が成功する設定が必要です。state の読み取りが失敗した場合は、
-全リソースを未管理と判断せず停止します。
-
-```sh
-hue-tf pull --new
-```
-
-現在の state に含まれない room・zone・scene・behavior_instance を種類ごとに UUID・名前付きで表示します。
-scene は所属する部屋/ゾーンも表示します。
-子 module や `for_each` で import 済みの UUID も除外します。
-
-対象の UUID と、種類に対応する新しい Terraform リソース名を指定して、生成内容を確認します。
-
-```sh
-hue-tf pull --new SCENE_UUID hue_scene.bedroom_evening
-hue-tf pull --new SCENE_UUID hue_scene.bedroom_evening --write
-hue-tf pull --new ROOM_UUID hue_room.guest_room --write
-hue-tf pull --new ZONE_UUID hue_zone.downstairs --write
-```
-
-`--write` は `<種類>_<リソース名>.tf`（例: `scene_bedroom_evening.tf`）を新規作成し、次に実行するコマンドを表示します。
-既存ファイルや同名のリソース定義・state アドレスは上書きしません。
-UUID が生成先と同じ module の標準 provider で管理されている room/zone に対応する場合は、
-`group = hue_room.bedroom.id` のような参照を生成します。それ以外は UUID を直接記載します。
-
-生成された `.tf` を確認し、表示された import コマンドをユーザー自身で実行してください。
-**import 前には plan/apply で新規作成を進めないでください。**
-
-```sh
-terraform validate
-terraform import hue_scene.bedroom_evening SCENE_UUID
-terraform plan
-```
-
-`No changes` を確認して管理に取り込みます。`hue-tf` 自身は import や実機への書き込みを行いません。
-生成後は、これまでと同じ `hue-tf pull hue_scene.bedroom_evening` で更新できます。
-
-room・zone は name、archetype、children と `prevent_destroy = true` を生成します。
-scene は name、group、speed、auto_dynamic、image_id と provider が対応する actions を生成します。
-palette は provider の読み取り専用属性なので設定には生成しません。
-actions に gradient、effects などの未対応項目がある場合、生成を中止して報告します。
-
-
-## ローカル module 内のリソース
-
-新規取り込みでは種類と名前を省略できます。種類は Bridge 上の UUID から、名前は
-保存された metadata.name から決定します。日本語・英数字・`_`・`-` は保持し、それ以外を
-`_` に変換します。数字で始まる場合は `resource_` を付けます。既存の名前と衝突した場合は
-停止するため、完全なリソースアドレスで別名を指定してください。
-
-```sh
-hue-tf pull --new RESOURCE_UUID --write
-hue-tf pull --new RESOURCE_UUID --module washroom --write
-hue-tf pull --new RESOURCE_UUID --module downstairs.washroom --write
-```
-
-`--module` の省略時は root に生成します。指定値はディレクトリ名や Hue の部屋名ではなく、
-root から順にたどる module ブロックの名前です。`downstairs.washroom` は
-`module.downstairs.module.washroom` を表します。所属する部屋から配置先は推測しません。
-`--module` と完全なリソースアドレスは併用できません。`--write` を省略するとプレビューのみです。
-生成後には表示された `terraform import` の実行が必要です。Bridge と state は変更しません。
-既存定義の更新には引き続き完全なリソースアドレスを指定します。
-
-
-Terraform の root ディレクトリから、完全なアドレスで指定します。
-
-```sh
-hue-tf pull module.bedroom.hue_room.bedroom
+# 既存の完全なアドレスも使用可能
 hue-tf pull module.bedroom.hue_scene.evening --write
-hue-tf pull --new SCENE_UUID module.bedroom.hue_scene.new_scene --write
-terraform plan -target=module.bedroom
+
+# 管理済みの対象を module とその子 module に限定
+hue-tf pull --module downstairs.washroom
 ```
 
-`source = "./rooms/bedroom"` のようなローカル module の元ファイルを編集します。
-ネストした `module.floor.module.bedroom.hue_scene.evening` も指定できます。
-生成された import コマンドにも module を含む完全なアドレスを使用します。
-同じ module 内の room/zone は直接参照し、別 module の group は UUID で参照します。
+新規リソースは、指定なしなら root に生成します。`--module` 指定時はその module の直下に生成します。
+**`--module` は Hue の部屋による検索条件ではありません。** UUID 指定なしの場合、新規候補は Bridge 全体の未登録リソースです。
+既存リソースは state に記録された配置を維持します。部屋と Terraform module の対応は推測しません。
 
-対応範囲は root ディレクトリ配下のローカル source、単一インスタンス、標準 provider の継承です。
-同一ソースを複数の module 呼び出しで共有している場合、他のインスタンスを巻き込まないよう停止します。
-外部/ダウンロード済みソース、root 外の source、module の count/for_each/providers 指定は編集しません。
-`terraform get` で module を登録し、既存 state のアドレスを移行してから pull を使ってください。
+`--module downstairs.washroom` は `module.downstairs.module.washroom` を指し、module ブロックの `source` を順にたどります。
+対象は root 配下のローカル source、単一インスタンス、標準 provider の継承です。
+共有 source、リモート source、root 外の source、`count`・`for_each`・provider の明示的な差し替え、JSON/override 設定には対応しません。
+一括処理では構成全体がこの条件を満たす必要があります。
 
-既存リソースの module 化には `moved` ブロックを使います。移行の最初の plan は target を付けず全体で確認し、
-追加・変更・削除がゼロであることを確認したうえで、ユーザー自身が apply してアドレスの移動を state に保存します。
+生成名には metadata.name を使用し、日本語・英数字・`_`・`-` を保持します。
+その他は `_` に変換し、数字で始まる名前には `resource_` を付けます。
+同名のリソースやファイルが存在する場合、UUID を接尾辞に付けて衝突を避けます。既存ファイルは上書きしません。
+同じ module にある room/zone は、新規シーンの `group` から直接参照します。
 
-## スイッチの割り当て
+初回は root にまとめて取り込み、その後に Terraform の通常の方法で module に整理できます。
+定義を module に移す際は `moved` ブロックを用意し、全体の plan で意図しない追加・更新・削除がないことを確認して apply します。
 
-`hue_behavior_instance` の新規取り込みと、name・enabled・リテラル jsonencode configuration の pull に対応します。
-機器 UUID と behavior UUID の違い、import 手順、参照式やコメントを含む場合の制約は
-[スイッチ管理](switch-management.md) を参照してください。
+## 既存定義の編集と衝突
+
+name、archetype、children、scene の group・speed・auto_dynamic・image_id・actions、behavior の name・enabled・script_id・configuration が対象です。
+scene の palette など、読み取り専用属性は `.tf` に生成しません。
+scene actions に gradient/effects など provider が扱えない項目がある場合は停止します。
+`color_hex` は xy から元の値を損失なく復元できないため、`color_xy` を使用してください。
+
+既存の resource 名、module、参照式、コメントを保持し、変更されたリテラルだけを編集します。
+`jsonencode` のオブジェクト内も項目ごとに比較するため、スイッチ内の変更されていない参照式はそのまま残ります。
+要素の増減によって式やコメントを消してしまう場合、または変更対象の式を解決できない場合は停止します。
+変更先が同じ module の既存または同時取り込みのリソースなら、直接的な `resource.id` 参照を新しい参照先へ更新します。
+任意の変数、locals、module outputs、関数の評価は行いません。同じ module の直接的な resource 参照は state から解決します。
+
+比較には前回の正常な取り込みを記録した `.hue-pull-baseline.json` を使用します。
+初回は現在の state が基準です。初回より前に state が refresh 済みの場合、その前の実機値は復元できません。
+以後は通常の Terraform refresh があっても、前回 pull の比較基準を維持します。
+
+- 実機だけ変更：取り込む。
+- `.tf` だけ変更：保持する。実機への反映は通常の plan/apply で行う。
+- 両側で同じ値に変更：衝突なし。
+- 両側で別の値に変更：項目の位置を表示して停止する。
+- 実機で削除、ローカルで変更：停止する。
+
+基準ファイルは Bridge の接続先、作業ディレクトリ、workspace、state lineage に結び付けます。
+異なる環境の基準ファイルがある場合は停止します。環境を戻すか、基準ファイルを退避して再度プレビューしてください。
+`.hue-pull-*` を Git の除外対象にしてください。基準やバックアップに実機設定が含まれます。
+
+削除は編集後の構成で参照切れがないことを確認します。残った参照がある場合は、先にその参照を整理してください。
+module output 経由の参照は削除対象との厳密な対応を解決できないため、保守的に停止します。
+
+## 中断と復旧
+
+書き込み前に `.hue-pull-transaction` に state のバックアップとファイルの復旧情報を保存します。
+ファイル編集後、Terraform の validate を実行します。state 操作前の失敗は、同時編集がない限りファイルを元に戻します。
+state 操作が始まった後の失敗では、状態を推測して巻き戻さず、復旧情報を残して次の pull を停止します。
+
+中断時は `manifest.json` の対象と現在の `terraform state list`、ファイル差分を確認してください。
+import 済みの定義を維持し、未完了の import を実行するか、バックアップを参考にファイルと state の対応を修復します。
+実機の削除は不要です。state バックアップを無条件に push しないでください。
+対応がそろったら transaction ディレクトリを退避し、`pull` のプレビューから再開します。
+
+Terraform は各 state 操作をロックしますが、複数の import 全体や Bridge の読み取りは一つの原子的な処理ではありません。
+pull 実行中はアプリでの編集や別プロセスでの apply を避けてください。既存の backup ファイルは復旧確認後に整理できます。
+
+## Terraform 標準機能との違い
+
+`terraform import ADDRESS UUID` は既存リソースを state に登録し、定義は生成しません。
+`import` ブロックと `terraform plan -generate-config-out=...` は初回取り込み用の定義を生成できますが、既存 `.tf` の継続的な逆同期ではありません。
+この CLI は Bridge 内の対象発見、既存 `.tf` の更新と削除、衝突検出を担い、state 操作は Terraform に任せます。
+
+- [Terraform import コマンド](https://developer.hashicorp.com/terraform/cli/import)
+- [import ブロックからの設定生成](https://developer.hashicorp.com/terraform/language/import/generating-configuration)
+
+従来の `pull --new [UUID ADDRESS [--write]]` は互換用に残しています。
+この旧形式だけは定義生成のみを行い、表示された import コマンドの別途実行が必要です。
+新しい通常フローでは `--new` は不要です。

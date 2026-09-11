@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"unicode"
 
 	"github.com/akr4/terraform-provider-hue/internal/hue"
 	"github.com/akr4/terraform-provider-hue/internal/pull"
@@ -183,6 +182,10 @@ type pullNewOptions struct {
 }
 
 func parsePullNewArgs(args []string) (pullNewOptions, error) {
+	return parsePullOptions(args, false)
+}
+
+func parsePullOptions(args []string, allowAll bool) (pullNewOptions, error) {
 	var o pullNewOptions
 	usage := fmt.Errorf("usage: hue-tf pull --new [RESOURCE_UUID [hue_TYPE.NAME | --module NAME[.NAME...]] [--write]]")
 	var positional []string
@@ -213,7 +216,7 @@ func parsePullNewArgs(args []string) (pullNewOptions, error) {
 			positional = append(positional, args[i])
 		}
 	}
-	if len(positional) > 2 || (len(positional) == 0 && (o.write || seenModule)) || (len(positional) == 2 && seenModule) {
+	if len(positional) > 2 || (!allowAll && len(positional) == 0 && (o.write || seenModule)) || (len(positional) == 2 && seenModule) {
 		return o, usage
 	}
 	if len(positional) > 0 {
@@ -225,18 +228,4 @@ func parsePullNewArgs(args []string) (pullNewOptions, error) {
 	return o, nil
 }
 
-func pullResourceName(name string) string {
-	name = strings.Map(func(r rune) rune {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsMark(r) || r == '_' || r == '-' {
-			return r
-		}
-		return '_'
-	}, name)
-	if name == "" {
-		return "resource"
-	}
-	if !hclsyntax.ValidIdentifier(name) {
-		name = "resource_" + name
-	}
-	return name
-}
+func pullResourceName(name string) string { return pull.ResourceName(name) }
