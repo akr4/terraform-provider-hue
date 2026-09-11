@@ -4,6 +4,7 @@ package pull
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -382,7 +383,7 @@ func findResource(dir, kind, name string) (*Change, *hclsyntax.Block, error) {
 		}
 	}
 	if block == nil {
-		return nil, nil, fmt.Errorf("resource definition not found in root .tf files")
+		return nil, nil, ErrResourceDefinitionNotFound
 	}
 	for _, key := range []string{"count", "for_each", "provider"} {
 		if block.Body.Attributes[key] != nil {
@@ -392,3 +393,5 @@ func findResource(dir, kind, name string) (*Change, *hclsyntax.Block, error) {
 
 	return change, block, nil
 }
+
+var ErrResourceDefinitionNotFound = errors.New("resource definition not found in root .tf files")

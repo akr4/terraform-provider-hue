@@ -86,7 +86,7 @@ func TestPullBehaviorCLI(t *testing.T) {
 	if err := runWith(context.Background(), []string{"pull", "--new", id, addr}, &out, &bytes.Buffer{}, deps); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "terraform import '"+addr+"'") {
+	if !strings.Contains(out.String(), "to = "+addr) {
 		t.Fatal(out.String())
 	}
 	if _, err := os.Stat("bedroom/behavior_instance_test.tf"); !os.IsNotExist(err) {
@@ -94,6 +94,18 @@ func TestPullBehaviorCLI(t *testing.T) {
 	}
 	if err := runWith(context.Background(), []string{"pull", "--new", id, addr, "--write"}, &out, &bytes.Buffer{}, deps); err != nil {
 		t.Fatal(err)
+	}
+	// Simulate resource configuration produced separately by Terraform.
+	raw, e := json.Marshal(behavior)
+	if e != nil {
+		t.Fatal(e)
+	}
+	src, e := pull.NewBehavior(raw, "test")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = os.WriteFile("bedroom/behavior_instance_test.tf", src, 0600); e != nil {
+		t.Fatal(e)
 	}
 	imported = true
 	out.Reset()
@@ -103,8 +115,8 @@ func TestPullBehaviorCLI(t *testing.T) {
 	if strings.Contains(out.String(), id) {
 		t.Fatal("managed behavior listed as new")
 	}
-	if err := runWith(context.Background(), []string{"pull", "--new", id, addr}, &out, &bytes.Buffer{}, deps); err == nil {
-		t.Fatal("duplicate import accepted")
+	if err := runWith(context.Background(), []string{"pull", "--new", id, addr}, &out, &bytes.Buffer{}, deps); err != nil {
+		t.Fatal(err)
 	}
 	remote := behavior
 	remote.Enabled = false

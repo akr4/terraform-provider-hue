@@ -58,7 +58,7 @@ func TestBatchPreviewAndWrite(t *testing.T) {
 	if !strings.Contains(string(actual), `"New"`) {
 		t.Fatal(string(actual))
 	}
-	if !strings.Contains(strings.Join(calls, "\n"), "plan -refresh-only") {
+	if strings.Join(calls, "\n") != "validate -no-color" {
 		t.Fatal(calls)
 	}
 	if _, e := os.Stat(".hue-pull-transaction"); !os.IsNotExist(e) {
@@ -93,7 +93,7 @@ func TestBatchNewCollisionDeletionAndCheckpoint(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(plan.Creates) != 2 || len(plan.Problems) != 0 || plan.Creates[0].Path == plan.Creates[1].Path {
+	if len(plan.Creates) != 2 || len(plan.Problems) != 0 || plan.Creates[0].Address == plan.Creates[1].Address {
 		t.Fatalf("%+v", plan)
 	}
 	source := "resource \"hue_room\" \"room\" {\n name = \"Local\"\n archetype = \"bedroom\"\n children = []\n}"
@@ -124,26 +124,44 @@ func TestBatchNewCollisionDeletionAndCheckpoint(t *testing.T) {
 		t.Fatalf("%+v", plan)
 	}
 }
-func TestBatchFailureRecoveryAndApplyGuard(t *testing.T) {
+func TestBatchPendingImports(t *testing.T) {
 	t.Chdir(t.TempDir())
-	path, _ := filepath.Abs("new.tf")
-	plan := &batchPlan{Creates: []pullCreation{{Address: "hue_room.new", ID: "uuid", Path: path, Source: []byte(`resource "hue_room" "new" {}`)}}, Checkpoint: pullCheckpoint{Resources: map[string]map[string]json.RawMessage{}}}
+	state := []byte(`{"resources":[]}`)
+	id := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	remote := batchRemote(id, "Room")
+	plan, e := prepareBatch(state, remote, pullNewOptions{}, pullCheckpoint{})
+	if e != nil || len(plan.Problems) > 0 {
+		t.Fatalf("%+v %v", plan, e)
+	}
 	deps := dependencies{terraform: func(_ context.Context, args ...string) ([]byte, error) {
-		if args[0] == "import" {
-			return nil, fmt.Errorf("import interrupted")
+		if strings.Join(args, " ") != "validate -no-color" {
+			t.Fatalf("unexpected command: %v", args)
 		}
 		return nil, nil
 	}}
-	if e := writeBatch(context.Background(), plan, []byte(`{"resources":[]}`), &bytes.Buffer{}, deps); e == nil {
-		t.Fatal("expected failure")
+	if e = writeBatch(context.Background(), plan, state, &bytes.Buffer{}, deps); e != nil {
+		t.Fatal(e)
 	}
-	for _, name := range []string{"manifest.json", "state-before.json"} {
-		if _, e := os.Stat(filepath.Join(".hue-pull-transaction", name)); e != nil {
-			t.Fatal(e)
+	if len(plan.ImportFiles) != 1 || !strings.Contains(string(plan.ImportFiles[0].Source), "to = hue_room.Room") {
+		t.Fatalf("%+v", plan.ImportFiles)
+	}
+	again, e := prepareBatch(state, remote, pullNewOptions{}, plan.Checkpoint)
+	if e != nil || len(again.Problems) > 0 || len(again.Creates) > 0 || len(again.ImportFiles) > 0 || len(again.Changes) > 0 {
+		t.Fatalf("%+v %v", again, e)
+	}
+	delete(remote["room"], id)
+	gone, e := prepareBatch(state, remote, pullNewOptions{}, plan.Checkpoint)
+	if e != nil || len(gone.Problems) > 0 || len(gone.Removes) != 1 {
+		t.Fatalf("%+v %v", gone, e)
+	}
+	if e = writeBatch(context.Background(), gone, state, &bytes.Buffer{}, deps); e != nil {
+		t.Fatal(e)
+	}
+	for _, p := range []string{plan.ImportFiles[0].Path} {
+		content, e := os.ReadFile(p)
+		if e != nil || strings.Contains(string(content), " {") {
+			t.Fatalf("%s %v", content, e)
 		}
-	}
-	if e := checkRefreshPlan([]byte(`{"format_version":"1.2","resource_changes":[{"change":{"actions":["update"]}}]}`)); e == nil {
-		t.Fatal("accepted mutating plan")
 	}
 }
 func TestBatchModulePlacement(t *testing.T) {
@@ -164,8 +182,11 @@ func TestBatchModulePlacement(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(plan.Problems) != 0 || len(plan.Creates) != 1 || !strings.HasPrefix(plan.Creates[0].Address, "module.washroom.") || filepath.Dir(plan.Creates[0].Path) != filepath.Join(root, "custom") {
+	if len(plan.Problems) != 0 || len(plan.Creates) != 1 || !strings.HasPrefix(plan.Creates[0].Address, "module.washroom.") {
 		t.Fatalf("%+v", plan)
+	}
+	if len(plan.ImportFiles) != 1 || filepath.Dir(plan.ImportFiles[0].Path) != root || !strings.Contains(string(plan.ImportFiles[0].Source), "to = module.washroom.hue_room.Room") {
+		t.Fatalf("%+v", plan.ImportFiles)
 	}
 }
 
@@ -179,7 +200,7 @@ func mockPullTerraform(_ context.Context, args ...string) ([]byte, error) {
 func TestBatchValidateRollback(t *testing.T) {
 	t.Chdir(t.TempDir())
 	path, _ := filepath.Abs("new.tf")
-	plan := &batchPlan{Creates: []pullCreation{{Address: "hue_room.new", ID: "uuid", Path: path, Source: []byte(`resource "hue_room" "new" {}`)}}}
+	plan := &batchPlan{ImportFiles: []pullCreation{{Path: path, Source: []byte("import {\n to = hue_room.new\n id = \"uuid\"\n}")}}}
 	deps := dependencies{terraform: func(_ context.Context, args ...string) ([]byte, error) {
 		if args[0] != "validate" {
 			t.Fatalf("unexpected state operation: %v", args)
@@ -268,5 +289,65 @@ func TestBatchStateReader(t *testing.T) {
 		} else if e != nil || string(data) != `{"resources":[]}` {
 			t.Fatalf("%s %v", data, e)
 		}
+	}
+}
+
+func TestBatchCombinedImportFile(t *testing.T) {
+	t.Chdir(t.TempDir())
+	state := []byte(`{"resources":[]}`)
+	id := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	other := "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+	remote := batchRemote(id, "One")
+	remote["room"][other] = batchRemote(other, "Two")["room"][other]
+	plan, e := prepareBatch(state, remote, pullNewOptions{}, pullCheckpoint{})
+	if e != nil || len(plan.Problems) > 0 || len(plan.ImportFiles) != 1 {
+		t.Fatalf("%+v %v", plan, e)
+	}
+	if filepath.Base(plan.ImportFiles[0].Path) != "imports_hue.tf" || strings.Count(string(plan.ImportFiles[0].Source), "import {") != 2 {
+		t.Fatal(plan.ImportFiles)
+	}
+	if e = writeBatch(context.Background(), plan, state, &bytes.Buffer{}, dependencies{terraform: mockPullTerraform}); e != nil {
+		t.Fatal(e)
+	}
+	// Remove one pending resource and add another in the same import file.
+	delete(remote["room"], id)
+	third := "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+	remote["room"][third] = batchRemote(third, "Three")["room"][third]
+	next, e := prepareBatch(state, remote, pullNewOptions{}, plan.Checkpoint)
+	if e != nil || len(next.Problems) > 0 || len(next.ImportFiles) != 0 {
+		t.Fatalf("%+v %v", next, e)
+	}
+	if e = writeBatch(context.Background(), next, state, &bytes.Buffer{}, dependencies{terraform: mockPullTerraform}); e != nil {
+		t.Fatal(e)
+	}
+	content, e := os.ReadFile("imports_hue.tf")
+	if e != nil || strings.Count(string(content), "import {") != 2 || strings.Contains(string(content), id) || !strings.Contains(string(content), third) {
+		t.Fatalf("%s %v", content, e)
+	}
+	again, e := prepareBatch(state, remote, pullNewOptions{}, next.Checkpoint)
+	if e != nil || len(again.Problems) > 0 || len(again.Changes) > 0 || len(again.Creates) > 0 {
+		t.Fatalf("%+v %v", again, e)
+	}
+}
+
+func TestBatchImportOnlyUnsupportedNewResource(t *testing.T) {
+	t.Chdir(t.TempDir())
+	state := []byte(`{"resources":[]}`)
+	id := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	// Import discovery should not depend on hue-tf's action serializer.
+	remote := map[string]map[string]json.RawMessage{"scene": {id: json.RawMessage(`{"id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","metadata":{"name":"New"},"actions":[{"unsupported":true}]}`)}}
+	plan, e := prepareBatch(state, remote, pullNewOptions{}, pullCheckpoint{})
+	if e != nil || len(plan.Problems) > 0 || len(plan.Creates) != 1 {
+		t.Fatalf("%+v %v", plan, e)
+	}
+	if e = writeBatch(context.Background(), plan, state, &bytes.Buffer{}, dependencies{terraform: func(context.Context, ...string) ([]byte, error) {
+		t.Fatal("must defer validation until config generation")
+		return nil, nil
+	}}); e != nil {
+		t.Fatal(e)
+	}
+	files, e := filepath.Glob("*.tf")
+	if e != nil || len(files) != 1 || files[0] != "imports_hue.tf" {
+		t.Fatalf("%v %v", files, e)
 	}
 }

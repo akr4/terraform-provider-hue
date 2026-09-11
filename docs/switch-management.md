@@ -24,13 +24,13 @@ hue-tf ls behavior_script
 取り込むのは **behavior UUID** です。device / button / script UUID とは異なります。
 
 ```sh
-# 新規・既存を自動判定し、定義と state を取り込む
+# 新規・既存を自動判定し、新規分の import ブロックを準備する
 hue-tf pull BEHAVIOR_UUID --module bedroom
 hue-tf pull BEHAVIOR_UUID --module bedroom --write
 ```
 
 新規の場合、behavior の名前から Terraform のリソース名を生成します。
-既存の場合は state のアドレスを維持します。通常の `pull --write` では追加の import は不要です。
+既存の場合は state のアドレスを維持します。通常の `pull --write` は新規分の import ブロックも生成します。新規の resource 定義は Terraform の `plan -generate-config-out=generated.tf` または手書きで用意し、plan/apply で取り込みを完了します。
 Bridge に割り当て自体が存在しない場合は、下記の作成手順を使用します。
 
 ## 未設定のスイッチに割り当てを作る
@@ -54,7 +54,7 @@ apply 後に `ls switch` の状態と実際のボタン操作を確認してく�
 
 ## 編集する
 
-生成される属性は `name`、`enabled`、`script_id`、`configuration = jsonencode({...})` です。
+主な設定属性は `name`、`enabled`、`script_id`、`configuration = jsonencode({...})` です。
 configuration はスクリプト固有の構造をすべて保持します。時間帯、長押し、巡回、ダイヤル、未知の追加項目も
 一部だけを抽出せず出力します。`status`、`last_error` は読み取り専用です。
 作成時に type・script_id・metadata.name・enabled・configuration を送信し、更新時は metadata.name・enabled・configuration のみを送信します。

@@ -86,11 +86,11 @@ func TestPullNewCLI(t *testing.T) {
 		if err := runWith(context.Background(), args, &out, &bytes.Buffer{}, deps); err != nil {
 			t.Fatal(err, out.String())
 		}
-		if !strings.Contains(out.String(), "terraform import 'hue_scene.new_scene'") {
+		if !strings.Contains(out.String(), "to = hue_scene.new_scene") {
 			t.Fatal(out.String())
 		}
 		_, err := os.Stat("scene_new_scene.tf")
-		if (!os.IsNotExist(err)) != write {
+		if !os.IsNotExist(err) {
 			t.Fatal("unexpected file write")
 		}
 	}
@@ -214,16 +214,16 @@ func TestPullNewGroupCLI(t *testing.T) {
 				if err := runWith(context.Background(), args, &out, &bytes.Buffer{}, deps); err != nil {
 					t.Fatal(err)
 				}
-				if !strings.Contains(out.String(), "terraform import 'hue_"+kind+".new_group'") {
+				if !strings.Contains(out.String(), "to = hue_"+kind+".new_group") {
 					t.Fatal(out.String())
 				}
 				_, err := os.Stat(path)
-				if (!os.IsNotExist(err)) != write {
+				if !os.IsNotExist(err) {
 					t.Fatal("unexpected file write")
 				}
 			}
-			if err := runWith(context.Background(), []string{"pull", "--new", id, "hue_" + kind + ".new_group", "--write"}, &bytes.Buffer{}, &bytes.Buffer{}, deps); err == nil {
-				t.Fatal("overwrote definition")
+			if err := runWith(context.Background(), []string{"pull", "--new", id, "hue_" + kind + ".new_group", "--write"}, &bytes.Buffer{}, &bytes.Buffer{}, deps); err != nil {
+				t.Fatal(err)
 			}
 			for _, r := range b.Requests() {
 				if r.Method != "GET" {
@@ -325,11 +325,11 @@ func TestPullModuleCLI(t *testing.T) {
 	if err := runWith(context.Background(), []string{"pull", "--new", sid, "module.bedroom.hue_scene.new_scene", "--write"}, &out, &bytes.Buffer{}, deps); err != nil {
 		t.Fatal(err)
 	}
-	got, err := os.ReadFile("rooms/bedroom/scene_new_scene.tf")
+	got, err := os.ReadFile("imports_hue.tf")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(got), "hue_room.bedroom.id") || !strings.Contains(out.String(), "terraform import 'module.bedroom.hue_scene.new_scene'") {
+	if !strings.Contains(string(got), "to = module.bedroom.hue_scene.new_scene") {
 		t.Fatal(string(got), out.String())
 	}
 	if _, err := os.Stat("scene_new_scene.tf"); !os.IsNotExist(err) {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -31,7 +32,7 @@ func (p *pullTestProvider) Configure(_ context.Context, _ provider.ConfigureRequ
 	resp.DataSourceData = p.client
 }
 
-// TestAccPullRoundTrip exercises real Terraform import and refresh-only apply;
+// TestAccPullRoundTrip exercises file preparation followed by explicit Terraform plan/apply;
 // a test provider transports every API request to an in-memory HTTPS bridge.
 func TestAccPullRoundTrip(t *testing.T) {
 	if os.Getenv("TF_ACC") == "" {
@@ -90,7 +91,54 @@ func TestAccPullRoundTrip(t *testing.T) {
 		}
 		return out, e
 	}
-	deps := dependencies{terraform: run, newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }}
+	deps := dependencies{terraform: func(ctx context.Context, args ...string) ([]byte, error) {
+		if !(args[0] == "validate" || (len(args) == 2 && args[0] == "state" && args[1] == "pull") || (len(args) == 2 && args[0] == "show" && args[1] == "-json")) {
+			t.Fatalf("pull invoked unexpected Terraform command: %v", args)
+		}
+		return run(ctx, args...)
+	}, newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }}
+	// These calls represent the user running vanilla Terraform separately.
+	apply := func() {
+		path := filepath.Join(root, "user.tfplan")
+		if _, e := run(ctx, "plan", "-input=false", "-out="+path); e != nil {
+			t.Fatal(e)
+		}
+		data, e := run(ctx, "show", "-json", path)
+		if e != nil {
+			t.Fatal(e)
+		}
+		var plan struct {
+			ResourceChanges []struct{ Change struct{ Actions []string } } `json:"resource_changes"`
+		}
+		if e = json.Unmarshal(data, &plan); e != nil {
+			t.Fatal(e)
+		}
+		for _, r := range plan.ResourceChanges {
+			for _, a := range r.Change.Actions {
+				if a != "no-op" {
+					t.Fatalf("unexpected resource mutation: %s", data)
+				}
+			}
+		}
+		if _, e = run(ctx, "apply", "-input=false", path); e != nil {
+			t.Fatal(e)
+		}
+	}
+	write := func(args ...string) {
+		before, e := stateReader(deps)(ctx)
+		if e != nil {
+			t.Fatal(e)
+		}
+		var out bytes.Buffer
+		if e = pullBatch(ctx, args, &out, deps); e != nil {
+			t.Fatal(e, out.String())
+		}
+		after, e := stateReader(deps)(ctx)
+		if e != nil || !bytes.Equal(before, after) {
+			t.Fatalf("pull changed state: %v", e)
+		}
+	}
+
 	id := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 	group := hue.Group{ID: id, Type: "room", Metadata: hue.Metadata{Name: "Imported", Archetype: "bedroom"}, Children: []hue.Reference{}}
 	b.Put("room", id, group)
@@ -101,19 +149,25 @@ func TestAccPullRoundTrip(t *testing.T) {
 	if _, e = os.Stat("room_Imported.tf"); !os.IsNotExist(e) {
 		t.Fatal("preview created definition")
 	}
-	if e = pullBatch(ctx, []string{"--write"}, &output, deps); e != nil {
-		t.Fatal(e, output.String())
+	write("--write")
+	write("--write") // Pending import must not produce duplicate definitions.
+	if _, e = os.Stat("room_Imported.tf"); !os.IsNotExist(e) {
+		t.Fatal("pull generated a resource definition")
 	}
+	if _, e = run(ctx, "plan", "-input=false", "-generate-config-out=generated.tf"); e != nil {
+		t.Fatal(e)
+	}
+	write("--write") // Generated but not yet imported definitions remain untouched.
+	apply()
 	state, e := stateReader(deps)(ctx)
 	if e != nil || !bytes.Contains(state, []byte(id)) {
 		t.Fatalf("state: %s %v", state, e)
 	}
 	group.Metadata.Name = "From app"
 	b.Put("room", id, group)
-	if e = pullBatch(ctx, []string{id, "--write"}, &output, deps); e != nil {
-		t.Fatal(e, output.String())
-	}
-	contents, e := os.ReadFile("room_Imported.tf")
+	write(id, "--write")
+	apply()
+	contents, e := os.ReadFile("generated.tf")
 	if e != nil || !strings.Contains(string(contents), "From app") {
 		t.Fatalf("%s %v", contents, e)
 	}
@@ -124,22 +178,30 @@ func TestAccPullRoundTrip(t *testing.T) {
 	sceneID := "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 	scene := hue.Scene{ID: sceneID, Type: "scene", Metadata: hue.Metadata{Name: "Evening"}, Group: hue.Reference{RID: id, RType: "room"}, Actions: []hue.SceneAction{{Target: hue.Reference{RID: fakebridge.LightID, RType: "light"}, Action: hue.Action{On: &hue.On{On: true}, Dimming: &hue.Dimming{Brightness: 20}, ColorTemperature: &hue.Temperature{Mirek: 350}}}}}
 	b.Put("scene", sceneID, scene)
-	if e = pullBatch(ctx, []string{sceneID, "--write"}, &output, deps); e != nil {
-		t.Fatal(e, output.String())
+	write(sceneID, "--write")
+	// Terraform generates both temperature representations from provider state.
+	// The user removes the redundant representation before plan/apply.
+	_, genErr := run(ctx, "plan", "-input=false", "-generate-config-out=generated_scene.tf")
+	generated, e := os.ReadFile("generated_scene.tf")
+	if e != nil {
+		t.Fatal(genErr, e)
 	}
+	generated = regexp.MustCompile(`(?m)^\s*kelvin\s*=.*\n`).ReplaceAll(generated, nil)
+	generated = regexp.MustCompile(`(?m)^\s*color_hex\s*=.*\n`).ReplaceAll(generated, nil)
+	if e = os.WriteFile("generated_scene.tf", generated, 0600); e != nil {
+		t.Fatal(e)
+	}
+	apply()
 	scene.Actions[0].Action.Dimming.Brightness = 35
 	b.Put("scene", sceneID, scene)
-	if e = pullBatch(ctx, []string{sceneID, "--write"}, &output, deps); e != nil {
-		t.Fatal(e, output.String())
-	}
+	write(sceneID, "--write")
+	apply()
 	b.Remove("scene", sceneID)
-	if e = pullBatch(ctx, []string{sceneID, "--write"}, &output, deps); e != nil {
-		t.Fatal(e, output.String())
-	}
+	write(sceneID, "--write")
+	apply()
 	b.Remove("room", id)
-	if e = pullBatch(ctx, []string{id, "--write"}, &output, deps); e != nil {
-		t.Fatal(e, output.String())
-	}
+	write(id, "--write")
+	apply()
 	state, e = stateReader(deps)(ctx)
 	if e != nil || bytes.Contains(state, []byte(id)) {
 		t.Fatalf("state: %s %v", state, e)

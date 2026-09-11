@@ -257,7 +257,7 @@ action object:
 
 ### v1 以降の候補
 
-- `hue-tf import`: bridge 上の room / zone / scene を resource ブロック + `import` ブロックとして、light / device を data ブロックとして HCL 生成する。ラベルの命名規則（日本語名の扱い）は別途決定
+- `hue-tf pull`: 未管理リソースの import ブロックを生成する。resource 定義は Terraform の設定生成または手書きに任せる（詳細は第16節）。
 - `hue-tf color <hex> --gamut <type>`: 色変換の確認
 - `hue-tf recall <scene>`、`hue-tf identify <light>`
 
@@ -319,19 +319,21 @@ action object:
 ## 16. アプリから Terraform への取り込み
 
 `hue-tf pull` は実機を読み、Terraform 定義への追加・変更・削除をまとめてプレビューする。
-`--write` は `.tf` と state を更新し、Bridge には書き込まない。
+`--write` は既存定義を更新し、新規分は import ブロックのみ準備する。resource 定義の生成は Terraform に任せる。state と Bridge には書き込まない。
 
 - 新規・既存・削除は UUID と state から判定し、通常の操作に `--new` は不要。
 - 引数なしは対応する全リソース。UUID または完全なアドレスで1件を指定できる。
-- 新規は root に生成する。`--module NAME[.NAME...]` は新規の配置先と既存リソースの対象範囲を指定する。
+- 新規の import 先は root のアドレスにする。`--module NAME[.NAME...]` は新規の配置先と既存リソースの対象範囲を指定する。
   Hue の部屋による絞り込みではなく、既存リソースの配置は state に従う。
 - 初回は一括で取り込み、その後 `moved` ブロックを使って通常の Terraform 操作で module に整理できる。
 - scene actions の gradient・effects は JSON オブジェクトとして取り込み、provider でも保持・更新する。
-- state は Terraform 標準の import・state rm・refresh-only で更新する。独自の state JSON 書き換えは行わない。
+- state の反映はユーザーが通常の Terraform plan/apply で行う。pull 内部では読み取りと validate のみ実行する。
+- 新規の import ブロックは root に生成する。apply 前の再実行でも、ブロックから UUID とアドレスを照合して重複生成を避ける。
 - 前回 pull の基準を別途保持し、Terraform refresh 後もローカル編集との衝突を検出する。
 - 変更されない参照式・コメントを保持し、衝突・参照切れ・未対応の式があれば全体を書き込み前に停止する。
-- 書き込み前に復旧情報を保存する。state 操作前の失敗はファイルを戻し、state 操作中の中断は復旧情報を残して再実行を止める。
-- 互換用の `pull --new` は従来どおり定義生成のみとし、別途 import が必要。
+- 書き込み前にファイルの復旧情報を保存する。失敗時はファイルを戻し、復旧できない中断では情報を残して再実行を止める。
+- 互換用の `pull --new` も新規 resource 定義は生成せず、import ブロックのみ準備する。
+- 定義生成待ちなら validate は省略し、ユーザーが生成付き plan で検証する。module 先の定義は手動で用意する。
 
 詳細な対応範囲、衝突判定、state の同期と復旧は [アプリからの取り込み手順](app-to-terraform.md) を参照する。
 

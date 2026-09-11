@@ -88,19 +88,19 @@ func TestPullNewAutomaticDestination(t *testing.T) {
 					if err := runWith(context.Background(), call, &out, &bytes.Buffer{}, deps); err != nil {
 						t.Fatal(err)
 					}
-					if !strings.Contains(out.String(), "terraform import '"+prefix+"hue_"+kind+".島の温もり'") {
+					if !strings.Contains(out.String(), "to = "+prefix+"hue_"+kind+".島の温もり") {
 						t.Fatal(out.String())
 					}
 					_, err := os.Stat(path)
-					if write && err != nil {
-						t.Fatal(err)
+					if !os.IsNotExist(err) {
+						t.Fatal("pull created resource definition")
 					}
 					if !write && !os.IsNotExist(err) {
 						t.Fatalf("preview wrote file: %v", err)
 					}
 				}
-				if err := runWith(context.Background(), append(args, "--write"), &bytes.Buffer{}, &bytes.Buffer{}, deps); err == nil {
-					t.Fatal("overwrote existing resource")
+				if err := runWith(context.Background(), append(args, "--write"), &bytes.Buffer{}, &bytes.Buffer{}, deps); err != nil {
+					t.Fatal(err)
 				}
 				for _, r := range b.Requests() {
 					if r.Method != "GET" {

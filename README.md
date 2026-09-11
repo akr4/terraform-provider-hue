@@ -52,19 +52,19 @@ This distinguishes scenes with the same name in different rooms or zones.
 See [switch management](docs/switch-management.md) for import and editing.
 
 `hue-tf pull` previews additions, edits and deletions from the bridge across all
-managed resources. `hue-tf pull --write` updates `.tf` definitions and Terraform
-state using native import, state removal and refresh-only operations. It never
-writes to the bridge. New resources go into the root configuration by default;
+managed resources. `hue-tf pull --write` updates existing `.tf` definitions and prepares ordinary Terraform
+import blocks for new resources. Resource definition generation, import execution
+and infrastructure changes belong to Terraform. Pull never writes to state or
+the bridge. New import targets use root addresses by default;
 use `--module NAME[.NAME...]` for another destination. Existing resources retain
 their state addresses. A UUID or full address can select one resource.
 
 Pull preserves references and comments, detects conflicting local/bridge edits
 against a saved baseline, and stops before writing if any target is blocked.
-Repeated scene names receive UUID suffixes. Start with a bulk root import, then
-organize resources into modules using Terraform's normal `moved` workflow.
+Repeated scene names receive UUID suffixes.
 See [the app-to-Terraform workflow](docs/app-to-terraform.md) for supported
 expressions, module scope, preview/write semantics and interrupted-run recovery.
-The old definition-only `pull --new` syntax remains available for compatibility.
+The old `pull --new` syntax also prepares import blocks only.
 
 Both the provider and CLI use `HUE_BRIDGE_HOST` and
 `HUE_BRIDGE_APPLICATION_KEY`. Provider attributes override the environment.
