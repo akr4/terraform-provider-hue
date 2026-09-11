@@ -132,6 +132,25 @@ actions に gradient、effects などの未対応項目がある場合、生成�
 
 ## ローカル module 内のリソース
 
+新規取り込みでは種類と名前を省略できます。種類は Bridge 上の UUID から、名前は
+保存された metadata.name から決定します。日本語・英数字・`_`・`-` は保持し、それ以外を
+`_` に変換します。数字で始まる場合は `resource_` を付けます。既存の名前と衝突した場合は
+停止するため、完全なリソースアドレスで別名を指定してください。
+
+```sh
+hue-tf pull --new RESOURCE_UUID --write
+hue-tf pull --new RESOURCE_UUID --module washroom --write
+hue-tf pull --new RESOURCE_UUID --module downstairs.washroom --write
+```
+
+`--module` の省略時は root に生成します。指定値はディレクトリ名や Hue の部屋名ではなく、
+root から順にたどる module ブロックの名前です。`downstairs.washroom` は
+`module.downstairs.module.washroom` を表します。所属する部屋から配置先は推測しません。
+`--module` と完全なリソースアドレスは併用できません。`--write` を省略するとプレビューのみです。
+生成後には表示された `terraform import` の実行が必要です。Bridge と state は変更しません。
+既存定義の更新には引き続き完全なリソースアドレスを指定します。
+
+
 Terraform の root ディレクトリから、完全なアドレスで指定します。
 
 ```sh

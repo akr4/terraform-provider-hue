@@ -59,8 +59,17 @@ and state synchronization.
 `hue-tf pull hue_room.NAME` and `hue-tf pull hue_zone.NAME` pull literal names,
 archetypes, and children membership.
 `hue-tf pull --new` lists unmanaged rooms, zones, scenes and behavior instances. Use
-`hue-tf pull --new RESOURCE_UUID hue_TYPE.NAME [--write]` to preview or create a
-new `.tf` definition and print the native Terraform import command.
+`hue-tf pull --new RESOURCE_UUID [--module NAME[.NAME...]] [--write]` to
+infer the resource type and name, preview or create a new `.tf` definition, and
+print the native Terraform import command. Without `--module`, the destination
+is the root configuration. Module names follow declarations and their local
+`source` paths, not room names or directory names. For example,
+`--module downstairs.washroom` selects `module.downstairs.module.washroom`.
+Resource names preserve letters (including Japanese), digits, `_` and `-`;
+other characters become `_`, and names starting with digits gain `resource_`.
+Name collisions stop generation. To choose a name explicitly, use the existing
+`hue-tf pull --new RESOURCE_UUID hue_TYPE.NAME [--write]` form (also accepting
+full module addresses); it cannot be combined with `--module`.
 Addresses may include local modules, such as
 `module.bedroom.hue_scene.evening`. Run from the root configuration directory;
 pull edits the local module source. Shared module sources and indexed instances

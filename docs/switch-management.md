@@ -24,6 +24,9 @@ hue-tf ls behavior_script
 取り込むのは **behavior UUID** です。device / button / script UUID とは異なります。
 
 ```sh
+# 名前を自動生成して bedroom module に配置
+hue-tf pull --new BEHAVIOR_UUID --module bedroom
+# リソース名を指定する場合
 hue-tf pull --new BEHAVIOR_UUID module.bedroom.hue_behavior_instance.switch
 hue-tf pull --new BEHAVIOR_UUID module.bedroom.hue_behavior_instance.switch --write
 terraform import module.bedroom.hue_behavior_instance.switch BEHAVIOR_UUID

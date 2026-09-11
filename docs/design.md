@@ -324,6 +324,7 @@ action object:
   children は所属集合として比較する。
 - `pull hue_scene.NAME`: on、brightness、mirek/kelvin、color_xy と色温度↔カラーの切り替えを取り込む。
 - `pull --new`: state に未登録の room・zone・scene を列挙する。
+- `pull --new UUID [--module NAME[.NAME...]]`: 種類と名前を自動決定し、root または指定したローカル module に新規定義を生成する。`--write` なしではプレビューのみ。
 - `pull --new UUID hue_TYPE.NAME`: 新規定義と `terraform import` コマンドを提示する。
 - デフォルトはプレビュー。`--write` 指定時のみ `.tf` を更新・生成する。既存ファイルの更新はバックアップを作成する。
 - 既存リソースは state の UUID で対応付ける。実機・state・HCL の値を比較し、ローカル編集との競合は自動解決しない。
