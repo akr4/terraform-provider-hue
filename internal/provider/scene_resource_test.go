@@ -139,3 +139,23 @@ func TestPlanAction(t *testing.T) {
 		t.Fatal("unknown primary reused counterpart")
 	}
 }
+
+func TestPlanActionXYPreview(t *testing.T) {
+	config := emptyAction()
+	config.XY = xyValue(hue.XY{X: .1554, Y: .0996})
+	prior := emptyAction()
+	prior.XY = xyValue(hue.XY{X: .4964, Y: .4542})
+	prior.Hex = types.StringValue("#ffcf32")
+	got := planAction(config, config, prior)
+	if !known(got.Hex) || got.Hex.Equal(prior.Hex) {
+		t.Fatalf("missing changed color preview: %v", got.Hex)
+	}
+	actual := hue.Action{Color: &hue.ActionColor{XY: hue.XY{X: .1554, Y: .0996}}}
+	if next := reconcileAction(got, actual, hue.Light{}); !next.Hex.Equal(got.Hex) {
+		t.Fatal("preview changed after refresh")
+	}
+	config.XY = types.ObjectUnknown(xyTypes)
+	if !planAction(config, config, prior).Hex.IsUnknown() {
+		t.Fatal("unknown xy must retain unknown hex")
+	}
+}

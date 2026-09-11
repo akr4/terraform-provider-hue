@@ -490,8 +490,8 @@ func (r *sceneResource) ImportState(ctx context.Context, req resource.ImportStat
 	importID(ctx, req, resp)
 }
 
-// ModifyPlan resolves absent and unchanged computed counterparts without bridge
-// access. Hardware clipping belongs exclusively to refresh/reconcileAction.
+// ModifyPlan resolves computed counterparts without bridge access. Hex derived
+// from configured xy previews the requested color; refresh handles hardware clipping.
 func (r *sceneResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
 	if req.Plan.Raw.IsNull() {
 		return
@@ -570,6 +570,8 @@ func planAction(config, planned, prior actionModel) actionModel {
 		planned.Hex = types.StringUnknown()
 		if known(config.XY) && config.XY.Equal(prior.XY) {
 			planned.Hex = prior.Hex
+		} else if xy, ok := readXY(config.XY); ok {
+			planned.Hex = types.StringValue(colors.XYToHex(xy))
 		}
 	}
 	if config.Mirek.IsNull() && config.Kelvin.IsNull() {
