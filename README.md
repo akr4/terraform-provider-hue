@@ -176,3 +176,6 @@ Terraform (`akr4/hue`) and OpenTofu registries are manual steps.
 MIT. Philips Hue is a trademark of its owner; this project is independent.
 
 Smart scene schedules are supported by `hue_smart_scene`. See [smart scenes](docs/smart-scenes.md) for Hue-specific fields and runtime behavior.
+
+Use `hue-tf show SCENE_UUID` to inspect scene actions, smart scene schedules, and
+incoming v2 references. See [scene inspection](docs/show.md) for output and limits.

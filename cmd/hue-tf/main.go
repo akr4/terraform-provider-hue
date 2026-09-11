@@ -39,10 +39,13 @@ func run(ctx context.Context, args []string, out, errout io.Writer) error {
 }
 func runWith(ctx context.Context, args []string, out, errout io.Writer, deps dependencies) error {
 	if len(args) == 0 {
-		return errors.New("usage: hue-tf init | ls <room|zone|scene|smart_scene|light|device|switch|behavior_instance|behavior_script|button> [--json] | raw /clip/v2/<path> | pull [UUID | RESOURCE_ADDRESS] [--module NAME[.NAME...]] [--write]")
+		return errors.New("usage: hue-tf init | ls <room|zone|scene|smart_scene|light|device|switch|behavior_instance|behavior_script|button> [--json] | show SCENE_UUID | raw /clip/v2/<path> | pull [UUID | RESOURCE_ADDRESS] [--module NAME[.NAME...]] [--write]")
 	}
 	if args[0] == "pull" {
 		return pullScene(ctx, args[1:], out, deps)
+	}
+	if args[0] == "show" {
+		return showScene(ctx, args[1:], out, deps)
 	}
 	if args[0] == "init" {
 		if len(args) != 1 {
