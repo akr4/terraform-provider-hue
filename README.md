@@ -45,7 +45,7 @@ multiple bridges, set `HUE_BRIDGE_HOST` to select one. It also accepts that
 variable to bypass discovery. Output goes to stdout as shell-quoted exports;
 prompts go to stderr. Protect the printed application key like a password.
 
-`hue-tf ls scene` also shows the group type, name, and UUID, sorted by group.
+`hue-tf ls scene` and `hue-tf ls smart_scene` also show the group type, name, and UUID, sorted by group.
 This distinguishes scenes with the same name in different rooms or zones.
 `--json` returns the original resource objects for API resource types.
 `hue-tf ls switch` joins switch devices with their behavior assignments; its JSON output contains the same summary rows.
@@ -174,3 +174,5 @@ Terraform (`akr4/hue`) and OpenTofu registries are manual steps.
 ## License
 
 MIT. Philips Hue is a trademark of its owner; this project is independent.
+
+Smart scene schedules are supported by `hue_smart_scene`. See [smart scenes](docs/smart-scenes.md) for Hue-specific fields and runtime behavior.

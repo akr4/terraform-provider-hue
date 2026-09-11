@@ -35,7 +35,7 @@ func Inventory(data []byte, scope ...string) (map[string]bool, map[string]string
 			continue
 		}
 		for _, i := range r.Instances {
-			if r.Type == "hue_scene" || r.Type == "hue_room" || r.Type == "hue_zone" || r.Type == "hue_behavior_instance" {
+			if r.Type == "hue_scene" || r.Type == "hue_smart_scene" || r.Type == "hue_room" || r.Type == "hue_zone" || r.Type == "hue_behavior_instance" {
 				scenes[i.Attributes.ID] = true
 			}
 			if (r.Type == "hue_room" || r.Type == "hue_zone") && r.Module == moduleScope(scope) && len(i.IndexKey) == 0 && r.Provider == `provider["registry.terraform.io/akr4/hue"]` {

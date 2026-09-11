@@ -1,7 +1,7 @@
 # アプリから Terraform への取り込み
 
 `hue-tf pull` は Bridge 上の設定を Terraform に取り込みます。実機への書き込みは行いません。
-room・zone・scene・behavior_instance が対象です。新規・変更・削除を state の UUID と照合して判定します。
+room・zone・scene・smart_scene・behavior_instance が対象です。新規・変更・削除を state の UUID と照合して判定します。
 
 ## 基本操作
 
@@ -64,8 +64,8 @@ module を import 先にする場合も、pull は module 内の resource 定義
 
 ## 既存定義の編集と衝突
 
-name、archetype、children、scene の group・speed・auto_dynamic・image_id・actions、behavior の name・enabled・script_id・configuration が対象です。
-scene の palette など、読み取り専用属性は `.tf` に生成しません。
+room/zone の name・archetype・children、scene の name・group・speed・auto_dynamic・image_id・actions、smart_scene の name・group・week_timeslots・transition_duration、behavior の name・enabled・script_id・configuration が対象です。
+smart_scene の実行状態・画像、scene の palette など、読み取り専用属性は `.tf` に生成しません。
 scene actions の `gradient` と `effects` は `jsonencode({...})` の JSON オブジェクトとして保持します。
 これらを定義から省略した場合、provider は実機から読んだ設定を維持します。JSON 内の項目単位の pull にも対応します。
 `dynamics` など、その他の未対応の action 項目がある場合は停止します。

@@ -346,3 +346,14 @@ script_id の変更は置換。実行状態は読み取り専用。割り当て�
 同じ device を参照する割り当てがある場合、新規作成せず既存の import を案内する。
 CLI は ls switch による機器との対応表示、pull による新規取り込み・更新・削除、configuration 内のリテラル単位のマージ に対応する。
 運用手順・制約・API 参照は [スイッチ管理](switch-management.md) を参照。
+
+
+## 18. スマートシーン
+
+`hue_smart_scene` は smart_scene の作成・import・更新・削除に対応する。
+曜日ごとの `week_timeslots` は、曜日集合 `recurrence` と順序付きの `timeslots` で定義する。
+各枠の `start_time` は `HH:MM:SS` または `sunset`、`scene` は通常シーンの UUID または参照式。
+`transition_duration` はミリ秒で既定値60000。group の変更は置換となる。
+実行状態と画像は読み取り専用で、作成・更新時に recall や画像変更を送信しない。
+pull は未管理分の import ブロック準備と、管理済み定義の変更・衝突検出に対応する。
+詳細は [スマートシーン](smart-scenes.md) を参照する。

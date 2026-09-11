@@ -54,6 +54,7 @@ func New() *Bridge {
 			b.resources[kind][id.ID] = item
 		}
 	}
+	b.resources["smart_scene"] = map[string]json.RawMessage{}
 	b.resources["behavior_instance"] = map[string]json.RawMessage{}
 	b.resources["behavior_script"] = map[string]json.RawMessage{}
 	b.resources["button"] = map[string]json.RawMessage{}
@@ -155,7 +156,7 @@ func (b *Bridge) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		success(w, data)
 	case "POST", "PUT":
-		if kind != "room" && kind != "zone" && kind != "scene" && kind != "behavior_instance" {
+		if kind != "room" && kind != "zone" && kind != "scene" && kind != "smart_scene" && kind != "behavior_instance" {
 			failure(w, 405, "read only")
 			return
 		}
@@ -182,6 +183,28 @@ func (b *Bridge) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		var patch map[string]json.RawMessage
 		_ = json.Unmarshal(body, &patch)
+		if kind == "smart_scene" {
+			for key := range patch {
+				if key != "metadata" && key != "week_timeslots" && key != "transition_duration" && !(r.Method == "POST" && key == "group") {
+					failure(w, 400, "unexpected smart scene field")
+					return
+				}
+			}
+			var metadata map[string]json.RawMessage
+			_ = json.Unmarshal(patch["metadata"], &metadata)
+			if _, ok := metadata["image"]; ok {
+				failure(w, 400, "Image not modifiable")
+				return
+			}
+			var days []hue.SmartDay
+			if json.Unmarshal(patch["week_timeslots"], &days) != nil || hue.ValidateSmartSchedule(days) != nil {
+				failure(w, 400, "invalid smart scene schedule")
+				return
+			}
+			if r.Method == "POST" {
+				value["state"] = json.RawMessage(`"inactive"`)
+			}
+		}
 		if kind == "behavior_instance" {
 			if r.Method == "POST" {
 				var script string

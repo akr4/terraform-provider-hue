@@ -74,6 +74,8 @@ func ManagedResources(data []byte) ([]ManagedResource, error) {
 // RemoteDefinition projects supported writable attributes, excluding runtime fields.
 func RemoteDefinition(raw json.RawMessage, kind, name string, groups map[string]string) ([]byte, error) {
 	switch kind {
+	case "smart_scene":
+		return NewSmartScene(raw, name)
 	case "scene":
 		return NewScene(raw, name, groups)
 	case "behavior_instance":
@@ -252,7 +254,7 @@ func PrepareSync(dir, kind, name string, old map[string]json.RawMessage, remote 
 }
 
 func writableField(kind, k string) bool {
-	fields := map[string]string{"room": " name archetype children ", "zone": " name archetype children ", "scene": " name group actions speed auto_dynamic image_id ", "behavior_instance": " name enabled script_id configuration "}
+	fields := map[string]string{"room": " name archetype children ", "zone": " name archetype children ", "scene": " name group actions speed auto_dynamic image_id ", "behavior_instance": " name enabled script_id configuration ", "smart_scene": " name group week_timeslots transition_duration "}
 	return strings.Contains(fields[kind], " "+k+" ")
 }
 func absent(v cty.Value) bool { return v == cty.NilVal || v.IsNull() }
@@ -266,6 +268,22 @@ func equalValue(a, b cty.Value, field string) bool {
 		if ae == nil && be == nil {
 			return av.RawEquals(bv)
 		}
+	}
+	if strings.HasSuffix(field, ".recurrence") {
+		a = sortStrings(a)
+		b = sortStrings(b)
+	}
+	if strings.HasPrefix(field, "week_timeslots") && (a.Type().IsTupleType() || a.Type().IsListType()) && (b.Type().IsTupleType() || b.Type().IsListType()) {
+		av, bv := a.AsValueSlice(), b.AsValueSlice()
+		if len(av) != len(bv) {
+			return false
+		}
+		for i := range av {
+			if !equalValue(av[i], bv[i], fmt.Sprintf("%s[%d]", field, i)) {
+				return false
+			}
+		}
+		return true
 	}
 	// Terraform uses sets for children and pads optional object fields with nulls.
 	if field == "children" {

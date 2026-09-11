@@ -88,7 +88,7 @@ func pullIdentity(state []byte) string {
 }
 func fetchPullResources(ctx context.Context, client *hue.Client) (map[string]map[string]json.RawMessage, error) {
 	result := map[string]map[string]json.RawMessage{}
-	for _, kind := range []string{"room", "zone", "scene", "behavior_instance"} {
+	for _, kind := range []string{"room", "zone", "scene", "smart_scene", "behavior_instance"} {
 		var items []json.RawMessage
 		if err := client.Get(ctx, "/clip/v2/resource/"+kind, &items); err != nil {
 			return nil, err
@@ -163,7 +163,7 @@ func prepareBatch(state []byte, remote map[string]map[string]json.RawMessage, op
 	for _, r := range resources {
 		reserved[r.Address] = true
 	}
-	for _, kind := range []string{"room", "zone", "scene", "behavior_instance"} {
+	for _, kind := range []string{"room", "zone", "scene", "smart_scene", "behavior_instance"} {
 		ids := []string{}
 		for id := range remote[kind] {
 			ids = append(ids, id)

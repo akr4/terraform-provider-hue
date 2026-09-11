@@ -27,7 +27,7 @@ func ResourceAddress(address string) (kind, name string, err error) {
 		return "", "", fmt.Errorf("invalid resource name")
 	}
 	kind = strings.TrimPrefix(parts[0], "hue_")
-	if parts[0] != "hue_"+kind || (kind != "room" && kind != "zone" && kind != "scene" && kind != "behavior_instance") {
+	if parts[0] != "hue_"+kind || (kind != "room" && kind != "zone" && kind != "scene" && kind != "smart_scene" && kind != "behavior_instance") {
 		return "", "", fmt.Errorf("unsupported resource type")
 	}
 	return kind, parts[1], nil

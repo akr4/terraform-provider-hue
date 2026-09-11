@@ -196,6 +196,27 @@ func TestAccPullRoundTrip(t *testing.T) {
 	b.Put("scene", sceneID, scene)
 	write(sceneID, "--write")
 	apply()
+
+	smartID := "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+	start, _ := hue.ParseSmartStart("00:00:00")
+	smart := hue.SmartScene{ID: smartID, Type: "smart_scene", Metadata: hue.Metadata{Name: "Natural"}, Group: hue.Reference{RID: id, RType: "room"}, TransitionDuration: 60000, State: "inactive", WeekTimeslots: []hue.SmartDay{{Recurrence: []string{"monday", "sunday"}, Timeslots: []hue.SmartSlot{{StartTime: start, Target: hue.Reference{RID: sceneID, RType: "scene"}}}}}}
+	b.Put("smart_scene", smartID, smart)
+	write(smartID, "--write")
+	if _, e = run(ctx, "plan", "-input=false", "-generate-config-out=generated_smart.tf"); e != nil {
+		t.Fatal(e)
+	}
+	apply()
+	smart.WeekTimeslots[0].Timeslots[0].StartTime, _ = hue.ParseSmartStart("01:00:00")
+	b.Put("smart_scene", smartID, smart)
+	write(smartID, "--write")
+	generatedSmart, e := os.ReadFile("generated_smart.tf")
+	if e != nil || !strings.Contains(string(generatedSmart), "01:00:00") {
+		t.Fatalf("%s %v", generatedSmart, e)
+	}
+	apply()
+	b.Remove("smart_scene", smartID)
+	write(smartID, "--write")
+	apply()
 	b.Remove("scene", sceneID)
 	write(sceneID, "--write")
 	apply()

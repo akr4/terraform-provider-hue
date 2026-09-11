@@ -57,7 +57,7 @@ func pullNew(ctx context.Context, args []string, out io.Writer, deps dependencie
 	}
 	if opts.id == "" {
 		count := 0
-		for _, resourceKind := range []string{"room", "zone", "scene", "behavior_instance"} {
+		for _, resourceKind := range []string{"room", "zone", "scene", "smart_scene", "behavior_instance"} {
 			var items []json.RawMessage
 			if err = client.Get(ctx, "/clip/v2/resource/"+resourceKind, &items); err != nil {
 				return err
@@ -77,7 +77,7 @@ func pullNew(ctx context.Context, args []string, out io.Writer, deps dependencie
 			}
 			count += len(unmanaged)
 			fmt.Fprintf(out, "%s:\n", resourceKind)
-			if resourceKind == "scene" {
+			if resourceKind == "scene" || resourceKind == "smart_scene" {
 				if err = printScenes(ctx, client, unmanaged, out); err != nil {
 					return err
 				}
