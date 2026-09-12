@@ -40,11 +40,10 @@ type actionModel struct {
 	Mirek      types.Int64   `tfsdk:"mirek"`
 	Kelvin     types.Int64   `tfsdk:"kelvin"`
 	XY         types.Object  `tfsdk:"color_xy"`
-	Hex        types.String  `tfsdk:"color_hex"`
 }
 
 var xyTypes = map[string]attr.Type{"x": types.Float64Type, "y": types.Float64Type}
-var actionTypes = map[string]attr.Type{"gradient": types.StringType, "effects": types.StringType, "on": types.BoolType, "brightness": types.Float64Type, "mirek": types.Int64Type, "kelvin": types.Int64Type, "color_xy": types.ObjectType{AttrTypes: xyTypes}, "color_hex": types.StringType}
+var actionTypes = map[string]attr.Type{"gradient": types.StringType, "effects": types.StringType, "on": types.BoolType, "brightness": types.Float64Type, "mirek": types.Int64Type, "kelvin": types.Int64Type, "color_xy": types.ObjectType{AttrTypes: xyTypes}}
 var actionType = types.ObjectType{AttrTypes: actionTypes}
 
 func known(v attr.Value) bool { return !v.IsNull() && !v.IsUnknown() }
@@ -60,7 +59,7 @@ func readXY(v types.Object) (hue.XY, bool) {
 	return hue.XY{X: x.ValueFloat64(), Y: y.ValueFloat64()}, xok && yok && known(x) && known(y)
 }
 func emptyAction() actionModel {
-	return actionModel{Gradient: types.StringNull(), Effects: types.StringNull(), On: types.BoolNull(), Brightness: types.Float64Null(), Mirek: types.Int64Null(), Kelvin: types.Int64Null(), XY: types.ObjectNull(xyTypes), Hex: types.StringNull()}
+	return actionModel{Gradient: types.StringNull(), Effects: types.StringNull(), On: types.BoolNull(), Brightness: types.Float64Null(), Mirek: types.Int64Null(), Kelvin: types.Int64Null(), XY: types.ObjectNull(xyTypes)}
 }
 func actionsFrom(ctx context.Context, m types.Map) (map[string]actionModel, diag.Diagnostics) {
 	result := map[string]actionModel{}
@@ -74,7 +73,7 @@ func (r *sceneResource) Metadata(_ context.Context, req resource.MetadataRequest
 	resp.TypeName = req.ProviderTypeName + "_scene"
 }
 func (r *sceneResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
-	resp.Schema = schema.Schema{Description: "Manage a Hue scene. Changing its group replaces it. Palette is read-only in v0.", Attributes: map[string]schema.Attribute{
+	resp.Schema = schema.Schema{Version: 1, Description: "Manage a Hue scene. Changing its group replaces it. Palette is read-only in v0.", Attributes: map[string]schema.Attribute{
 		"id":           schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}, Description: "Bridge resource UUID."},
 		"name":         schema.StringAttribute{Required: true, Description: "Scene name."},
 		"group":        schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}, Description: "Room or zone UUID. Changes replace the scene."},
@@ -89,8 +88,7 @@ func (r *sceneResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 			"brightness": schema.Float64Attribute{Optional: true, Description: "Brightness from 0 to 100."},
 			"mirek":      schema.Int64Attribute{Optional: true, Computed: true, Description: "Color temperature, 153–500. Conflicts with kelvin; may omit both."},
 			"kelvin":     schema.Int64Attribute{Optional: true, Computed: true, Description: "Positive color temperature in kelvin. Conflicts with mirek."},
-			"color_hex":  schema.StringAttribute{Optional: true, Computed: true, Description: "sRGB #rrggbb. Conflicts with color_xy."},
-			"color_xy":   schema.SingleNestedAttribute{Optional: true, Computed: true, Description: "CIE xy. Conflicts with color_hex.", Attributes: map[string]schema.Attribute{"x": schema.Float64Attribute{Required: true}, "y": schema.Float64Attribute{Required: true}}},
+			"color_xy":   schema.SingleNestedAttribute{Optional: true, Computed: true, Description: "CIE xy chromaticity. Brightness is configured separately.", Attributes: map[string]schema.Attribute{"x": schema.Float64Attribute{Required: true}, "y": schema.Float64Attribute{Required: true}}},
 		}}},
 	}}
 }
@@ -158,12 +156,6 @@ func validateAction(a actionModel) []string {
 	}
 	if !a.Mirek.IsNull() && !a.Kelvin.IsNull() {
 		errs = append(errs, "mirek and kelvin cannot both be configured.")
-	}
-	if !a.XY.IsNull() && !a.Hex.IsNull() {
-		errs = append(errs, "color_xy and color_hex cannot both be configured.")
-	}
-	if known(a.Hex) && !colors.ValidHex(a.Hex.ValueString()) {
-		errs = append(errs, "color_hex must be #rrggbb.")
 	}
 	if known(a.Mirek) && (a.Mirek.ValueInt64() < 153 || a.Mirek.ValueInt64() > 500) {
 		errs = append(errs, "mirek must be between 153 and 500.")
@@ -253,12 +245,6 @@ func (r *sceneResource) body(ctx context.Context, m sceneModel, config sceneMode
 		}
 		if p, ok := readXY(c.XY); ok {
 			action.Color = &hue.ActionColor{XY: colors.Round(p)}
-		} else if known(c.Hex) {
-			p, err := colors.HexToXY(c.Hex.ValueString())
-			if err != nil {
-				return scene, err
-			}
-			action.Color = &hue.ActionColor{XY: colors.Round(p)}
 		}
 		scene.Actions = append(scene.Actions, hue.SceneAction{Target: hue.Reference{RID: id, RType: "light"}, Action: action})
 	}
@@ -286,19 +272,10 @@ func reconcileAction(prior actionModel, actual hue.Action, light hue.Light) acti
 			}
 		}
 		next.XY = xyValue(actual.Color.XY)
-		next.Hex = types.StringValue(colors.XYToHex(actual.Color.XY))
 		expected, ok := readXY(prior.XY)
-		if !ok && known(prior.Hex) {
-			var err error
-			expected, err = colors.HexToXY(prior.Hex.ValueString())
-			ok = err == nil
-		}
 		if ok && colors.EqualXY(expected, actual.Color.XY, gamut) {
 			if known(prior.XY) {
 				next.XY = prior.XY
-			}
-			if known(prior.Hex) {
-				next.Hex = prior.Hex
 			}
 		}
 	}
@@ -489,8 +466,7 @@ func (r *sceneResource) ImportState(ctx context.Context, req resource.ImportStat
 	importID(ctx, req, resp)
 }
 
-// ModifyPlan resolves computed counterparts without bridge access. Hex derived
-// from configured xy previews the requested color; refresh handles hardware clipping.
+// ModifyPlan resolves computed temperature counterparts without bridge access.
 func (r *sceneResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
 	if req.Plan.Raw.IsNull() {
 		return
@@ -551,27 +527,14 @@ func (r *sceneResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 	resp.Diagnostics.Append(resp.Plan.Set(ctx, &planned)...)
 }
 func planAction(config, planned, prior actionModel) actionModel {
+	if config.XY.IsNull() {
+		planned.XY = types.ObjectNull(xyTypes)
+	}
 	if config.Gradient.IsNull() {
 		planned.Gradient = prior.Gradient
 	}
 	if config.Effects.IsNull() {
 		planned.Effects = prior.Effects
-	}
-	if config.Hex.IsNull() && config.XY.IsNull() {
-		planned.Hex = types.StringNull()
-		planned.XY = types.ObjectNull(xyTypes)
-	} else if !config.Hex.IsNull() {
-		planned.XY = types.ObjectUnknown(xyTypes)
-		if known(config.Hex) && config.Hex.Equal(prior.Hex) {
-			planned.XY = prior.XY
-		}
-	} else {
-		planned.Hex = types.StringUnknown()
-		if known(config.XY) && config.XY.Equal(prior.XY) {
-			planned.Hex = prior.Hex
-		} else if xy, ok := readXY(config.XY); ok {
-			planned.Hex = types.StringValue(colors.XYToHex(xy))
-		}
 	}
 	if config.Mirek.IsNull() && config.Kelvin.IsNull() {
 		planned.Mirek = types.Int64Null()

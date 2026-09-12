@@ -193,6 +193,46 @@ func TestAccPullRoundTrip(t *testing.T) {
 		t.Fatal(e)
 	}
 	apply()
+	// Simulate a version-0 state locally, then let Terraform perform the upgrade.
+	legacy, e := stateReader(deps)(ctx)
+	if e != nil {
+		t.Fatal(e)
+	}
+	var legacyState map[string]any
+	if e = json.Unmarshal(legacy, &legacyState); e != nil {
+		t.Fatal(e)
+	}
+	for _, item := range legacyState["resources"].([]any) {
+		r := item.(map[string]any)
+		if r["type"] != "hue_scene" {
+			continue
+		}
+		for _, instance := range r["instances"].([]any) {
+			i := instance.(map[string]any)
+			i["schema_version"] = float64(0)
+			attrs := i["attributes"].(map[string]any)
+			for _, action := range attrs["actions"].(map[string]any) {
+				action.(map[string]any)["color_hex"] = nil
+			}
+		}
+	}
+	legacy, _ = json.Marshal(legacyState)
+	if e = os.WriteFile("terraform.tfstate", legacy, 0600); e != nil {
+		t.Fatal(e)
+	}
+	apply()
+	planJSON, e := run(ctx, "show", "-json", filepath.Join(root, "user.tfplan"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	var html bytes.Buffer
+	if e = previewCommand([]string{"--html"}, bytes.NewReader(planJSON), &html); e != nil {
+		t.Fatal(e)
+	}
+	if !bytes.Contains(html.Bytes(), []byte("Evening")) || bytes.Contains(html.Bytes(), []byte("ZgotmplZ")) {
+		t.Fatal("invalid evaluated plan preview")
+	}
+
 	smartID := "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
 	start, _ := hue.ParseSmartStart("00:00:00")
 	smart := hue.SmartScene{ID: smartID, Type: "smart_scene", Metadata: hue.Metadata{Name: "Natural"}, Group: hue.Reference{RID: id, RType: "room"}, TransitionDuration: 60000, State: "inactive", WeekTimeslots: []hue.SmartDay{{Recurrence: []string{"monday", "sunday"}, Timeslots: []hue.SmartSlot{{StartTime: start, Target: hue.Reference{RID: sceneID, RType: "scene"}}}}}}

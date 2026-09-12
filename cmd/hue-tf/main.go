@@ -28,6 +28,7 @@ func main() {
 }
 
 type dependencies struct {
+	stdin     io.Reader
 	wait      func(context.Context, time.Duration) error
 	terraform func(context.Context, ...string) ([]byte, error)
 	readState func(context.Context) ([]byte, error)
@@ -40,7 +41,10 @@ func run(ctx context.Context, args []string, out, errout io.Writer) error {
 }
 func runWith(ctx context.Context, args []string, out, errout io.Writer, deps dependencies) error {
 	if len(args) == 0 {
-		return errors.New("usage: hue-tf init | ls <room|zone|scene|smart_scene|light|device|switch|behavior_instance|behavior_script|button> [--json] | show SCENE_UUID | recall SCENE_UUID [--action ACTION] | identify DEVICE_UUID_OR_LIGHT_UUID [--count N] | raw /clip/v2/<path> | import-blocks [UUID | RESOURCE_ADDRESS ...] [--module NAME[.NAME...]] [--write]")
+		return errors.New("usage: hue-tf init | ls <room|zone|scene|smart_scene|light|device|switch|behavior_instance|behavior_script|button> [--json] | show SCENE_UUID | recall SCENE_UUID [--action ACTION] | identify DEVICE_UUID_OR_LIGHT_UUID [--count N] | raw /clip/v2/<path> | preview [PLAN_JSON|-] [--html] [--all] [--output FILE] | import-blocks [UUID | RESOURCE_ADDRESS ...] [--module NAME[.NAME...]] [--write]")
+	}
+	if args[0] == "preview" {
+		return previewCommand(args[1:], deps.stdin, out)
 	}
 	if args[0] == "pull" {
 		return errors.New("pull was replaced by import-blocks; existing resource synchronization has been removed")

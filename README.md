@@ -65,6 +65,11 @@ for module support and interrupted-run recovery.
 The former `pull` command now reports the replacement command; saved pull
 baselines are no longer used.
 
+`hue-tf preview` renders a Terraform plan JSON as terminal color swatches.
+`--html --output preview.html` creates a standalone view of all planned scenes,
+with search and before/after colors. It uses Terraform's evaluated values rather
+than interpreting `.tf` files. See [scene preview](docs/preview.md).
+
 `hue-tf recall SCENE_UUID` applies a saved scene to the lights (or activates a
 smart scene). `hue-tf identify DEVICE_UUID_OR_LIGHT_UUID` requests a visual
 identification signal. These are explicit runtime writes; they do not alter
@@ -134,11 +139,13 @@ import {
 }
 ```
 
-For actions, choose at most one of `mirek` / `kelvin`, and at most one of
-`color_xy` / `color_hex`. The other representation is computed. Omitting both
-members of a pair removes that property from the action. Comparisons use xy and
-mirek, preserving configured values when hardware gamut/range clipping produces
-an equivalent result. Actual drift updates both representations in state.
+Scene colors use `color_xy` with independent `brightness`. `color_hex` is no
+longer a resource attribute; schema version 1 removes the old state alias while
+preserving saved xy. Existing hex configurations must be changed to the saved xy
+before upgrading. Do not recalculate an already managed color from hex.
+For temperature, choose at most one of `mirek` / `kelvin`; the other is computed.
+Comparisons preserve configured values when hardware gamut/range clipping
+produces an equivalent result.
 Kelvin conversions are bounded to the API's 153–500 mirek range before writing;
 refresh comparison also accounts for each light's narrower supported range. For
 gamut `other`, the light's explicit gamut triangle is used when available.

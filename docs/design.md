@@ -39,7 +39,7 @@ terraform-provider-hue/
 │   │   ├── client.go          # HTTP、TLS、rate limit、リトライ
 │   │   ├── types.go           # room / zone / scene / light / device の struct
 │   │   └── ca.pem             # Signify root CA（埋め込み）
-│   ├── color/                 # 色変換（hex ↔ xy、kelvin ↔ mirek、gamut クリップ）
+│   ├── color/                 # 色変換（xy の表示変換、kelvin ↔ mirek、gamut クリップ）
 │   ├── provider/              # plugin-framework の provider / resources / data sources
 │   └── fakebridge/            # テスト用フェイク bridge（httptest）
 ├── cmd/hue-tf/                # 補助 CLI
@@ -170,7 +170,7 @@ resource "hue_scene" "evening" {
     (data.hue_light.floor.id) = {
       on         = true
       brightness = 20
-      color_hex  = "#ff8800"
+      color_xy   = { x = 0.5, y = 0.4 }
     }
   }
 
@@ -198,10 +198,9 @@ action object:
 | `mirek` | Optional, Computed | 色温度（153〜500） |
 | `kelvin` | Optional, Computed | 色温度（ケルビン）。`mirek` と排他 |
 | `color_xy` | Optional, Computed, object `{x, y}` | CIE xy |
-| `color_hex` | Optional, Computed | `#rrggbb`。`color_xy` と排他 |
 
 - `mirek` / `kelvin` は ExactlyOneOf ではなく「両方省略可、両方指定は不可」。片方を指定すると他方は provider が計算して埋める
-- `color_xy` / `color_hex` も同様
+- 色は `color_xy` と独立した `brightness` で指定する。`color_hex` は廃止し、state schema version 1 で旧属性だけを除去して xy を保持する。
 - `palette` は v0 では読み取り専用（Computed）とし、書き込みは v1 以降で対応する
 - `actions` は Map なので、要素の追加・削除・変更は light ごとに独立した差分として表示される
 
@@ -209,22 +208,16 @@ action object:
 
 ### 方針
 
-- bridge 側の正の値は xy と mirek。HCL では hex と kelvin でも書ける
-- 比較（差分判定）は必ず xy 空間・mirek 空間で行う。hex 同士、kelvin 同士を比較しない
+- bridge 側の正の値は xy と mirek。HCL の色は xy、色温度は mirek または kelvin で書く
+- 比較（差分判定）は必ず xy 空間・mirek 空間で行う。kelvin 同士を比較しない
 - 変換は `internal/color` パッケージに純粋関数として実装し、table-driven test で検証する
 
-### hex → xy
+### 色の表示
 
-1. sRGB をガンマ補正して線形 RGB に変換
-2. Wide RGB D65 の変換行列で XYZ に変換（Philips の公開している式に従う）
-3. xy に正規化
-4. 対象 light の `gamut_type`（Read 時に取得）に応じて、色域三角形の外側なら最も近い辺上の点にクリップ
-5. 小数 4 桁に丸める
-
-### xy → hex（表示用）
-
-- 輝度は最大（Y = 1 相当）として逆変換し、sRGB にクリップして `#rrggbb` にする
-- 近似値であり、往復で元の hex に戻ることは保証しない
+- `.tf` は xy と brightness を保持する。表示のために元データを RGB へ置換しない。
+- `hue-tf preview` は Terraform plan JSON を読み、ターミナルでは正規化した RGB の色見本を表示する。
+- HTML は CSS XYZ の色見本と、明るさを近似的に反映した色見本を並べる。照明の測定輝度とディスプレイの輝度は同一とみなさない。
+- `show` の hex は表示用の近似値であり、provider の設定・state 属性ではない。
 
 ### kelvin ↔ mirek
 
@@ -233,10 +226,10 @@ action object:
 
 ### semantic equality
 
-- `color_xy`: 設定値（hex から変換した値、または直接指定した xy）と bridge の値の差が x, y ともに 0.001 以内なら等しいとみなす
+- `color_xy`: 設定値の xy と bridge の値の差が x, y ともに 0.001 以内なら等しいとみなす
 - `mirek`: 設定値（kelvin から変換した値、または直接指定）と bridge の値の差が ±1 以内なら等しいとみなす
-- 等しい場合、state には設定側の表現（ユーザーが書いた hex / kelvin）をそのまま保持する
-- 等しくない場合（drift）、state には bridge の値と、そこから計算した表示用の hex / kelvin を入れる。plan には両方の行が差分として表示される
+- 等しい場合、state には設定側の表現（ユーザーが書いた xy / kelvin）をそのまま保持する
+- 等しくない場合（drift）、state の xy / mirek を実機の値へ更新する。色温度の kelvin も再計算する
 
 ### Read での色域取得
 
@@ -258,7 +251,7 @@ action object:
 ### v1 以降の候補
 
 - `hue-tf import-blocks`: 未管理リソースの import ブロックを生成する。resource 定義は Terraform の設定生成または手書きに任せる（詳細は第16節）。
-- `hue-tf color <hex> --gamut <type>`: 色変換の確認
+- `hue-tf preview [PLAN_JSON] [--html]`: 評価済み設定と差分を色見本として表示
 - `hue-tf recall SCENE_UUID [--action ACTION]` と `hue-tf identify DEVICE_UUID_OR_LIGHT_UUID` は実装済み。明示的な実行時操作として Bridge に PUT し、Terraform 定義・state は変更しない。詳細は [実行時操作](runtime-commands.md) を参照。
 
 ### 認証情報の受け渡し
@@ -301,7 +294,7 @@ action object:
 | 3 | 補助 CLI | 作る。`init` を最初から載せる | key 発行は対話が要るため provider に入れない。CLI に集約する |
 | 4 | children / actions の型 | children は Set、actions は light ID キーの Map | 順序ノイズを排除しつつ、light 単位の差分を読みやすくする |
 | 5 | data のキー | `id` のみ | name は重複しうる。生成 CLI が id を埋める前提 |
-| 6 | 色・色温度の属性 | hex / xy、kelvin / mirek を両方受ける内部変換。比較は xy / mirek 空間 | 人間が書ける・読める・drift も読める。semantic equality で往復のずれを吸収する |
+| 6 | 色・色温度の属性 | xy と brightness を独立に指定し、色温度は kelvin / mirek を受ける。比較は xy / mirek 空間 | 色情報の保持と可視化を分離する。色見本は preview が担当し、provider は実機補正との同値判定を行う |
 | 7 | TLS | Signify CA を同梱して検証。CN 照合なし。insecure なし | Hue アプリと同等の信頼モデル。bridge ID の同定は host に委ねる |
 | 8 | rate limit | provider 内で制御、値は固定、429 リトライあり | 利用者に `-parallelism` を意識させない |
 | 9 | Hue クライアント | 自前で薄く書く | provider の都合に合わせた型にする |

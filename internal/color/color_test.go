@@ -2,32 +2,18 @@ package color
 
 import (
 	"github.com/akr4/terraform-provider-hue/internal/hue"
-	"math"
 	"testing"
 )
 
-func TestHexConversion(t *testing.T) {
-	for _, tc := range []struct {
-		hex string
-		xy  hue.XY
-	}{{"#ff0000", hue.XY{X: 0.7006, Y: 0.2993}}, {"#00ff00", hue.XY{X: 0.1724, Y: 0.7468}}, {"#0000ff", hue.XY{X: 0.1355, Y: 0.0399}}, {"#000000", hue.XY{}}} {
-		t.Run(tc.hex, func(t *testing.T) {
-			p, err := HexToXY(tc.hex)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if math.Abs(p.X-tc.xy.X) > 0.0001 || math.Abs(p.Y-tc.xy.Y) > 0.0001 {
-				t.Fatalf("got %+v", p)
-			}
-			if got := XYToHex(p); got != tc.hex {
-				t.Fatalf("inverse = %s", got)
-			}
-		})
-	}
-	for _, hex := range []string{"red", "#fff", "#gg0000", "ff0000"} {
-		if _, err := HexToXY(hex); err == nil {
-			t.Errorf("accepted %s", hex)
+func TestXYDisplay(t *testing.T) {
+	for _, xy := range []hue.XY{{X: 0.3, Y: 0.4}, {X: 0.7, Y: 0.3}, {}} {
+		got := XYToHex(xy)
+		if len(got) != 7 || got[0] != '#' {
+			t.Fatal(got)
 		}
+	}
+	if got := XYToHex(hue.XY{}); got != "#000000" {
+		t.Fatal(got)
 	}
 }
 func TestGamutClipping(t *testing.T) {

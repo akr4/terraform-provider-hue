@@ -63,8 +63,7 @@ resource "hue_scene" "evening" {
 Optional:
 
 - `brightness` (Number) Brightness from 0 to 100.
-- `color_hex` (String) sRGB #rrggbb. Conflicts with color_xy.
-- `color_xy` (Attributes) CIE xy. Conflicts with color_hex. (see [below for nested schema](#nestedatt--actions--color_xy))
+- `color_xy` (Attributes) CIE xy chromaticity. Brightness is configured separately. (see [below for nested schema](#nestedatt--actions--color_xy))
 - `effects` (String) Effect action as a JSON object; use jsonencode. Preserved from the bridge when omitted.
 - `gradient` (String) Gradient action as a JSON object; use jsonencode. Preserved from the bridge when omitted.
 - `kelvin` (Number) Positive color temperature in kelvin. Conflicts with mirek.

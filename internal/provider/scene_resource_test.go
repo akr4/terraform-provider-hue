@@ -11,21 +11,6 @@ import (
 
 func TestReconcileAction(t *testing.T) {
 	light := hue.Light{Color: &hue.Color{GamutType: "C"}, ColorTemperature: &hue.ColorTemperature{MirekSchema: hue.MirekSchema{Min: 200, Max: 450}}}
-	t.Run("preserves clipped hex", func(t *testing.T) {
-		a := emptyAction()
-		a.Hex = types.StringValue("#FF0000")
-		a.XY = types.ObjectUnknown(xyTypes)
-		p, _ := colors.HexToXY(a.Hex.ValueString())
-		actual := hue.Action{Color: &hue.ActionColor{XY: colors.Round(colors.Clip(p, colors.Gamut("C")))}}
-		got := reconcileAction(a, actual, light)
-		if got.Hex != a.Hex {
-			t.Fatal(got.Hex)
-		}
-		again := reconcileAction(got, actual, light)
-		if !again.XY.Equal(got.XY) || again.Hex != got.Hex {
-			t.Fatal("unstable refresh")
-		}
-	})
 	t.Run("preserves clipped kelvin", func(t *testing.T) {
 		a := emptyAction()
 		a.Kelvin = types.Int64Value(1000)
@@ -48,21 +33,19 @@ func TestReconcileAction(t *testing.T) {
 	})
 	t.Run("drift replaces both representations", func(t *testing.T) {
 		a := emptyAction()
-		a.Hex = types.StringValue("#ff0000")
 		a.XY = xyValue(hue.XY{X: .6915, Y: .3083})
 		a.Kelvin = types.Int64Value(2700)
 		a.Mirek = types.Int64Value(370)
 		actual := hue.Action{Color: &hue.ActionColor{XY: hue.XY{X: .3, Y: .3}}, ColorTemperature: &hue.Temperature{Mirek: 300}}
 		got := reconcileAction(a, actual, light)
-		if got.Hex == a.Hex || got.XY.Equal(a.XY) || got.Kelvin == a.Kelvin || got.Mirek == a.Mirek {
+		if got.XY.Equal(a.XY) || got.Kelvin == a.Kelvin || got.Mirek == a.Mirek {
 			t.Fatal(got)
 		}
 	})
 	t.Run("removed values become null", func(t *testing.T) {
 		a := emptyAction()
-		a.Hex = types.StringValue("#ff0000")
 		got := reconcileAction(a, hue.Action{}, light)
-		if !got.Hex.IsNull() || !got.XY.IsNull() || !got.Kelvin.IsNull() {
+		if !got.XY.IsNull() || !got.Kelvin.IsNull() {
 			t.Fatal(got)
 		}
 	})
@@ -73,8 +56,6 @@ func TestValidateAction(t *testing.T) {
 		change func(*actionModel)
 	}{
 		{"temperature conflict", func(a *actionModel) { a.Mirek = types.Int64Value(370); a.Kelvin = types.Int64Value(2700) }},
-		{"color conflict", func(a *actionModel) { a.Hex = types.StringValue("#ff0000"); a.XY = xyValue(hue.XY{X: .3, Y: .3}) }},
-		{"bad hex", func(a *actionModel) { a.Hex = types.StringValue("red") }},
 		{"bad brightness", func(a *actionModel) { a.Brightness = types.Float64Value(101) }},
 		{"bad kelvin", func(a *actionModel) { a.Kelvin = types.Int64Value(0) }},
 		{"bad xy", func(a *actionModel) { a.XY = xyValue(hue.XY{X: .8, Y: .8}) }},
@@ -107,55 +88,25 @@ func TestActionsUnknown(t *testing.T) {
 
 func TestPlanAction(t *testing.T) {
 	prior := emptyAction()
-	prior.Hex = types.StringValue("#FF0000")
-	prior.XY = xyValue(hue.XY{X: .6915, Y: .3083})
+	prior.XY = xyValue(hue.XY{X: 0.3, Y: 0.4})
 	prior.Kelvin = types.Int64Value(2700)
 	prior.Mirek = types.Int64Value(370)
 	config := emptyAction()
-	config.Hex = prior.Hex
 	config.Kelvin = prior.Kelvin
 	planned := config
-	planned.XY = types.ObjectUnknown(xyTypes)
 	planned.Mirek = types.Int64Unknown()
 	got := planAction(config, planned, prior)
-	if !got.XY.Equal(prior.XY) || got.Mirek != prior.Mirek {
+	if got.Mirek != prior.Mirek {
 		t.Fatal("unchanged counterparts not preserved")
 	}
-	config.Hex = types.StringValue("#00ff00")
 	config.Kelvin = types.Int64Value(3000)
 	got = planAction(config, config, prior)
-	if !got.XY.IsUnknown() || !got.Mirek.IsUnknown() {
+	if !got.Mirek.IsUnknown() {
 		t.Fatal("stale counterparts retained")
 	}
 	config = emptyAction()
 	got = planAction(config, prior, prior)
-	if !got.XY.IsNull() || !got.Hex.IsNull() || !got.Mirek.IsNull() || !got.Kelvin.IsNull() {
+	if !got.XY.IsNull() || !got.Mirek.IsNull() || !got.Kelvin.IsNull() {
 		t.Fatal("absent pair was not removed")
-	}
-	config = emptyAction()
-	config.Hex = types.StringUnknown()
-	got = planAction(config, config, prior)
-	if !got.XY.IsUnknown() {
-		t.Fatal("unknown primary reused counterpart")
-	}
-}
-
-func TestPlanActionXYPreview(t *testing.T) {
-	config := emptyAction()
-	config.XY = xyValue(hue.XY{X: .1554, Y: .0996})
-	prior := emptyAction()
-	prior.XY = xyValue(hue.XY{X: .4964, Y: .4542})
-	prior.Hex = types.StringValue("#ffcf32")
-	got := planAction(config, config, prior)
-	if !known(got.Hex) || got.Hex.Equal(prior.Hex) {
-		t.Fatalf("missing changed color preview: %v", got.Hex)
-	}
-	actual := hue.Action{Color: &hue.ActionColor{XY: hue.XY{X: .1554, Y: .0996}}}
-	if next := reconcileAction(got, actual, hue.Light{}); !next.Hex.Equal(got.Hex) {
-		t.Fatal("preview changed after refresh")
-	}
-	config.XY = types.ObjectUnknown(xyTypes)
-	if !planAction(config, config, prior).Hex.IsUnknown() {
-		t.Fatal("unknown xy must retain unknown hex")
 	}
 }

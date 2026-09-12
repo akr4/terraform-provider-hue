@@ -97,10 +97,10 @@ func TestAccScene(t *testing.T) {
 	addr := "hue_scene.test"
 	var sceneID string
 	resource.Test(t, resource.TestCase{ProtoV6ProviderFactories: factories(b), CheckDestroy: destroyed(b), Steps: []resource.TestStep{
-		{Config: sceneConfig("on = true\nbrightness = 40\ncolor_hex = \"#FF0000\"", "Evening", "room"), Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr(addr, "actions."+fakebridge.LightID+".color_hex", "#FF0000"), func(s *terraform.State) error { sceneID = s.RootModule().Resources[addr].Primary.ID; return nil })},
-		{Config: sceneConfig("on = true\nbrightness = 40\ncolor_hex = \"#FF0000\"", "Evening", "room"), PlanOnly: true},
-		{ResourceName: addr, ImportState: true, ImportStateVerify: true, ImportStateVerifyIgnore: []string{"actions." + fakebridge.LightID + ".color_hex"}},
-		{Config: sceneConfig("on = false\nbrightness = 20\nkelvin = 1000", "Warm", "room"), Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr(addr, "actions."+fakebridge.LightID+".kelvin", "1000"), resource.TestCheckResourceAttr(addr, "actions."+fakebridge.LightID+".mirek", "450"), resource.TestCheckNoResourceAttr(addr, "actions."+fakebridge.LightID+".color_hex"))},
+		{Config: sceneConfig("on = true\nbrightness = 40\ncolor_xy = { x = 0.6915, y = 0.3083 }", "Evening", "room"), Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr(addr, "actions."+fakebridge.LightID+".color_xy.x", "0.6915"), func(s *terraform.State) error { sceneID = s.RootModule().Resources[addr].Primary.ID; return nil })},
+		{Config: sceneConfig("on = true\nbrightness = 40\ncolor_xy = { x = 0.6915, y = 0.3083 }", "Evening", "room"), PlanOnly: true},
+		{ResourceName: addr, ImportState: true, ImportStateVerify: true},
+		{Config: sceneConfig("on = false\nbrightness = 20\nkelvin = 1000", "Warm", "room"), Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr(addr, "actions."+fakebridge.LightID+".kelvin", "1000"), resource.TestCheckResourceAttr(addr, "actions."+fakebridge.LightID+".mirek", "450"), resource.TestCheckNoResourceAttr(addr, "actions."+fakebridge.LightID+".color_xy"))},
 		{Config: sceneConfig("on = false\nbrightness = 20\nkelvin = 1000", "Warm", "room"), PlanOnly: true},
 		{Config: sceneConfig("mirek = 200", "Cool", "room"), Check: resource.TestCheckResourceAttr(addr, "actions."+fakebridge.LightID+".kelvin", "5000")},
 		{PreConfig: func() {
@@ -123,7 +123,7 @@ func TestAccScene(t *testing.T) {
 func TestAccValidation(t *testing.T) {
 	b := fakebridge.New()
 	defer b.Close()
-	resource.Test(t, resource.TestCase{ProtoV6ProviderFactories: factories(b), Steps: []resource.TestStep{{Config: sceneConfig("mirek = 370\nkelvin = 2700", "Invalid", "room"), ExpectError: regexp.MustCompile("cannot both be configured")}, {Config: sceneConfig("color_hex = \"red\"", "Invalid", "room"), ExpectError: regexp.MustCompile("color_hex must be")}}})
+	resource.Test(t, resource.TestCase{ProtoV6ProviderFactories: factories(b), Steps: []resource.TestStep{{Config: sceneConfig("mirek = 370\nkelvin = 2700", "Invalid", "room"), ExpectError: regexp.MustCompile("cannot both be configured")}}})
 }
 
 func TestAccSceneActionsAndMetadata(t *testing.T) {
@@ -131,7 +131,7 @@ func TestAccSceneActionsAndMetadata(t *testing.T) {
 	defer b.Close()
 	var id string
 	config := func(two bool) string {
-		hcl := sceneConfig("on = true\ncolor_hex = \"#ff0000\"", "Original", "room")
+		hcl := sceneConfig("on = true\ncolor_xy = { x = 0.6915, y = 0.3083 }", "Original", "room")
 		if two {
 			hcl = strings.Replace(hcl, "actions = {", "actions = {\n\""+fakebridge.WhiteLightID+"\" = { on = false }", 1)
 		}

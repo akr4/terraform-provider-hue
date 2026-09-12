@@ -1,19 +1,14 @@
-// Package color implements the Hue Wide RGB D65 conversions. XY is independent
+// Package color provides temperature conversions, gamut clipping and display colors. XY is independent
 // of brightness; hex reconstructed from XY is for display only.
 package color
 
 import (
 	"fmt"
 	"math"
-	"regexp"
-	"strconv"
 
 	"github.com/akr4/terraform-provider-hue/internal/hue"
 )
 
-var hexPattern = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
-
-func ValidHex(s string) bool { return hexPattern.MatchString(s) }
 func KelvinToMirek(k int64) int64 {
 	if k <= 0 {
 		return 0
@@ -39,31 +34,11 @@ func ClampMirek(m, min, max int64) int64 {
 	return m
 }
 func EqualMirek(a, b, min, max int64) bool { return math.Abs(float64(ClampMirek(a, min, max)-b)) <= 1 }
-func linear(v float64) float64 {
-	if v > 0.04045 {
-		return math.Pow((v+0.055)/1.055, 2.4)
-	}
-	return v / 12.92
-}
 func gamma(v float64) float64 {
 	if v <= 0.0031308 {
 		return 12.92 * v
 	}
 	return 1.055*math.Pow(v, 1/2.4) - 0.055
-}
-func HexToXY(s string) (hue.XY, error) {
-	if !ValidHex(s) {
-		return hue.XY{}, fmt.Errorf("color_hex must be #rrggbb")
-	}
-	n, _ := strconv.ParseUint(s[1:], 16, 24)
-	r, g, b := linear(float64(n>>16)/255), linear(float64(n>>8&255)/255), linear(float64(n&255)/255)
-	x := r*0.664511 + g*0.154324 + b*0.162028
-	y := r*0.283881 + g*0.668433 + b*0.047685
-	z := r*0.000088 + g*0.072310 + b*0.986039
-	if x+y+z == 0 {
-		return hue.XY{}, nil
-	}
-	return hue.XY{X: x / (x + y + z), Y: y / (x + y + z)}, nil
 }
 func XYToHex(p hue.XY) string {
 	if p.Y <= 0 {
