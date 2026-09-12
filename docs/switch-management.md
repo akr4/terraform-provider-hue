@@ -25,12 +25,12 @@ hue-tf ls behavior_script
 
 ```sh
 # 新規・既存を自動判定し、新規分の import ブロックを準備する
-hue-tf pull BEHAVIOR_UUID --module bedroom
-hue-tf pull BEHAVIOR_UUID --module bedroom --write
+hue-tf import-blocks BEHAVIOR_UUID --module bedroom
+hue-tf import-blocks BEHAVIOR_UUID --module bedroom --write
 ```
 
 新規の場合、behavior の名前から Terraform のリソース名を生成します。
-既存の場合は state のアドレスを維持します。通常の `pull --write` は新規分の import ブロックも生成します。新規の resource 定義は Terraform の `plan -generate-config-out=generated.tf` または手書きで用意し、plan/apply で取り込みを完了します。
+管理済みの割り当てはスキップします。新規分の import ブロックだけを生成し、既存定義は変更しません。
 Bridge に割り当て自体が存在しない場合は、下記の作成手順を使用します。
 
 ## 未設定のスイッチに割り当てを作る
@@ -81,8 +81,8 @@ plan で対象と差分を確認し、ユーザー自身で apply します。�
 ## アプリで変更した設定を取り込む
 
 ```sh
-hue-tf pull module.bedroom.hue_behavior_instance.switch
-hue-tf pull module.bedroom.hue_behavior_instance.switch --write
+hue-tf import-blocks module.bedroom.hue_behavior_instance.switch
+hue-tf import-blocks module.bedroom.hue_behavior_instance.switch --write
 ```
 
 name、enabled、script_id、jsonencode configuration が対象です。

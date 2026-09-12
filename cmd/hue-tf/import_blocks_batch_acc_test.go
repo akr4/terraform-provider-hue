@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"testing"
 	"time"
 
@@ -130,7 +129,7 @@ func TestAccPullRoundTrip(t *testing.T) {
 			t.Fatal(e)
 		}
 		var out bytes.Buffer
-		if e = pullBatch(ctx, args, &out, deps); e != nil {
+		if e = importBlocks(ctx, args, &out, deps); e != nil {
 			t.Fatal(e, out.String())
 		}
 		after, e := stateReader(deps)(ctx)
@@ -143,7 +142,7 @@ func TestAccPullRoundTrip(t *testing.T) {
 	group := hue.Group{ID: id, Type: "room", Metadata: hue.Metadata{Name: "Imported", Archetype: "bedroom"}, Children: []hue.Reference{}}
 	b.Put("room", id, group)
 	var output bytes.Buffer
-	if e = pullBatch(ctx, nil, &output, deps); e != nil {
+	if e = importBlocks(ctx, nil, &output, deps); e != nil {
 		t.Fatal(e, output.String())
 	}
 	if _, e = os.Stat("room_Imported.tf"); !os.IsNotExist(e) {
@@ -163,18 +162,20 @@ func TestAccPullRoundTrip(t *testing.T) {
 	if e != nil || !bytes.Contains(state, []byte(id)) {
 		t.Fatalf("state: %s %v", state, e)
 	}
+	contents, e := os.ReadFile("generated.tf")
+	if e != nil {
+		t.Fatal(e)
+	}
 	group.Metadata.Name = "From app"
 	b.Put("room", id, group)
 	write(id, "--write")
-	apply()
-	contents, e := os.ReadFile("generated.tf")
-	if e != nil || !strings.Contains(string(contents), "From app") {
-		t.Fatalf("%s %v", contents, e)
+	afterPull, e := os.ReadFile("generated.tf")
+	if e != nil || !bytes.Equal(contents, afterPull) {
+		t.Fatal("pull changed managed definition", e)
 	}
-	state, e = stateReader(deps)(ctx)
-	if e != nil || !bytes.Contains(state, []byte("From app")) {
-		t.Fatalf("state: %s %v", state, e)
-	}
+	// Restore the fixture for subsequent import checks without mutating real lights.
+	group.Metadata.Name = "Imported"
+	b.Put("room", id, group)
 	sceneID := "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 	scene := hue.Scene{ID: sceneID, Type: "scene", Metadata: hue.Metadata{Name: "Evening"}, Group: hue.Reference{RID: id, RType: "room"}, Actions: []hue.SceneAction{{Target: hue.Reference{RID: fakebridge.LightID, RType: "light"}, Action: hue.Action{On: &hue.On{On: true}, Dimming: &hue.Dimming{Brightness: 20}, ColorTemperature: &hue.Temperature{Mirek: 350}}}}}
 	b.Put("scene", sceneID, scene)
@@ -192,11 +193,6 @@ func TestAccPullRoundTrip(t *testing.T) {
 		t.Fatal(e)
 	}
 	apply()
-	scene.Actions[0].Action.Dimming.Brightness = 35
-	b.Put("scene", sceneID, scene)
-	write(sceneID, "--write")
-	apply()
-
 	smartID := "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
 	start, _ := hue.ParseSmartStart("00:00:00")
 	smart := hue.SmartScene{ID: smartID, Type: "smart_scene", Metadata: hue.Metadata{Name: "Natural"}, Group: hue.Reference{RID: id, RType: "room"}, TransitionDuration: 60000, State: "inactive", WeekTimeslots: []hue.SmartDay{{Recurrence: []string{"monday", "sunday"}, Timeslots: []hue.SmartSlot{{StartTime: start, Target: hue.Reference{RID: sceneID, RType: "scene"}}}}}}
@@ -206,26 +202,15 @@ func TestAccPullRoundTrip(t *testing.T) {
 		t.Fatal(e)
 	}
 	apply()
-	smart.WeekTimeslots[0].Timeslots[0].StartTime, _ = hue.ParseSmartStart("01:00:00")
-	b.Put("smart_scene", smartID, smart)
-	write(smartID, "--write")
-	generatedSmart, e := os.ReadFile("generated_smart.tf")
-	if e != nil || !strings.Contains(string(generatedSmart), "01:00:00") {
-		t.Fatalf("%s %v", generatedSmart, e)
+	beforeRemoval, e := os.ReadFile("generated_smart.tf")
+	if e != nil {
+		t.Fatal(e)
 	}
-	apply()
 	b.Remove("smart_scene", smartID)
 	write(smartID, "--write")
-	apply()
-	b.Remove("scene", sceneID)
-	write(sceneID, "--write")
-	apply()
-	b.Remove("room", id)
-	write(id, "--write")
-	apply()
-	state, e = stateReader(deps)(ctx)
-	if e != nil || bytes.Contains(state, []byte(id)) {
-		t.Fatalf("state: %s %v", state, e)
+	afterRemoval, e := os.ReadFile("generated_smart.tf")
+	if e != nil || !bytes.Equal(beforeRemoval, afterRemoval) {
+		t.Fatal("pull deleted managed definition", e)
 	}
 	for _, r := range b.Requests() {
 		if r.Method != "GET" {

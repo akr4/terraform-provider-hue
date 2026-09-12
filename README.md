@@ -51,21 +51,19 @@ This distinguishes scenes with the same name in different rooms or zones.
 `hue-tf ls switch` joins switch devices with their behavior assignments; its JSON output contains the same summary rows.
 See [switch management](docs/switch-management.md) for import and editing.
 
-`hue-tf pull` previews additions, edits and deletions from the bridge across all
-managed resources. `hue-tf pull --write` updates existing `.tf` definitions and prepares ordinary Terraform
-import blocks for new resources. Resource definition generation, import execution
-and infrastructure changes belong to Terraform. Pull never writes to state or
-the bridge. New import targets use root addresses by default;
-use `--module NAME[.NAME...]` for another destination. Existing resources retain
-their state addresses. One or more UUIDs or full addresses select resources in a single pull. Duplicate
-selectors are processed once; any unmatched selector blocks the entire write.
+`hue-tf import-blocks` previews ordinary Terraform import blocks for unmanaged
+bridge resources. Add `--write` to create or append to root `imports_hue.tf`.
+UUIDs already in state or existing import blocks are skipped. Existing resource
+definitions are never updated or deleted, even when the bridge has changed.
+Resource definition generation, state imports and infrastructure changes belong
+to Terraform.
 
-Pull preserves references and comments, detects conflicting local/bridge edits
-against a saved baseline, and stops before writing if any target is blocked.
-Repeated scene names receive UUID suffixes.
-See [the app-to-Terraform workflow](docs/app-to-terraform.md) for supported
-expressions, module scope, preview/write semantics and interrupted-run recovery.
-The old `pull --new` syntax also prepares import blocks only.
+Use one or more UUIDs to select resources and `--module NAME[.NAME...]` to choose
+the import destination. Repeated scene names receive UUID suffixes. Unmatched
+selectors block the entire write. See [import block generation](docs/app-to-terraform.md)
+for module support and interrupted-run recovery.
+The former `pull` command now reports the replacement command; saved pull
+baselines are no longer used.
 
 `hue-tf recall SCENE_UUID` applies a saved scene to the lights (or activates a
 smart scene). `hue-tf identify DEVICE_UUID_OR_LIGHT_UUID` requests a visual

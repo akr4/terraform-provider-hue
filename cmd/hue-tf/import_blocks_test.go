@@ -34,7 +34,7 @@ func TestPullCLI(t *testing.T) {
 		return []byte(`{"resources":[{"mode":"managed","type":"hue_scene","name":"night","provider":"provider[\"registry.terraform.io/akr4/hue\"]","instances":[{"attributes":{"id":"` + id + `","group":"group","actions":{"light":{"brightness":20,"on":true,"mirek":346,"color_xy":{"x":0.3,"y":0.4}}}}}]}]}`), nil
 	}}
 	for _, write := range []bool{false, true} {
-		args := []string{"pull", "hue_scene.night"}
+		args := []string{"import-blocks", "hue_scene.night"}
 		if write {
 			args = append(args, "--write")
 		}
@@ -42,14 +42,12 @@ func TestPullCLI(t *testing.T) {
 		if err := runWith(context.Background(), args, &out, &bytes.Buffer{}, deps); err != nil {
 			t.Fatal(err, out.String())
 		}
-		if !strings.Contains(out.String(), "20 -> 10") {
+		if !strings.Contains(out.String(), "already managed") {
 			t.Fatal(out.String())
 		}
 		got, _ := os.ReadFile("night.tf")
 		want := original
-		if write {
-			want = strings.NewReplacer("brightness = 20", "brightness = 10", "on = true", "on = false", "mirek = 346", "mirek = 400", "x = 0.3", "x = 0.5", "y = 0.4", "y = 0.2").Replace(original)
-		}
+
 		if string(got) != want {
 			t.Fatal(string(got))
 		}
@@ -62,7 +60,7 @@ func TestPullCLI(t *testing.T) {
 }
 
 func TestPullInvalidArguments(t *testing.T) {
-	for _, args := range [][]string{{"pull"}, {"pull", "hue_room.x"}, {"pull", "hue_scene.x[0]"}, {"pull", "hue_scene.x", "--bad"}} {
+	for _, args := range [][]string{{"import-blocks"}, {"import-blocks", "hue_room.x"}, {"import-blocks", "hue_scene.x[0]"}, {"import-blocks", "hue_scene.x", "--bad"}} {
 		if err := run(context.Background(), args, &bytes.Buffer{}, &bytes.Buffer{}); err == nil {
 			t.Fatal(args)
 		}
@@ -78,7 +76,7 @@ func TestPullNewCLI(t *testing.T) {
 	b.Put("scene", id, hue.Scene{ID: id, Metadata: hue.Metadata{Name: "New scene"}, Group: hue.Reference{RID: "group", RType: "room"}, Actions: []hue.SceneAction{}})
 	deps := dependencies{terraform: mockPullTerraform, newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) { return []byte(`{"resources":[]}`), nil }}
 	for _, write := range []bool{false, true} {
-		args := []string{"pull", "--new", id, "hue_scene.new_scene"}
+		args := []string{"import-blocks", "--new", id, "hue_scene.new_scene"}
 		if write {
 			args = append(args, "--write")
 		}
@@ -118,7 +116,7 @@ func TestPullNewListing(t *testing.T) {
 	for _, managed := range []bool{false, true} {
 		imported = managed
 		var out bytes.Buffer
-		if err := runWith(context.Background(), []string{"pull", "--new"}, &out, &bytes.Buffer{}, deps); err != nil {
+		if err := runWith(context.Background(), []string{"import-blocks", "--new"}, &out, &bytes.Buffer{}, deps); err != nil {
 			t.Fatal(err)
 		}
 		if strings.Contains(out.String(), "New candidate") == managed {
@@ -158,7 +156,7 @@ func TestPullGroupCLI(t *testing.T) {
 				return []byte(`{"resources":[{"mode":"managed","type":"hue_` + kind + `","name":"test","provider":"provider[\"registry.terraform.io/akr4/hue\"]","instances":[{"attributes":{"id":"` + id + `","name":"Old","archetype":"other","children":[]}}]}]}`), nil
 			}}
 			for _, write := range []bool{false, true} {
-				args := []string{"pull", "hue_" + kind + ".test"}
+				args := []string{"import-blocks", "hue_" + kind + ".test"}
 				if write {
 					args = append(args, "--write")
 				}
@@ -166,14 +164,12 @@ func TestPullGroupCLI(t *testing.T) {
 				if err := runWith(context.Background(), args, &out, &bytes.Buffer{}, deps); err != nil {
 					t.Fatal(err)
 				}
-				if !strings.Contains(out.String(), `.name: "Old" -> "New"`) {
+				if !strings.Contains(out.String(), "already managed") {
 					t.Fatal(out.String())
 				}
 				got, _ := os.ReadFile("group.tf")
 				want := src
-				if write {
-					want = strings.Replace(src, `"Old"`, `"New"`, 1)
-				}
+
 				if string(got) != want {
 					t.Fatal(string(got))
 				}
@@ -198,7 +194,7 @@ func TestPullNewGroupCLI(t *testing.T) {
 			b.Put(kind, id, hue.Group{ID: id, Type: kind, Metadata: hue.Metadata{Name: "New group candidate", Archetype: "other"}})
 			deps := dependencies{terraform: mockPullTerraform, newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) { return []byte(`{"resources":[]}`), nil }}
 			var list bytes.Buffer
-			if err := runWith(context.Background(), []string{"pull", "--new"}, &list, &bytes.Buffer{}, deps); err != nil {
+			if err := runWith(context.Background(), []string{"import-blocks", "--new"}, &list, &bytes.Buffer{}, deps); err != nil {
 				t.Fatal(err)
 			}
 			if !strings.Contains(list.String(), "New group candidate") {
@@ -206,7 +202,7 @@ func TestPullNewGroupCLI(t *testing.T) {
 			}
 			path := kind + "_new_group.tf"
 			for _, write := range []bool{false, true} {
-				args := []string{"pull", "--new", id, "hue_" + kind + ".new_group"}
+				args := []string{"import-blocks", "--new", id, "hue_" + kind + ".new_group"}
 				if write {
 					args = append(args, "--write")
 				}
@@ -222,7 +218,7 @@ func TestPullNewGroupCLI(t *testing.T) {
 					t.Fatal("unexpected file write")
 				}
 			}
-			if err := runWith(context.Background(), []string{"pull", "--new", id, "hue_" + kind + ".new_group", "--write"}, &bytes.Buffer{}, &bytes.Buffer{}, deps); err != nil {
+			if err := runWith(context.Background(), []string{"import-blocks", "--new", id, "hue_" + kind + ".new_group", "--write"}, &bytes.Buffer{}, &bytes.Buffer{}, deps); err != nil {
 				t.Fatal(err)
 			}
 			for _, r := range b.Requests() {
@@ -257,7 +253,7 @@ func TestPullColorModeCLI(t *testing.T) {
 	}}
 	for _, write := range []bool{false, true} {
 		var out bytes.Buffer
-		args := []string{"pull", "hue_scene.night"}
+		args := []string{"import-blocks", "hue_scene.night"}
 		if write {
 			args = append(args, "--write")
 		}
@@ -265,21 +261,15 @@ func TestPullColorModeCLI(t *testing.T) {
 			t.Fatal(err)
 		}
 		got, _ := os.ReadFile("night.tf")
-		if write {
-			if !strings.Contains(string(got), "color_xy") || strings.Contains(string(got), "mirek") {
-				t.Fatal(string(got))
-			}
-		} else {
-			if string(got) != src {
-				t.Fatal("preview modified file")
-			}
+		if string(got) != src {
+			t.Fatal("modified managed file")
 		}
 	}
 	var out bytes.Buffer
-	if err := runWith(context.Background(), []string{"pull", "hue_scene.night"}, &out, &bytes.Buffer{}, deps); err != nil {
+	if err := runWith(context.Background(), []string{"import-blocks", "hue_scene.night"}, &out, &bytes.Buffer{}, deps); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "Pull: 0 new, 0 changed files, 0 deleted, 0 blocked.") {
+	if !strings.Contains(out.String(), "Import blocks: 0 new, 0 blocked.") {
 		t.Fatal(out.String())
 	}
 	for _, r := range b.Requests() {
@@ -314,15 +304,15 @@ func TestPullModuleCLI(t *testing.T) {
 	deps := dependencies{terraform: mockPullTerraform, newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) {
 		return []byte(`{"resources":[{"mode":"managed","module":"module.bedroom","type":"hue_room","name":"bedroom","provider":"provider[\"registry.terraform.io/akr4/hue\"]","instances":[{"attributes":{"id":"` + id + `","name":"Old","archetype":"bedroom","children":[]}}]}]}`), nil
 	}}
-	if err := runWith(context.Background(), []string{"pull", "module.bedroom.hue_room.bedroom", "--write"}, &bytes.Buffer{}, &bytes.Buffer{}, deps); err != nil {
+	if err := runWith(context.Background(), []string{"import-blocks", "module.bedroom.hue_room.bedroom", "--write"}, &bytes.Buffer{}, &bytes.Buffer{}, deps); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile("rooms/bedroom/room.tf")
-	if !strings.Contains(string(got), `"New"`) {
+	if !strings.Contains(string(got), `"Old"`) {
 		t.Fatal(string(got))
 	}
 	var out bytes.Buffer
-	if err := runWith(context.Background(), []string{"pull", "--new", sid, "module.bedroom.hue_scene.new_scene", "--write"}, &out, &bytes.Buffer{}, deps); err != nil {
+	if err := runWith(context.Background(), []string{"import-blocks", "--new", sid, "module.bedroom.hue_scene.new_scene", "--write"}, &out, &bytes.Buffer{}, deps); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile("imports_hue.tf")
@@ -339,5 +329,12 @@ func TestPullModuleCLI(t *testing.T) {
 		if r.Method != "GET" {
 			t.Fatal("bridge mutation")
 		}
+	}
+}
+
+func TestFormerPullCommandReportsReplacement(t *testing.T) {
+	err := runWith(context.Background(), []string{"pull", "--write"}, &bytes.Buffer{}, &bytes.Buffer{}, dependencies{})
+	if err == nil || !strings.Contains(err.Error(), "import-blocks") {
+		t.Fatalf("%v", err)
 	}
 }

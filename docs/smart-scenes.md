@@ -1,7 +1,7 @@
 # Smart scenes
 
 `hue_smart_scene` manages a room or zone's recurring scene schedule.
-It supports creation, import, updates, deletion, and app-to-configuration pull.
+It supports creation, import, updates, and deletion through Terraform.
 
 - `group` identifies the room or zone. Changing it replaces the smart scene.
 - `week_timeslots` contains daily schedules with `recurrence` weekdays and ordered `timeslots`.
@@ -21,8 +21,8 @@ recall = {
 ```
 
 `hue-tf ls smart_scene` includes group names and IDs.
-`hue-tf pull` discovers unmanaged smart scenes and prepares import blocks only.
-For imported resources, pull updates name, group, schedule, and transition duration while preserving supported references and detecting conflicts.
+`hue-tf import-blocks` discovers unmanaged smart scenes and prepares import blocks only.
+Existing resource definitions are maintained directly in Terraform; import-blocks does not update or delete them.
 Runtime activation does not become a configuration edit. Timeslot order is preserved; weekday order is insignificant.
 
 Smart scenes reference ordinary scenes. Include their schedules when checking whether a scene can be deleted, even if the smart scene is not currently active.

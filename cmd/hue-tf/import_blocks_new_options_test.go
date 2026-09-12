@@ -74,7 +74,7 @@ func TestPullNewAutomaticDestination(t *testing.T) {
 					}
 				}
 				deps := dependencies{newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) { return []byte(`{"resources":[]}`), nil }}
-				args := []string{"pull", "--new", id}
+				args := []string{"import-blocks", "--new", id}
 				if module != "" {
 					args = append(args, "--module", module)
 				}

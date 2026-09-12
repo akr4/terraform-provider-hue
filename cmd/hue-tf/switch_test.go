@@ -76,14 +76,14 @@ func TestPullBehaviorCLI(t *testing.T) {
 	}
 	addr := "module.bedroom.hue_behavior_instance.test"
 	var out bytes.Buffer
-	if err := runWith(context.Background(), []string{"pull", "--new"}, &out, &bytes.Buffer{}, deps); err != nil {
+	if err := runWith(context.Background(), []string{"import-blocks", "--new"}, &out, &bytes.Buffer{}, deps); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "behavior_instance:") {
 		t.Fatal(out.String())
 	}
 	out.Reset()
-	if err := runWith(context.Background(), []string{"pull", "--new", id, addr}, &out, &bytes.Buffer{}, deps); err != nil {
+	if err := runWith(context.Background(), []string{"import-blocks", "--new", id, addr}, &out, &bytes.Buffer{}, deps); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "to = "+addr) {
@@ -92,7 +92,7 @@ func TestPullBehaviorCLI(t *testing.T) {
 	if _, err := os.Stat("bedroom/behavior_instance_test.tf"); !os.IsNotExist(err) {
 		t.Fatal("preview wrote")
 	}
-	if err := runWith(context.Background(), []string{"pull", "--new", id, addr, "--write"}, &out, &bytes.Buffer{}, deps); err != nil {
+	if err := runWith(context.Background(), []string{"import-blocks", "--new", id, addr, "--write"}, &out, &bytes.Buffer{}, deps); err != nil {
 		t.Fatal(err)
 	}
 	// Simulate resource configuration produced separately by Terraform.
@@ -109,23 +109,23 @@ func TestPullBehaviorCLI(t *testing.T) {
 	}
 	imported = true
 	out.Reset()
-	if err := runWith(context.Background(), []string{"pull", "--new"}, &out, &bytes.Buffer{}, deps); err != nil {
+	if err := runWith(context.Background(), []string{"import-blocks", "--new"}, &out, &bytes.Buffer{}, deps); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(out.String(), id) {
 		t.Fatal("managed behavior listed as new")
 	}
-	if err := runWith(context.Background(), []string{"pull", "--new", id, addr}, &out, &bytes.Buffer{}, deps); err != nil {
+	if err := runWith(context.Background(), []string{"import-blocks", "--new", id, addr}, &out, &bytes.Buffer{}, deps); err != nil {
 		t.Fatal(err)
 	}
 	remote := behavior
 	remote.Enabled = false
 	b.Put("behavior_instance", id, remote)
 	out.Reset()
-	if err := runWith(context.Background(), []string{"pull", addr, "--write"}, &out, &bytes.Buffer{}, deps); err != nil {
+	if err := runWith(context.Background(), []string{"import-blocks", addr, "--write"}, &out, &bytes.Buffer{}, deps); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "true -> false") {
+	if !strings.Contains(out.String(), "already managed") {
 		t.Fatal(out.String())
 	}
 	for _, r := range b.Requests() {

@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"github.com/akr4/terraform-provider-hue/internal/fakebridge"
 	"github.com/akr4/terraform-provider-hue/internal/hue"
 	"os"
@@ -26,7 +25,7 @@ func TestPullMultipleSelectors(t *testing.T) {
 	b.Put("room", added, hue.Group{ID: added, Type: "room", Metadata: hue.Metadata{Name: "New"}})
 	deps := dependencies{newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) { return batchState(old, "Old"), nil }, terraform: func(context.Context, ...string) ([]byte, error) { return nil, nil }}
 	var out bytes.Buffer
-	if err := pullBatch(context.Background(), []string{"hue_room.room", added, "missing", "--write"}, &out, deps); err == nil {
+	if err := importBlocks(context.Background(), []string{"hue_room.room", added, "missing", "--write"}, &out, deps); err == nil {
 		t.Fatal("missing selector did not block write")
 	}
 	if got, _ := os.ReadFile("room.tf"); !bytes.Equal(got, src) {
@@ -36,21 +35,19 @@ func TestPullMultipleSelectors(t *testing.T) {
 		t.Fatal("partial import write")
 	}
 	out.Reset()
-	if err := pullBatch(context.Background(), []string{"hue_room.room", old, added, added, "--write"}, &out, deps); err != nil {
+	if err := importBlocks(context.Background(), []string{"hue_room.room", old, added, added, "--write"}, &out, deps); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile("room.tf")
-	if !strings.Contains(string(got), "Changed") {
-		t.Fatal("existing resource not updated")
+	if !bytes.Equal(got, src) {
+		t.Fatal("existing resource was updated")
 	}
 	imports, _ := os.ReadFile("imports_hue.tf")
 	if strings.Count(string(imports), "import {") != 1 || !strings.Contains(string(imports), added) {
 		t.Fatal(string(imports))
 	}
-	var checkpoint pullCheckpoint
-	raw, _ := os.ReadFile(".hue-pull-baseline.json")
-	if err := json.Unmarshal(raw, &checkpoint); err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(".hue-pull-baseline.json"); !os.IsNotExist(err) {
+		t.Fatal("created obsolete baseline")
 	}
 	for _, r := range b.Requests() {
 		if r.Method != "GET" {

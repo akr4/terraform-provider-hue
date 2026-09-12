@@ -30,7 +30,7 @@ func pullNew(ctx context.Context, args []string, out io.Writer, deps dependencie
 		}
 	}
 	if opts.id != "" {
-		return pullBatchOptions(ctx, opts, out, deps)
+		return importBlocksOptions(ctx, opts, out, deps)
 	}
 
 	key := os.Getenv("HUE_BRIDGE_APPLICATION_KEY")
@@ -95,7 +95,7 @@ func pullNew(ctx context.Context, args []string, out io.Writer, deps dependencie
 		if count == 0 {
 			fmt.Fprintln(out, "No unmanaged resources.")
 		} else {
-			fmt.Fprintln(out, "Prepare import blocks: hue-tf pull --new RESOURCE_UUID [--module MODULE]")
+			fmt.Fprintln(out, "Prepare import blocks: hue-tf import-blocks --new RESOURCE_UUID [--module MODULE]")
 		}
 		return nil
 	}
@@ -115,7 +115,7 @@ func parsePullNewArgs(args []string) (pullNewOptions, error) {
 
 func parsePullOptions(args []string, allowAll bool) (pullNewOptions, error) {
 	var o pullNewOptions
-	usage := fmt.Errorf("usage: hue-tf pull --new [RESOURCE_UUID [hue_TYPE.NAME | --module NAME[.NAME...]] [--write]]")
+	usage := fmt.Errorf("usage: hue-tf import-blocks --new [RESOURCE_UUID [hue_TYPE.NAME | --module NAME[.NAME...]] [--write]]")
 	var positional []string
 	seenModule := false
 	for i := 0; i < len(args); i++ {

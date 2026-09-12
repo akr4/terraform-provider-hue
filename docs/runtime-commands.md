@@ -43,7 +43,7 @@ Both commands accept UUIDs, not Terraform addresses or potentially ambiguous
 names. They read a v2 snapshot, verify the target, and send only the requested
 runtime field in a PUT. A successful message means the Bridge accepted the
 request; it does not verify the visible result. These operations are never run
-implicitly by `pull`, `show`, or the Terraform provider.
+implicitly by `import-blocks`, `show`, or the Terraform provider.
 
 API references:
 

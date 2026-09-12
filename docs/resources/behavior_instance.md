@@ -15,7 +15,7 @@ Manage Hue behavior instances, including switch button and rotary assignments. C
 ```terraform
 # Use the script UUID and device/button UUIDs from your bridge.
 # Import first when adopting an existing assignment.
-# Configuration varies by script/model. Use hue-tf pull and terraform plan -generate-config-out to import;
+# Configuration varies by script/model. Use hue-tf import-blocks and terraform plan -generate-config-out to import;
 # this example illustrates one button on a generic switch script.
 resource "hue_behavior_instance" "switch" {
   name      = "Study switch"

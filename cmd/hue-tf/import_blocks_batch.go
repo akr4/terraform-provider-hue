@@ -3,10 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -19,24 +16,17 @@ import (
 	"github.com/akr4/terraform-provider-hue/internal/pull"
 )
 
-type pullCheckpoint struct {
-	Initial   bool                                  `json:"initial,omitempty"`
-	Version   int                                   `json:"version"`
-	Identity  string                                `json:"identity"`
-	Resources map[string]map[string]json.RawMessage `json:"resources"`
-}
-type pullCreation struct {
+type importCreation struct {
 	Address, ID, Path string
 	Source            []byte
 }
-type batchPlan struct {
+type importBlocksPlan struct {
 	NeedsConfig   bool
 	ModuleImports bool
-	ImportFiles   []pullCreation
+	ImportFiles   []importCreation
 	Changes       []*pull.Change
-	Creates       []pullCreation
-	Removes       []pull.ManagedResource
-	Checkpoint    pullCheckpoint
+	Creates       []importCreation
+	Skipped       []string
 	Problems      []string
 }
 
@@ -79,13 +69,6 @@ func stateReader(deps dependencies) func(context.Context) ([]byte, error) {
 		return nil, fmt.Errorf("cannot read Terraform state: %v", err)
 	}
 }
-func pullIdentity(state []byte) string {
-	var s struct{ Lineage string }
-	_ = json.Unmarshal(state, &s)
-	root, _ := filepath.Abs(".")
-	h := sha256.Sum256([]byte(root + "\x00" + os.Getenv("HUE_BRIDGE_HOST") + "\x00" + os.Getenv("TF_WORKSPACE") + "\x00" + os.Getenv("TF_DATA_DIR") + "\x00" + s.Lineage))
-	return hex.EncodeToString(h[:])
-}
 func fetchPullResources(ctx context.Context, client *hue.Client) (map[string]map[string]json.RawMessage, error) {
 	result := map[string]map[string]json.RawMessage{}
 	for _, kind := range []string{"room", "zone", "scene", "smart_scene", "behavior_instance"} {
@@ -111,7 +94,7 @@ func fetchPullResources(ctx context.Context, client *hue.Client) (map[string]map
 	return result, nil
 }
 
-func prepareBatch(state []byte, remote map[string]map[string]json.RawMessage, opts pullNewOptions, previous pullCheckpoint) (*batchPlan, error) {
+func prepareImportBlocks(state []byte, remote map[string]map[string]json.RawMessage, opts pullNewOptions) (*importBlocksPlan, error) {
 	resources, err := pull.ManagedResources(state)
 	if err != nil {
 		return nil, err
@@ -128,17 +111,11 @@ func prepareBatch(state []byte, remote map[string]map[string]json.RawMessage, op
 	if !ok {
 		return nil, fmt.Errorf("module %s was not found", scope)
 	}
-	plan := &batchPlan{Checkpoint: pullCheckpoint{Initial: stateLineage(state) == "", Version: 1, Identity: pullIdentity(state), Resources: map[string]map[string]json.RawMessage{}}}
-	if previous.Version == 1 && previous.Identity == plan.Checkpoint.Identity {
-		for id, attrs := range previous.Resources {
-			plan.Checkpoint.Resources[id] = attrs
-		}
-	}
+	plan := &importBlocksPlan{}
 	pending, e := pull.PendingImports(modules, resources)
 	if e != nil {
 		return nil, e
 	}
-	pendingIDs := map[string]bool{}
 	for _, r := range pending {
 		k, n, _ := pull.ResourceAddress(r.Address)
 		exists, e := pull.HasResourceDefinition(modules[pull.ModuleAddress(r.Address)], k, n)
@@ -151,7 +128,6 @@ func prepareBatch(state []byte, remote map[string]map[string]json.RawMessage, op
 				plan.ModuleImports = true
 			}
 		}
-		pendingIDs[r.ID] = true
 		resources = append(resources, r)
 	}
 	known := map[string]bool{}
@@ -219,114 +195,23 @@ func prepareBatch(state []byte, remote map[string]map[string]json.RawMessage, op
 			}
 			reserved[addr] = true
 
-			plan.Creates = append(plan.Creates, pullCreation{Address: addr, ID: id})
+			plan.Creates = append(plan.Creates, importCreation{Address: addr, ID: id})
 			plan.NeedsConfig = true
 			if scope != "" {
 				plan.ModuleImports = true
 			}
 		}
 	}
-	referenceResources := append([]pull.ManagedResource(nil), resources...)
-	for _, c := range plan.Creates {
-		kind, _, _ := pull.ResourceAddress(c.Address)
-		idJSON, _ := json.Marshal(c.ID)
-		referenceResources = append(referenceResources, pull.ManagedResource{Address: c.Address, Kind: kind, ID: c.ID, Attributes: map[string]json.RawMessage{"id": idJSON}})
-	}
+	// Managed and pending resources are only inventory entries. Terraform owns
+	// their definitions, including local edits and resources absent from Bridge.
 	for _, r := range resources {
-		known[r.ID] = true
-		rscope := pull.ModuleAddress(r.Address)
-		if opts.module != "" && rscope != scope && !strings.HasPrefix(rscope, scope+".") {
-			continue
-		}
-		if !selectResource(r.ID, r.Address) {
-			continue
-		}
-		_, name, _ := pull.ResourceAddress(r.Address)
-		dir := modules[rscope]
-		if dir == "" {
-			plan.Problems = append(plan.Problems, r.Address+": source module not found")
-			continue
-		}
-		if pendingIDs[r.ID] {
-			exists, e := pull.HasResourceDefinition(dir, r.Kind, name)
-			if e != nil {
-				return nil, e
-			}
-			if !exists {
-				if remote[r.Kind][r.ID] == nil {
-					plan.Removes = append(plan.Removes, r)
-				} else {
-					plan.NeedsConfig = true
-					if rscope != "" {
-						plan.ModuleImports = true
-					}
-				}
-				continue
-			}
-			// Terraform owns pending resources until import is applied.
-			continue
-		}
-		old := r.Attributes
-		if checkpoint, ok := plan.Checkpoint.Resources[r.ID]; ok {
-			old = checkpoint
-		}
-		raw := remote[r.Kind][r.ID]
-		ctx := pull.StateContext(referenceResources, rscope)
-		var change *pull.Change
-		if raw == nil {
-			change, err = pull.PrepareRemoval(dir, r.Kind, name, old, ctx)
-			if errors.Is(err, pull.ErrResourceDefinitionNotFound) {
-				plan.Removes = append(plan.Removes, r)
-				delete(plan.Checkpoint.Resources, r.ID)
-				continue
-			}
-			if err == nil {
-				plan.Removes = append(plan.Removes, r)
-				delete(plan.Checkpoint.Resources, r.ID)
-			}
-		} else {
-			src, e := pull.RemoteDefinition(raw, r.Kind, name, nil)
-			if e != nil {
-				plan.Problems = append(plan.Problems, r.Address+": "+e.Error())
-				continue
-			}
-			change, err = pull.PrepareSync(dir, r.Kind, name, old, src, ctx)
-			if err == nil {
-				attrs, e := pull.CanonicalAttributes(src)
-				if e != nil {
-					return nil, e
-				}
-				plan.Checkpoint.Resources[r.ID] = attrs
-			}
-		}
-		if err != nil {
-			plan.Problems = append(plan.Problems, r.Address+": "+err.Error())
-			continue
-		}
-		for i := range change.Edits {
-			change.Edits[i].Field = r.Address + "." + change.Edits[i].Field
-		}
-		if len(change.Edits) > 0 {
-			plan.Changes = append(plan.Changes, change)
+		if len(selectors) > 0 && selectResource(r.ID, r.Address) {
+			plan.Skipped = append(plan.Skipped, r.Address+" ["+r.ID+"]: already managed or pending import")
 		}
 	}
 	for _, selector := range selectors {
 		if !matched[selector] {
 			plan.Problems = append(plan.Problems, "resource not found in selected scope: "+selector)
-		}
-	}
-	plan.Changes, err = pull.CombineChanges(plan.Changes)
-	if err != nil {
-		return nil, err
-	}
-	imports, err := pull.CheckRemovals(modules, plan.Changes, plan.Removes)
-	if err != nil {
-		plan.Problems = append(plan.Problems, err.Error())
-	} else {
-		plan.Changes = append(plan.Changes, imports...)
-		plan.Changes, err = pull.CombineChanges(plan.Changes)
-		if err != nil {
-			return nil, err
 		}
 	}
 
@@ -338,7 +223,7 @@ func prepareBatch(state []byte, remote map[string]map[string]json.RawMessage, op
 		}
 		info, e := os.Lstat(path)
 		if os.IsNotExist(e) {
-			plan.ImportFiles = append(plan.ImportFiles, pullCreation{Path: path, Source: []byte(source.String())})
+			plan.ImportFiles = append(plan.ImportFiles, importCreation{Path: path, Source: []byte(source.String())})
 		} else if e != nil || !info.Mode().IsRegular() {
 			plan.Problems = append(plan.Problems, "import file is inaccessible or not a regular file: "+path)
 		} else {
@@ -357,16 +242,16 @@ func prepareBatch(state []byte, remote map[string]map[string]json.RawMessage, op
 	return plan, nil
 }
 
-func pullBatch(ctx context.Context, args []string, out io.Writer, deps dependencies) error {
+func importBlocks(ctx context.Context, args []string, out io.Writer, deps dependencies) error {
 	opts, err := parsePullOptions(args, true)
 	// Each positional argument selects an existing address or UUID.
 	if err != nil || opts.address != "" {
-		return fmt.Errorf("usage: hue-tf pull [UUID | RESOURCE_ADDRESS ...] [--module NAME[.NAME...]] [--write]")
+		return fmt.Errorf("usage: hue-tf import-blocks [UUID | RESOURCE_ADDRESS ...] [--module NAME[.NAME...]] [--write]")
 	}
-	return pullBatchOptions(ctx, opts, out, deps)
+	return importBlocksOptions(ctx, opts, out, deps)
 }
 
-func pullBatchOptions(ctx context.Context, opts pullNewOptions, out io.Writer, deps dependencies) error {
+func importBlocksOptions(ctx context.Context, opts pullNewOptions, out io.Writer, deps dependencies) error {
 
 	key := os.Getenv("HUE_BRIDGE_APPLICATION_KEY")
 	if key == "" {
@@ -382,30 +267,15 @@ func pullBatchOptions(ctx context.Context, opts pullNewOptions, out io.Writer, d
 	if err != nil {
 		return err
 	}
-	var checkpoint pullCheckpoint
-	cache := []byte(nil)
-	if cache, err = os.ReadFile(".hue-pull-baseline.json"); err == nil {
-		if err = json.Unmarshal(cache, &checkpoint); err != nil {
-			return fmt.Errorf("invalid pull baseline: %w", err)
-		}
-	} else if !os.IsNotExist(err) {
-		return err
-	}
 	client, err := deps.newClient(os.Getenv("HUE_BRIDGE_HOST"), key)
 	if err != nil {
 		return err
-	}
-	if checkpoint.Initial && checkpoint.Identity == pullIdentity([]byte(`{"resources":[]}`)) {
-		checkpoint.Identity = pullIdentity(state)
-	}
-	if checkpoint.Version != 0 && (checkpoint.Version != 1 || checkpoint.Identity != pullIdentity(state)) {
-		return fmt.Errorf("pull baseline belongs to a different bridge, workspace or state; restore the matching environment, or archive the baseline and preview again")
 	}
 	remote, err := fetchPullResources(ctx, client)
 	if err != nil {
 		return err
 	}
-	plan, err := prepareBatch(state, remote, opts, checkpoint)
+	plan, err := prepareImportBlocks(state, remote, opts)
 	if err != nil {
 		return err
 	}
@@ -420,18 +290,18 @@ func pullBatchOptions(ctx context.Context, opts pullNewOptions, out io.Writer, d
 	for _, c := range plan.ImportFiles {
 		fmt.Fprintf(out, "Import block: %s\n%s\n", c.Path, c.Source)
 	}
-	for _, r := range plan.Removes {
-		fmt.Fprintf(out, "Remove definition for %s [%s] (already absent from bridge)\n", r.Address, r.ID)
+	for _, skipped := range plan.Skipped {
+		fmt.Fprintf(out, "Skip: %s\n", skipped)
 	}
-	fmt.Fprintf(out, "Pull: %d new, %d changed files, %d deleted, %d blocked.\n", len(plan.Creates), len(plan.Changes), len(plan.Removes), len(plan.Problems))
+	fmt.Fprintf(out, "Import blocks: %d new, %d blocked.\n", len(plan.Creates), len(plan.Problems))
 	for _, problem := range plan.Problems {
 		fmt.Fprintf(out, "Blocked: %s\n", problem)
 	}
 	if len(plan.Problems) > 0 {
-		return fmt.Errorf("pull is blocked; no files or state were changed")
+		return fmt.Errorf("import-blocks is blocked; no files or state were changed")
 	}
 	if !opts.write {
-		fmt.Fprintln(out, "Preview only. Use --write to update existing configuration and prepare import blocks. Neither bridge nor state is changed.")
+		fmt.Fprintln(out, "Preview only. Use --write to prepare import blocks. Neither bridge nor state is changed.")
 		printPullNext(out, plan)
 		return nil
 	}
@@ -443,20 +313,17 @@ func pullBatchOptions(ctx context.Context, opts pullNewOptions, out io.Writer, d
 	if !bytes.Equal(state, current) {
 		return fmt.Errorf("Terraform state changed during preview; retry")
 	}
-	currentCache, e := os.ReadFile(".hue-pull-baseline.json")
-	if e != nil && !os.IsNotExist(e) {
-		return e
-	}
-	if !bytes.Equal(cache, currentCache) {
-		return fmt.Errorf("pull baseline changed during preview; retry")
-	}
-	return writeBatch(ctx, plan, state, out, deps)
+	return writeImportBlocks(ctx, plan, out, deps)
 }
 
-func writeBatch(ctx context.Context, plan *batchPlan, state []byte, out io.Writer, deps dependencies) (err error) {
+func writeImportBlocks(ctx context.Context, plan *importBlocksPlan, out io.Writer, deps dependencies) (err error) {
 	run := deps.terraform
 	if run == nil {
 		run = terraformCommand
+	}
+	if len(plan.ImportFiles) == 0 && len(plan.Changes) == 0 {
+		fmt.Fprintln(out, "No import blocks to add.")
+		return nil
 	}
 	transaction, err := filepath.Abs(".hue-pull-transaction")
 	if err != nil {
@@ -468,13 +335,13 @@ func writeBatch(ctx context.Context, plan *batchPlan, state []byte, out io.Write
 	success := false
 	newFiles := plan.ImportFiles
 	var writtenChanges []*pull.Change
-	var writtenCreates []pullCreation
+	var writtenCreates []importCreation
 	defer func() {
 		if !success {
 			rollbackErr := rollbackPullFiles(writtenChanges, writtenCreates)
 			if rollbackErr == nil {
 				_ = os.RemoveAll(transaction)
-				fmt.Fprintln(out, "Pull stopped; file edits were rolled back. State was not changed.")
+				fmt.Fprintln(out, "Import block generation stopped; file edits were rolled back. State was not changed.")
 				return
 			}
 			fmt.Fprintf(out, "File rollback needs attention: %v\n", rollbackErr)
@@ -482,7 +349,7 @@ func writeBatch(ctx context.Context, plan *batchPlan, state []byte, out io.Write
 		if success {
 			_ = os.RemoveAll(transaction)
 		} else {
-			fmt.Fprintf(out, "Pull interrupted. Recovery data: %s. Files may be partially updated; neither bridge nor state was changed.\n", transaction)
+			fmt.Fprintf(out, "Import block generation interrupted. Recovery data: %s. Files may be partially updated; neither bridge nor state was changed.\n", transaction)
 		}
 	}()
 
@@ -490,9 +357,8 @@ func writeBatch(ctx context.Context, plan *batchPlan, state []byte, out io.Write
 	manifest := struct {
 		Changed map[string]string
 		Created []string
-		Imports []pullCreation
-		Removed []pull.ManagedResource
-	}{Changed: map[string]string{}, Imports: plan.Creates, Removed: plan.Removes}
+		Imports []importCreation
+	}{Changed: map[string]string{}, Imports: plan.Creates}
 	for i, c := range plan.Changes {
 		info, e := os.Lstat(c.Path)
 		if e != nil {
@@ -544,24 +410,13 @@ func writeBatch(ctx context.Context, plan *batchPlan, state []byte, out io.Write
 			return err
 		}
 	}
-	data, err := json.MarshalIndent(plan.Checkpoint, "", "  ")
-	if err != nil {
-		return err
-	}
-	temp := filepath.Join(transaction, "baseline.json")
-	if err = os.WriteFile(temp, data, 0600); err != nil {
-		return err
-	}
-	if err = os.Rename(temp, ".hue-pull-baseline.json"); err != nil {
-		return err
-	}
 	success = true
-	fmt.Fprintln(out, "Prepared existing configuration edits and import blocks. Neither bridge nor state was changed.")
+	fmt.Fprintln(out, "Prepared import blocks. Neither bridge nor state was changed.")
 	printPullNext(out, plan)
 	return nil
 }
 
-func rollbackPullFiles(changes []*pull.Change, creates []pullCreation) error {
+func rollbackPullFiles(changes []*pull.Change, creates []importCreation) error {
 	for _, c := range changes {
 		info, err := os.Lstat(c.Path)
 		if err != nil {
@@ -603,13 +458,7 @@ func rollbackPullFiles(changes []*pull.Change, creates []pullCreation) error {
 	return nil
 }
 
-func stateLineage(data []byte) string {
-	var state struct{ Lineage string }
-	_ = json.Unmarshal(data, &state)
-	return state.Lineage
-}
-
-func printPullNext(out io.Writer, plan *batchPlan) {
+func printPullNext(out io.Writer, plan *importBlocksPlan) {
 	if plan.NeedsConfig {
 		fmt.Fprintln(out, "Resource definitions are not generated by hue-tf. Next: terraform plan -generate-config-out=generated.tf (use a new file name)")
 		if plan.ModuleImports {

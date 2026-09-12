@@ -40,10 +40,13 @@ func run(ctx context.Context, args []string, out, errout io.Writer) error {
 }
 func runWith(ctx context.Context, args []string, out, errout io.Writer, deps dependencies) error {
 	if len(args) == 0 {
-		return errors.New("usage: hue-tf init | ls <room|zone|scene|smart_scene|light|device|switch|behavior_instance|behavior_script|button> [--json] | show SCENE_UUID | recall SCENE_UUID [--action ACTION] | identify DEVICE_UUID_OR_LIGHT_UUID [--count N] | raw /clip/v2/<path> | pull [UUID | RESOURCE_ADDRESS ...] [--module NAME[.NAME...]] [--write]")
+		return errors.New("usage: hue-tf init | ls <room|zone|scene|smart_scene|light|device|switch|behavior_instance|behavior_script|button> [--json] | show SCENE_UUID | recall SCENE_UUID [--action ACTION] | identify DEVICE_UUID_OR_LIGHT_UUID [--count N] | raw /clip/v2/<path> | import-blocks [UUID | RESOURCE_ADDRESS ...] [--module NAME[.NAME...]] [--write]")
 	}
 	if args[0] == "pull" {
-		return pullScene(ctx, args[1:], out, deps)
+		return errors.New("pull was replaced by import-blocks; existing resource synchronization has been removed")
+	}
+	if args[0] == "import-blocks" {
+		return importBlocksCommand(ctx, args[1:], out, deps)
 	}
 	if args[0] == "recall" || args[0] == "identify" {
 		return operate(ctx, args[0], args[1:], out, deps)
