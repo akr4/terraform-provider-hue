@@ -67,6 +67,12 @@ See [the app-to-Terraform workflow](docs/app-to-terraform.md) for supported
 expressions, module scope, preview/write semantics and interrupted-run recovery.
 The old `pull --new` syntax also prepares import blocks only.
 
+`hue-tf recall SCENE_UUID` applies a saved scene to the lights (or activates a
+smart scene). `hue-tf identify DEVICE_UUID_OR_LIGHT_UUID` requests a visual
+identification signal. These are explicit runtime writes; they do not alter
+Terraform files/state or saved scene definitions. See [runtime commands](docs/runtime-commands.md)
+for action modes and device behavior.
+
 Both the provider and CLI use `HUE_BRIDGE_HOST` and
 `HUE_BRIDGE_APPLICATION_KEY`. Provider attributes override the environment.
 `host` is an IP address or hostname, without a scheme or port.

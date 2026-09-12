@@ -259,7 +259,7 @@ action object:
 
 - `hue-tf pull`: 未管理リソースの import ブロックを生成する。resource 定義は Terraform の設定生成または手書きに任せる（詳細は第16節）。
 - `hue-tf color <hex> --gamut <type>`: 色変換の確認
-- `hue-tf recall <scene>`、`hue-tf identify <light>`
+- `hue-tf recall SCENE_UUID [--action ACTION]` と `hue-tf identify DEVICE_UUID_OR_LIGHT_UUID` は実装済み。明示的な実行時操作として Bridge に PUT し、Terraform 定義・state は変更しない。詳細は [実行時操作](runtime-commands.md) を参照。
 
 ### 認証情報の受け渡し
 
