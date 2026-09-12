@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -29,11 +30,13 @@ const maxRetries = 3
 const maxBody = 16 << 20
 
 type Client struct {
-	base    string
-	key     string
-	http    *http.Client
-	limiter *rate.Limiter
-	sem     chan struct{}
+	base           string
+	key            string
+	http           *http.Client
+	limiter        *rate.Limiter
+	sem            chan struct{}
+	capabilitiesMu sync.Mutex
+	capabilities   map[string]Light
 }
 type APIError struct {
 	Status       int
@@ -152,6 +155,9 @@ func validPath(p string) bool {
 }
 
 func (c *Client) request(ctx context.Context, method, path string, body any) ([]byte, error) {
+	if method != http.MethodGet {
+		defer c.ResetLightCapabilities()
+	}
 	if !validPath(path) {
 		return nil, errors.New("path must be a local /clip/v2/ endpoint")
 	}

@@ -57,7 +57,8 @@ import blocks for new resources. Resource definition generation, import executio
 and infrastructure changes belong to Terraform. Pull never writes to state or
 the bridge. New import targets use root addresses by default;
 use `--module NAME[.NAME...]` for another destination. Existing resources retain
-their state addresses. A UUID or full address can select one resource.
+their state addresses. One or more UUIDs or full addresses select resources in a single pull. Duplicate
+selectors are processed once; any unmatched selector blocks the entire write.
 
 Pull preserves references and comments, detects conflicting local/bridge edits
 against a saved baseline, and stops before writing if any target is blocked.
@@ -73,6 +74,11 @@ Both the provider and CLI use `HUE_BRIDGE_HOST` and
 TLS always validates the bridge's certificate chain against embedded Hue roots.
 It intentionally does not match the certificate name against the host. There is
 no insecure option, redirect following, HTTP fallback, or environment proxy.
+Scene refreshes share a light-capability inventory within a provider configuration.
+It contains only gamut and temperature limits, not live light state. Reconfiguring
+the provider or writing to the bridge invalidates it; unknown light IDs trigger
+a reload. Scene values are always fetched afresh.
+
 Requests are limited to one in flight and five per second. HTTP 429 responses are
 retried at most three times, honoring `Retry-After` and context cancellation.
 Missing or invalid `Retry-After` uses delays of 1, 2, and 4 seconds. Other failures

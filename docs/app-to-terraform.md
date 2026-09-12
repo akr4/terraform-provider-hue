@@ -42,6 +42,9 @@ hue-tf pull RESOURCE_UUID --write
 # 既存の完全なアドレスも使用可能
 hue-tf pull module.bedroom.hue_scene.evening --write
 
+# 複数の新規・既存リソースを一度に指定する
+hue-tf pull UUID_A UUID_B module.bedroom.hue_scene.evening --write
+
 # 管理済みの対象を module とその子 module に限定
 hue-tf pull --module downstairs.washroom
 ```
@@ -49,6 +52,7 @@ hue-tf pull --module downstairs.washroom
 新規の import 先は、指定なしなら root のアドレスです。`--module` 指定時はその module のアドレスにします。
 module を import 先にする場合も、pull は module 内の resource 定義を生成しません。
 **`--module` は Hue の部屋による検索条件ではありません。** UUID 指定なしの場合、新規候補は Bridge 全体の未登録リソースです。
+複数指定はUUIDと既存アドレスを混在でき、重複指定は一度だけ処理します。対象が一つでも見つからなければ全体の書き込みを停止します。実機とstateの読み取りは対象ごとに繰り返しません。
 既存リソースは state に記録された配置を維持します。部屋と Terraform module の対応は推測しません。
 
 `--module downstairs.washroom` は `module.downstairs.module.washroom` を指し、module ブロックの `source` を順にたどります。

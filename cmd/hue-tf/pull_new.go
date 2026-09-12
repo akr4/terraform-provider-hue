@@ -106,6 +106,7 @@ func pullNew(ctx context.Context, args []string, out io.Writer, deps dependencie
 type pullNewOptions struct {
 	id, address, module string
 	write               bool
+	selectors           []string
 }
 
 func parsePullNewArgs(args []string) (pullNewOptions, error) {
@@ -142,6 +143,10 @@ func parsePullOptions(args []string, allowAll bool) (pullNewOptions, error) {
 			}
 			positional = append(positional, args[i])
 		}
+	}
+	if allowAll {
+		o.selectors = positional
+		return o, nil
 	}
 	if len(positional) > 2 || (!allowAll && len(positional) == 0 && (o.write || seenModule)) || (len(positional) == 2 && seenModule) {
 		return o, usage

@@ -64,6 +64,7 @@ func (p *hueProvider) Configure(ctx context.Context, req provider.ConfigureReque
 		resp.Diagnostics.AddError("Invalid bridge configuration", err.Error())
 		return
 	}
+	client.ResetLightCapabilities()
 	resp.DataSourceData = client
 	resp.ResourceData = client
 }

@@ -331,17 +331,16 @@ func (r *sceneResource) refresh(ctx context.Context, m *sceneModel) error {
 	if err != nil {
 		return err
 	}
-	var lights []hue.Light
-	if len(scene.Actions) > 0 {
-		if err := r.client.Get(ctx, "/clip/v2/resource/light", &lights); err != nil {
-			return fmt.Errorf("read light capabilities: %v", err)
-		}
-	}
-	// Cache is scoped to this refresh, so each Read fetches capabilities once and
-	// never retains stale light data across Terraform refreshes.
 	byID := map[string]hue.Light{}
-	for _, light := range lights {
-		byID[light.ID] = light
+	if len(scene.Actions) > 0 {
+		ids := make([]string, 0, len(scene.Actions))
+		for _, item := range scene.Actions {
+			ids = append(ids, item.Target.RID)
+		}
+		byID, err = r.client.LightCapabilities(ctx, ids)
+		if err != nil {
+			return fmt.Errorf("read light capabilities: %w", err)
+		}
 	}
 	prior, d := actionsFrom(ctx, m.Actions)
 	if d.HasError() {

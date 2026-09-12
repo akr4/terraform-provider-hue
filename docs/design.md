@@ -240,7 +240,7 @@ action object:
 
 ### Read での色域取得
 
-- scene の Read では `actions` に含まれる各 light の `gamut_type` を取得する（1 回の `GET /resource/light` で全件取得しキャッシュする）
+- scene の Read では `actions` に含まれる light の色域・色温度の対応範囲を取得する。照明一覧は provider の Configure ごとに共有し、書き込み後と未知の light ID を参照したときは再取得する。点灯状態やシーン本体はキャッシュしない。
 - plan 時には色域を参照しない。クリップは Read 時の比較で吸収する
 
 ## 10. 補助 CLI `hue-tf`
@@ -322,7 +322,7 @@ action object:
 `--write` は既存定義を更新し、新規分は import ブロックのみ準備する。resource 定義の生成は Terraform に任せる。state と Bridge には書き込まない。
 
 - 新規・既存・削除は UUID と state から判定し、通常の操作に `--new` は不要。
-- 引数なしは対応する全リソース。UUID または完全なアドレスで1件を指定できる。
+- 引数なしは対応する全リソース。UUID または完全なアドレスを複数指定できる。1件でも対象範囲に見つからない場合は全体を書き込まない。
 - 新規の import 先は root のアドレスにする。`--module NAME[.NAME...]` は新規の配置先と既存リソースの対象範囲を指定する。
   Hue の部屋による絞り込みではなく、既存リソースの配置は state に従う。
 - 初回は一括で取り込み、その後 `moved` ブロックを使って通常の Terraform 操作で module に整理できる。

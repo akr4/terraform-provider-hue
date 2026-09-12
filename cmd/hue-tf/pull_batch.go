@@ -155,7 +155,21 @@ func prepareBatch(state []byte, remote map[string]map[string]json.RawMessage, op
 		resources = append(resources, r)
 	}
 	known := map[string]bool{}
-	matched := false
+	selectors := opts.selectors
+	if len(selectors) == 0 && opts.id != "" {
+		selectors = []string{opts.id}
+	}
+	matched := map[string]bool{}
+	selectResource := func(id, address string) bool {
+		selected := len(selectors) == 0
+		for _, selector := range selectors {
+			if selector == id || (address != "" && selector == address) {
+				matched[selector] = true
+				selected = true
+			}
+		}
+		return selected
+	}
 	for _, r := range resources {
 		known[r.ID] = true
 	}
@@ -170,10 +184,9 @@ func prepareBatch(state []byte, remote map[string]map[string]json.RawMessage, op
 		}
 		sort.Strings(ids)
 		for _, id := range ids {
-			if known[id] || (opts.id != "" && opts.id != id) {
+			if known[id] || !selectResource(id, "") {
 				continue
 			}
-			matched = true
 			raw := remote[kind][id]
 			var item hue.Group
 			if err := json.Unmarshal(raw, &item); err != nil {
@@ -222,13 +235,12 @@ func prepareBatch(state []byte, remote map[string]map[string]json.RawMessage, op
 	for _, r := range resources {
 		known[r.ID] = true
 		rscope := pull.ModuleAddress(r.Address)
-		if opts.id != "" && opts.id != r.ID && opts.id != r.Address {
-			continue
-		}
 		if opts.module != "" && rscope != scope && !strings.HasPrefix(rscope, scope+".") {
 			continue
 		}
-		matched = true
+		if !selectResource(r.ID, r.Address) {
+			continue
+		}
 		_, name, _ := pull.ResourceAddress(r.Address)
 		dir := modules[rscope]
 		if dir == "" {
@@ -298,8 +310,10 @@ func prepareBatch(state []byte, remote map[string]map[string]json.RawMessage, op
 			plan.Changes = append(plan.Changes, change)
 		}
 	}
-	if opts.id != "" && !matched {
-		plan.Problems = append(plan.Problems, "resource not found in selected scope: "+opts.id)
+	for _, selector := range selectors {
+		if !matched[selector] {
+			plan.Problems = append(plan.Problems, "resource not found in selected scope: "+selector)
+		}
 	}
 	plan.Changes, err = pull.CombineChanges(plan.Changes)
 	if err != nil {
@@ -345,10 +359,9 @@ func prepareBatch(state []byte, remote map[string]map[string]json.RawMessage, op
 
 func pullBatch(ctx context.Context, args []string, out io.Writer, deps dependencies) error {
 	opts, err := parsePullOptions(args, true)
-	// In unified pull the optional positional argument selects an existing address
-	// or UUID. Two positional arguments remain exclusive to legacy --new.
+	// Each positional argument selects an existing address or UUID.
 	if err != nil || opts.address != "" {
-		return fmt.Errorf("usage: hue-tf pull [UUID | RESOURCE_ADDRESS] [--module NAME[.NAME...]] [--write]")
+		return fmt.Errorf("usage: hue-tf pull [UUID | RESOURCE_ADDRESS ...] [--module NAME[.NAME...]] [--write]")
 	}
 	return pullBatchOptions(ctx, opts, out, deps)
 }
