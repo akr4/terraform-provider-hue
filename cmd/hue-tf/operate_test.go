@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/akr4/terraform-provider-hue/internal/hue"
 )
@@ -21,7 +23,7 @@ const opLight = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 
 func TestOperateValidation(t *testing.T) {
 	for _, args := range [][]string{
-		{"recall"}, {"identify"}, {"recall", "../scene"}, {"identify", "bad"},
+		{"recall"}, {"identify"}, {"identify", opDevice, "--count", "0"}, {"identify", opDevice, "--count", "11"}, {"identify", opDevice, "--count"}, {"identify", opDevice, "--count", "2", "--count", "3"}, {"recall", opScene, "--count", "3"}, {"recall", "../scene"}, {"identify", "bad"},
 		{"recall", opScene, opSmart}, {"identify", opDevice, "--action", "identify"},
 		{"recall", opScene, "--action"}, {"recall", opScene, "--action", "bad"},
 		{"recall", opScene, "--action", "active", "--action", "active"},
@@ -46,6 +48,8 @@ func TestOperateRequests(t *testing.T) {
 		{"static", []string{"recall", opScene, "--action", "static"}, "scene/" + opScene, "recall", "static", 200, false},
 		{"smart", []string{"recall", opSmart}, "smart_scene/" + opSmart, "recall", "activate", 200, false},
 		{"stop smart", []string{"recall", opSmart, "--action", "deactivate"}, "smart_scene/" + opSmart, "recall", "deactivate", 200, false},
+		{"identify once", []string{"identify", opDevice, "--count", "1"}, "device/" + opDevice, "identify", "identify", 200, false},
+		{"identify twice", []string{"identify", opDevice, "--count", "2"}, "device/" + opDevice, "identify", "identify", 200, false},
 		{"identify device", []string{"identify", opDevice}, "device/" + opDevice, "identify", "identify", 200, false},
 		{"identify light owner", []string{"identify", opLight}, "device/" + opDevice, "identify", "identify", 200, false},
 		{"wrong scene action", []string{"recall", opScene, "--action", "activate"}, "", "", "", 200, true},
@@ -58,6 +62,7 @@ func TestOperateRequests(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
 			gets, puts := 0, 0
+			waits := 0
 			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Header.Get("hue-application-key") != "test-key" {
 					t.Error("missing authentication")
@@ -90,7 +95,13 @@ func TestOperateRequests(t *testing.T) {
 				w.Write([]byte(`{"errors":[],"data":[]}`))
 			}))
 			defer server.Close()
-			deps := dependencies{newClient: func(string, string) (*hue.Client, error) {
+			deps := dependencies{wait: func(_ context.Context, d time.Duration) error {
+				if d != 3*time.Second {
+					t.Fatal(d)
+				}
+				waits++
+				return nil
+			}, newClient: func(string, string) (*hue.Client, error) {
 				return hue.NewClientWithHTTP(server.URL, "test-key", server.Client())
 			}, readState: func(context.Context) ([]byte, error) { t.Fatal("read state"); return nil, nil }, terraform: func(context.Context, ...string) ([]byte, error) { t.Fatal("ran Terraform"); return nil, nil }}
 			var out bytes.Buffer
@@ -99,8 +110,19 @@ func TestOperateRequests(t *testing.T) {
 				t.Fatalf("error=%v", err)
 			}
 			wantPuts := 1
+			if tc.args[0] == "identify" {
+				wantPuts = 3
+				for i, arg := range tc.args {
+					if arg == "--count" {
+						wantPuts, _ = strconv.Atoi(tc.args[i+1])
+					}
+				}
+			}
 			if tc.path == "" {
 				wantPuts = 0
+			}
+			if wantPuts > 1 && waits != wantPuts-1 {
+				t.Fatalf("waits=%d", waits)
 			}
 			if gets != 1 || puts != wantPuts {
 				t.Fatalf("GET=%d PUT=%d", gets, puts)
@@ -139,5 +161,28 @@ func TestOperateRejectsUnresolvableIdentify(t *testing.T) {
 				t.Fatal("accepted unsupported identify target")
 			}
 		})
+	}
+}
+
+func TestIdentifyCancelBetweenSignals(t *testing.T) {
+	t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
+	puts := 0
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			fmt.Fprintf(w, `{"errors":[],"data":[{"id":%q,"type":"device","identify":{}}]}`, opDevice)
+			return
+		}
+		puts++
+		w.Write([]byte(`{"errors":[],"data":[]}`))
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	deps := dependencies{newClient: func(string, string) (*hue.Client, error) {
+		return hue.NewClientWithHTTP(server.URL, "test-key", server.Client())
+	}, wait: func(ctx context.Context, d time.Duration) error { cancel(); return waitForOperation(ctx, d) }}
+	err := runWith(ctx, []string{"identify", opDevice}, &bytes.Buffer{}, &bytes.Buffer{}, deps)
+	if err != context.Canceled || puts != 1 {
+		t.Fatalf("err=%v PUTs=%d", err, puts)
 	}
 }

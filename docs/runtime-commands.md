@@ -26,9 +26,15 @@ the resource type before any write. No scene definition or schedule is sent.
 ```sh
 hue-tf identify DEVICE_UUID
 hue-tf identify LIGHT_UUID
+hue-tf identify LIGHT_UUID --count 1
 ```
 
 Sends `identify.action = identify` to a device advertising the identify feature.
+By default it sends three requests, waiting three seconds after each response
+before sending the next. `--count N` selects 1–10 requests. Ctrl-C or an API error
+stops further requests; signals already accepted by the device are not canceled.
+Each response is reported as progress. Hardware determines the actual pattern,
+so repeated requests do not guarantee a particular number of visible flashes.
 A light UUID is resolved to its owning device. The visible signal depends on the
 hardware (for example, a light's breathe sequence or a sensor's LED). A device
 with multiple light services is identified as a device, not as one isolated service.

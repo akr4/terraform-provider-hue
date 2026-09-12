@@ -28,6 +28,7 @@ func main() {
 }
 
 type dependencies struct {
+	wait      func(context.Context, time.Duration) error
 	terraform func(context.Context, ...string) ([]byte, error)
 	readState func(context.Context) ([]byte, error)
 	newClient func(string, string) (*hue.Client, error)
@@ -39,7 +40,7 @@ func run(ctx context.Context, args []string, out, errout io.Writer) error {
 }
 func runWith(ctx context.Context, args []string, out, errout io.Writer, deps dependencies) error {
 	if len(args) == 0 {
-		return errors.New("usage: hue-tf init | ls <room|zone|scene|smart_scene|light|device|switch|behavior_instance|behavior_script|button> [--json] | show SCENE_UUID | recall SCENE_UUID [--action ACTION] | identify DEVICE_UUID_OR_LIGHT_UUID | raw /clip/v2/<path> | pull [UUID | RESOURCE_ADDRESS ...] [--module NAME[.NAME...]] [--write]")
+		return errors.New("usage: hue-tf init | ls <room|zone|scene|smart_scene|light|device|switch|behavior_instance|behavior_script|button> [--json] | show SCENE_UUID | recall SCENE_UUID [--action ACTION] | identify DEVICE_UUID_OR_LIGHT_UUID [--count N] | raw /clip/v2/<path> | pull [UUID | RESOURCE_ADDRESS ...] [--module NAME[.NAME...]] [--write]")
 	}
 	if args[0] == "pull" {
 		return pullScene(ctx, args[1:], out, deps)

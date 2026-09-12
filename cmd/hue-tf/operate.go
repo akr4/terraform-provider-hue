@@ -7,7 +7,9 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 )
 
 var operationUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$`)
@@ -15,11 +17,16 @@ var operationUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9
 // operate sends only the requested runtime action. It never reads Terraform
 // state or changes saved scene configuration.
 func operate(ctx context.Context, command string, args []string, out io.Writer, deps dependencies) error {
-	usage := "usage: hue-tf identify DEVICE_UUID_OR_LIGHT_UUID"
+	usage := "usage: hue-tf identify DEVICE_UUID_OR_LIGHT_UUID [--count 1..10]"
 	if command == "recall" {
 		usage = "usage: hue-tf recall SCENE_UUID [--action active|dynamic_palette|static|activate|deactivate]"
 	}
 	id, action := "", ""
+	count := 1
+	if command == "identify" {
+		count = 3
+	}
+	seenCount := false
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--action" && command == "recall" {
 			if action != "" || i+1 == len(args) {
@@ -32,6 +39,17 @@ func operate(ctx context.Context, command string, args []string, out io.Writer, 
 			default:
 				return fmt.Errorf("%s", usage)
 			}
+		} else if args[i] == "--count" && command == "identify" {
+			if seenCount || i+1 == len(args) {
+				return fmt.Errorf("%s", usage)
+			}
+			seenCount = true
+			i++
+			n, err := strconv.Atoi(args[i])
+			if err != nil || n < 1 || n > 10 {
+				return fmt.Errorf("%s", usage)
+			}
+			count = n
 		} else if id == "" && operationUUID.MatchString(args[i]) {
 			id = strings.ToLower(args[i])
 		} else {
@@ -114,9 +132,41 @@ func operate(ctx context.Context, command string, args []string, out io.Writer, 
 	if !operationUUID.MatchString(target.ID) {
 		return fmt.Errorf("bridge returned invalid target UUID")
 	}
-	if err = client.Update(ctx, target.Type, target.ID, payload); err != nil {
-		return err
+	wait := deps.wait
+	if wait == nil {
+		wait = waitForOperation
 	}
-	_, err = fmt.Fprintf(out, "Requested %s: %s / %s (%s)\n", action, target.Type, tableText(target.Metadata.Name), target.ID)
-	return err
+	for i := 0; i < count; i++ {
+		if i > 0 {
+			if err = wait(ctx, 3*time.Second); err != nil {
+				return err
+			}
+		}
+		if err = ctx.Err(); err != nil {
+			return err
+		}
+		if err = client.Update(ctx, target.Type, target.ID, payload); err != nil {
+			return err
+		}
+		if count > 1 {
+			_, err = fmt.Fprintf(out, "Requested %s (%d/%d): %s / %s (%s)\n", action, i+1, count, target.Type, tableText(target.Metadata.Name), target.ID)
+		} else {
+			_, err = fmt.Fprintf(out, "Requested %s: %s / %s (%s)\n", action, target.Type, tableText(target.Metadata.Name), target.ID)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func waitForOperation(ctx context.Context, duration time.Duration) error {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
