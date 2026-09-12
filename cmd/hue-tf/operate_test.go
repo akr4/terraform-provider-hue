@@ -96,7 +96,7 @@ func TestOperateRequests(t *testing.T) {
 			}))
 			defer server.Close()
 			deps := dependencies{wait: func(_ context.Context, d time.Duration) error {
-				if d != 3*time.Second {
+				if d != time.Second {
 					t.Fatal(d)
 				}
 				waits++

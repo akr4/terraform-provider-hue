@@ -30,7 +30,7 @@ hue-tf identify LIGHT_UUID --count 1
 ```
 
 Sends `identify.action = identify` to a device advertising the identify feature.
-By default it sends three requests, waiting three seconds after each response
+By default it sends three requests, waiting one second after each response
 before sending the next. `--count N` selects 1–10 requests. Ctrl-C or an API error
 stops further requests; signals already accepted by the device are not canceled.
 Each response is reported as progress. Hardware determines the actual pattern,

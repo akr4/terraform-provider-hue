@@ -138,7 +138,7 @@ func operate(ctx context.Context, command string, args []string, out io.Writer, 
 	}
 	for i := 0; i < count; i++ {
 		if i > 0 {
-			if err = wait(ctx, 3*time.Second); err != nil {
+			if err = wait(ctx, time.Second); err != nil {
 				return err
 			}
 		}
