@@ -210,3 +210,49 @@ func TestSyncProviderEnvironment(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestSyncHexPreservesUnchangedBridgeColor(t *testing.T) {
+	dir := t.TempDir()
+	source := `resource "hue_scene" "evening" {
+ name = "Evening"
+ actions = { light = { color_hex = "#2450ff", brightness = 2 } }
+}`
+	baseline := syncAttrs(t, source)
+	baseline["actions"] = json.RawMessage(`{"light":{"color_hex":"#2450ff","color_xy":{"x":0.1449,"y":0.0828},"brightness":2}}`)
+	remote := strings.Replace(source, `color_hex = "#2450ff"`, `color_xy = { x = 0.1448999, y = 0.0828 }`, 1)
+	for _, tc := range []struct {
+		name, local, remote string
+		blocked             bool
+	}{
+		{"unchanged", source, remote, false},
+		{"brightness", source, strings.Replace(remote, "brightness = 2", "brightness = 3", 1), false},
+		{"local hex", strings.Replace(source, "#2450ff", "#6540ff", 1), remote, false},
+		{"remote color", source, strings.Replace(remote, "0.1448999", "0.4", 1), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := os.WriteFile(dir+"/scene.tf", []byte(tc.local), 0600); err != nil {
+				t.Fatal(err)
+			}
+			c, err := PrepareSync(dir, "scene", "evening", baseline, []byte(tc.remote), StateContext(nil, ""))
+			if tc.blocked {
+				if err == nil || !strings.Contains(err.Error(), "losslessly") {
+					t.Fatalf("expected color block, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.name == "brightness" {
+				if !strings.Contains(string(c.Updated), "brightness = 3") || !strings.Contains(string(c.Updated), "#2450ff") {
+					t.Fatal(string(c.Updated))
+				}
+			} else if len(c.Edits) != 0 {
+				t.Fatalf("unexpected edits: %+v", c.Edits)
+			}
+			if _, err := PrepareRemoval(dir, "scene", "evening", baseline, StateContext(nil, "")); tc.name != "local hex" && err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}

@@ -676,14 +676,28 @@ func actionRepresentations(expr hclsyntax.Expression, old, remote cty.Value) (ct
 			if err != nil {
 				continue
 			}
-			if fields["color_hex"] != nil {
-				return cty.NilVal, fmt.Errorf("%s: color_hex cannot be reconstructed losslessly; use color_xy", id)
-			}
 			if fields["kelvin"] != nil && fields["mirek"] != nil {
 				return cty.NilVal, fmt.Errorf("%s: both kelvin and mirek are configured", id)
 			}
 			values := action.AsValueMap()
-			delete(values, "color_hex")
+			if fields["color_hex"] != nil {
+				// Preserve the state hex alias only when the bridge still has the
+				// same color. The normal three-way merge retains local hex edits.
+				var baseline map[string]cty.Value
+				if !absent(old) && old.Type().IsObjectType() {
+					if prior := old.AsValueMap()[id]; !absent(prior) && prior.Type().IsObjectType() {
+						baseline = prior.AsValueMap()
+					}
+				}
+				if absent(baseline["color_hex"]) || absent(baseline["color_xy"]) ||
+					!equalValue(baseline["color_xy"], values["color_xy"], "actions.color_xy") {
+					return cty.NilVal, fmt.Errorf("%s: color_hex cannot be reconstructed losslessly; use color_xy", id)
+				}
+				values["color_hex"] = baseline["color_hex"]
+				delete(values, "color_xy")
+			} else {
+				delete(values, "color_hex")
+			}
 			if fields["kelvin"] == nil {
 				delete(values, "kelvin")
 			} else {
@@ -706,12 +720,12 @@ func actionRepresentations(expr hclsyntax.Expression, old, remote cty.Value) (ct
 		}
 		return cty.ObjectVal(actions), nil
 	}
-	old, err = adapt(old)
+	adaptedOld, err := adapt(old)
 	if err != nil {
 		return old, remote, err
 	}
 	remote, err = adapt(remote)
-	return old, remote, err
+	return adaptedOld, remote, err
 }
 
 func mergeConflict(field string, old, local, remote cty.Value) error {
