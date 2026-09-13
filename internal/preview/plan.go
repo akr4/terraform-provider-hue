@@ -50,6 +50,7 @@ type View struct {
 type Scene struct {
 	Address, Name, Group, Change string
 	Rows                         []Row
+	Palette                      []Row
 	Changed                      bool
 	Notice                       string
 }
@@ -162,6 +163,7 @@ func Decode(r io.Reader, inventory io.Reader) (View, error) {
 		if n := names[s.Group]; n != "" {
 			s.Group = n
 		}
+		s.Palette = paletteRows(old["palette"], next["palette"], s.Changed)
 		a, _ := old["actions"].(map[string]any)
 		b, _ := next["actions"].(map[string]any)
 		if special(field(next, "actions")) {
@@ -223,7 +225,7 @@ func masked(m map[string]any, flags any) map[string]any {
 	if o, ok := v.(map[string]any); ok {
 		return o
 	}
-	return map[string]any{"name": redacted, "group": redacted, "actions": redacted}
+	return map[string]any{"name": redacted, "group": redacted, "actions": redacted, "palette": redacted}
 }
 func mask(v, flags any) any {
 	if b, ok := flags.(bool); ok && b {
@@ -253,7 +255,7 @@ func mask(v, flags any) any {
 }
 func unknown(m map[string]any, flags any) map[string]any {
 	if b, ok := flags.(bool); ok && b {
-		return map[string]any{"name": pending, "group": pending, "actions": pending}
+		return map[string]any{"name": pending, "group": pending, "actions": pending, "palette": pending}
 	}
 	f, _ := flags.(map[string]any)
 	if len(f) == 0 {

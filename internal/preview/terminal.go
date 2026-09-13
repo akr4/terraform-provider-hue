@@ -21,6 +21,16 @@ func Terminal(w io.Writer, v View, all, color bool) error {
 		if s.Notice != "" {
 			fmt.Fprintln(w, "  "+s.Notice)
 		}
+		for _, r := range s.Palette {
+			if !all && !r.Changed {
+				continue
+			}
+			if r.Changed {
+				fmt.Fprintf(w, "  Palette · %s: %s → %s\n", r.Name, terminalPaletteSample(r.Before, color), terminalPaletteSample(r.After, color))
+			} else {
+				fmt.Fprintf(w, "  Palette · %s: %s\n", r.Name, terminalPaletteSample(r.After, color))
+			}
+		}
 		rows := 0
 		for _, r := range s.Rows {
 			if !all && !r.Changed {
@@ -51,4 +61,14 @@ func terminalSample(s Sample, color bool) string {
 		return fmt.Sprintf("\x1b[48;2;%d;%d;%dm  \x1b[0m %s", s.R, s.G, s.B, s.Text)
 	}
 	return s.Text
+}
+
+func terminalPaletteSample(s Sample, color bool) string {
+	if !s.Exists {
+		return "—"
+	}
+	if s.Notice != "" {
+		return terminalSample(s, color) + " " + s.Notice
+	}
+	return terminalSample(s, color)
 }

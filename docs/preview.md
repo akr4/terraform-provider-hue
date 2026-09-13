@@ -53,4 +53,11 @@ does not reliably expose their original `.tf` filenames.
 
 `--output FILE` writes a complete file before replacing an existing preview.
 Terraform sensitive markers are honored. Unrelated values such as provider
-configuration, outputs, palettes and behavior JSON are not copied into the HTML.
+configuration, outputs and behavior JSON are not copied into the HTML.
+
+
+Palette colors, color temperatures and brightness entries appear separately from
+per-light actions, in their saved order. Each entry uses the same brightness-aware
+swatch rendering. Unchanged entries appear once; changed entries show comparisons.
+Effects are identified but not simulated. Raw palette JSON and unsupported fields
+are not rendered. Unknown, sensitive and malformed palettes are labeled.
