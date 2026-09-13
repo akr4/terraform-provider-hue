@@ -31,9 +31,11 @@ color. Terminal swatches show normalized color, with brightness as a separate
 number. Unknown plan values and sensitive fields are labeled instead of rendered.
 
 HTML is self-contained and does not load assets or send data over the network.
-It shows normalized color and an approximate brightness-adjusted swatch. CSS XYZ
-preserves the chromaticity for browser rendering; dimmer percentage scales display
-luminance as a preview convention, not a measurement of the lamp's brightness.
+Each lighting action has one small normalized-color swatch, with brightness shown
+as a percentage. Unchanged actions appear once; only changed actions show a
+before/after comparison. Light UUIDs are available on hover when names are known.
+CSS XYZ preserves the chromaticity for browser rendering; swatches do not
+represent the lamp's brightness.
 Screen gamut limitations apply. Color temperature is approximated; brightness-only
 lights use a neutral swatch. Gradients and effects are identified but not simulated.
 Smart-scene schedules and other resource types do not currently have visual views.

@@ -33,7 +33,7 @@ func TestPlanPreview(t *testing.T) {
 	if err = HTML(&out, v); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Steady", "color(xyz-d65", "background:black", "Changed scenes only", "known after apply"} {
+	for _, want := range []string{"Steady", "color(xyz-d65", "Changed scenes only", "known after apply"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("HTML missing %q", want)
 		}
