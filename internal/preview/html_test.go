@@ -57,7 +57,7 @@ func TestPreviewOffLights(t *testing.T) {
 		if err := HTML(&out, View{Scenes: []Scene{{Rows: []Row{{After: s}}}}}); err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(out.String(), `aria-label="Off"`) || strings.Contains(out.String(), `title="Normalized color"`) {
+		if !strings.Contains(out.String(), `aria-label="Off"`) || strings.Contains(out.String(), `title="Configured color and brightness"`) {
 			t.Fatal("expected off marker instead of color swatch")
 		}
 	}

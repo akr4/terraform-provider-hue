@@ -43,7 +43,7 @@ func Terminal(w io.Writer, v View, all, color bool) error {
 		_, err := fmt.Fprintln(w, "No scene changes.")
 		return err
 	}
-	_, err := fmt.Fprintln(w, "\nSwatches show normalized color; brightness is listed separately. Screen colors are approximate.")
+	_, err := fmt.Fprintln(w, "\nSwatches reflect configured color and brightness; percentages are also shown. Screen colors are approximate.")
 	return err
 }
 func terminalSample(s Sample, color bool) string {

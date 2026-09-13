@@ -63,7 +63,7 @@ type Sample struct {
 	Text, Color, Brightness, On, Extra, Notice string
 	R, G, B                                    int
 	HasColor                                   bool
-	CSS, DimCSS                                string
+	CSS                                        string
 }
 
 func Decode(r io.Reader, inventory io.Reader) (View, error) {

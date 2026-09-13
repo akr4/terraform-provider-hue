@@ -96,19 +96,27 @@ func sample(v any, exists bool) Sample {
 	return s
 }
 
-// Color is a normalized D65 swatch. DimCSS scales linear luminance by the
-// dimmer percentage as a visual convention, not calibrated lamp luminance.
+// Swatches scale normalized linear D65 color by the configured brightness.
+// This represents settings consistently, not calibrated lamp luminance.
 func setColor(s *Sample, x, y float64, m map[string]any) {
+	brightness, ok := number(m["brightness"])
+	if !ok || brightness < 0 || brightness > 100 {
+		if s.On != "off" {
+			s.Notice = "Color preview unavailable: brightness is unspecified, unknown, sensitive or invalid."
+		}
+		return
+	}
+	level := brightness / 100
 	X, Y, Z := x/y, 1.0, (1-x-y)/y
 	r := 3.2404542*X - 1.5371385*Y - 0.4985314*Z
 	g := -0.969266*X + 1.8760108*Y + 0.041556*Z
 	b := 0.0556434*X - 0.2040259*Y + 1.0572252*Z
 	scale := math.Max(1, math.Max(r, math.Max(g, b)))
-	X /= scale
-	Y /= scale
-	Z /= scale
+	X *= level / scale
+	Y *= level / scale
+	Z *= level / scale
 	gamma := func(v float64) int {
-		v = math.Max(0, math.Min(1, v/scale))
+		v = math.Max(0, math.Min(1, v/scale*level))
 		if v <= 0.0031308 {
 			v *= 12.92
 		} else {
@@ -119,12 +127,7 @@ func setColor(s *Sample, x, y float64, m map[string]any) {
 	s.R, s.G, s.B = gamma(r), gamma(g), gamma(b)
 	s.HasColor = true
 	s.CSS = fmt.Sprintf("color(xyz-d65 %.8f %.8f %.8f)", X, Y, Z)
-	if n, ok := number(m["brightness"]); ok && n >= 0 && n <= 100 {
-		s.DimCSS = fmt.Sprintf("color(xyz-d65 %.8f %.8f %.8f)", X*n/100, Y*n/100, Z*n/100)
-	}
-	if off, ok := m["on"].(bool); ok && !off {
-		s.DimCSS = "black"
-	}
+
 }
 
 // Approximate blackbody chromaticity for a color-temperature swatch.

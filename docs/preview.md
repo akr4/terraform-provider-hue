@@ -27,16 +27,19 @@ JSON and the streaming `terraform plan -json` format are not accepted.
 
 Terminal colors use 24-bit ANSI on a terminal; redirected output is plain text.
 Use `--color always|never|auto` to override detection. `NO_COLOR` disables automatic
-color. Terminal swatches show normalized color, with brightness as a separate
-number. Unknown plan values and sensitive fields are labeled instead of rendered.
+color. Terminal swatches reflect configured color and brightness, with brightness also
+shown as a number. Unknown plan values and sensitive fields are labeled instead of rendered.
 
 HTML is self-contained and does not load assets or send data over the network.
-Each lighting action has one small normalized-color swatch, with brightness shown
+Each lighting action has one small brightness-adjusted color swatch, with brightness shown
 as a percentage. Unchanged actions appear once; only changed actions show a
 before/after comparison. Lights explicitly set to off use an Off marker instead
 of a color swatch, even when the action also stores color or brightness. Light UUIDs are available on hover when names are known.
-CSS XYZ preserves the chromaticity for browser rendering; swatches do not
-represent the lamp's brightness.
+The same conversion is used for HTML and terminal: normalize the linear color,
+then scale it by brightness / 100 before display encoding. Identical settings
+produce identical swatches regardless of the lamp. This represents configuration,
+not calibrated lamp luminance. Missing, unknown, sensitive or invalid brightness
+has no color swatch; it is never assumed to be 100%.
 Screen gamut limitations apply. Color temperature is approximated; brightness-only
 lights use a neutral swatch. Gradients and effects are identified but not simulated.
 Smart-scene schedules and other resource types do not currently have visual views.
