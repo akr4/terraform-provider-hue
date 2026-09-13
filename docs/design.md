@@ -201,7 +201,7 @@ action object:
 
 - `mirek` / `kelvin` は ExactlyOneOf ではなく「両方省略可、両方指定は不可」。片方を指定すると他方は provider が計算して埋める
 - 色は `color_xy` と独立した `brightness` で指定する。`color_hex` は廃止し、state schema version 1 で旧属性だけを除去して xy を保持する。
-- `palette` は v0 では読み取り専用（Computed）とし、書き込みは v1 以降で対応する
+- `palette` は Optional + Computed の JSON 文字列。明示時は書き込み、未指定時は実機の値を維持する。actions とは独立して管理し、相互の自動生成は行わない。
 - `actions` は Map なので、要素の追加・削除・変更は light ごとに独立した差分として表示される
 
 ## 9. 色と色温度の変換
@@ -305,7 +305,6 @@ action object:
 ## 15. 未決定・保留
 
 - `hue-tf import` の HCL ラベル命名規則
-- scene の `palette` の書き込み対応（v1）
 - rate limit の固定値の最終調整（実機での測定後）
 - light の設定（name / powerup）を管理する `resource "hue_light"` の要否（v1）
 

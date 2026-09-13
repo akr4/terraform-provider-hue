@@ -233,10 +233,6 @@ func (b *Bridge) serve(w http.ResponseWriter, r *http.Request) {
 			value["last_error"] = json.RawMessage(`""`)
 		}
 		if kind == "scene" {
-			if _, ok := patch["palette"]; ok {
-				failure(w, 400, "palette is read only in fake v0")
-				return
-			}
 			if r.Method == "PUT" {
 				var metadata map[string]json.RawMessage
 				_ = json.Unmarshal(patch["metadata"], &metadata)

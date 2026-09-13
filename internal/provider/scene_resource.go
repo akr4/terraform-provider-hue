@@ -73,14 +73,14 @@ func (r *sceneResource) Metadata(_ context.Context, req resource.MetadataRequest
 	resp.TypeName = req.ProviderTypeName + "_scene"
 }
 func (r *sceneResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
-	resp.Schema = schema.Schema{Version: 1, Description: "Manage a Hue scene. Changing its group replaces it. Palette is read-only in v0.", Attributes: map[string]schema.Attribute{
+	resp.Schema = schema.Schema{Version: 1, Description: "Manage a Hue scene. Changing its group replaces it.", Attributes: map[string]schema.Attribute{
 		"id":           schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}, Description: "Bridge resource UUID."},
 		"name":         schema.StringAttribute{Required: true, Description: "Scene name."},
 		"group":        schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}, Description: "Room or zone UUID. Changes replace the scene."},
 		"speed":        schema.Float64Attribute{Optional: true, Computed: true, Description: "Dynamic scene speed from 0 to 1."},
 		"auto_dynamic": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), Description: "Enable dynamic playback. Defaults to false."},
 		"image_id":     schema.StringAttribute{Optional: true, Computed: true, Description: "Image resource UUID. Preserved on import."},
-		"palette":      schema.StringAttribute{Computed: true, Description: "Read-only palette as canonical JSON. Never sent in create or update requests."},
+		"palette":      schema.StringAttribute{Optional: true, Computed: true, Description: "Scene palette as a JSON object; use jsonencode. Independent of actions. Preserved on the bridge when omitted. Specify empty palette arrays to clear it."},
 		"actions": schema.MapNestedAttribute{Required: true, Description: "Actions keyed by light UUID.", NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
 			"gradient":   schema.StringAttribute{Optional: true, Computed: true, Description: "Gradient action as a JSON object; use jsonencode. Preserved from the bridge when omitted."},
 			"effects":    schema.StringAttribute{Optional: true, Computed: true, Description: "Effect action as a JSON object; use jsonencode. Preserved from the bridge when omitted."},
@@ -118,6 +118,11 @@ func (r *sceneResource) ValidateConfig(ctx context.Context, req resource.Validat
 	}
 	if known(m.Speed) && (m.Speed.ValueFloat64() < 0 || m.Speed.ValueFloat64() > 1) {
 		resp.Diagnostics.AddAttributeError(path.Root("speed"), "Invalid speed", "speed must be between 0 and 1.")
+	}
+	if known(m.Palette) {
+		if err := hue.ValidateConfiguration([]byte(m.Palette.ValueString())); err != nil {
+			resp.Diagnostics.AddAttributeError(path.Root("palette"), "Invalid palette", err.Error())
+		}
 	}
 	// Individual map values may be unknown while referenced resources are planned.
 	if !known(m.Actions) {
@@ -195,6 +200,12 @@ func (r *sceneResource) body(ctx context.Context, m sceneModel, config sceneMode
 	}
 	if known(m.ImageID) {
 		scene.Metadata.Image = &hue.Reference{RID: m.ImageID.ValueString(), RType: "public_image"}
+	}
+	if known(config.Palette) {
+		if err := hue.ValidateConfiguration([]byte(m.Palette.ValueString())); err != nil {
+			return scene, fmt.Errorf("invalid palette: %w", err)
+		}
+		scene.Palette = json.RawMessage(m.Palette.ValueString())
 	}
 	actions, d := actionsFrom(ctx, m.Actions)
 	if d.HasError() {
@@ -355,18 +366,11 @@ func (r *sceneResource) refresh(ctx context.Context, m *sceneModel) error {
 	if scene.Metadata.Image != nil {
 		m.ImageID = types.StringValue(scene.Metadata.Image.RID)
 	}
-	m.Palette = types.StringNull()
-	if len(scene.Palette) > 0 && string(scene.Palette) != "null" {
-		var value any
-		if err = json.Unmarshal(scene.Palette, &value); err != nil {
-			return err
-		}
-		canonical, err := json.Marshal(value)
-		if err != nil {
-			return err
-		}
-		m.Palette = types.StringValue(string(canonical))
+	palette, err := reconcilePalette(m.Palette, scene.Palette)
+	if err != nil {
+		return err
 	}
+	m.Palette = palette
 	m.Actions, d = types.MapValueFrom(ctx, actionType, actions)
 	if d.HasError() {
 		return fmt.Errorf("encode actions: %v", d)
@@ -432,8 +436,11 @@ func (r *sceneResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		if m.ImageID.Equal(prior.ImageID) {
 			body.Metadata.Image = nil
 		}
-		// group is immutable and must not be included in PUT; palette is read-only.
+		// group is immutable and must not be included in PUT.
 		payload := map[string]any{"metadata": body.Metadata, "actions": body.Actions}
+		if len(body.Palette) > 0 {
+			payload["palette"] = body.Palette
+		}
 		if body.Speed != nil {
 			payload["speed"] = body.Speed
 		}
@@ -487,7 +494,11 @@ func (r *sceneResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 		if config.Speed.IsNull() {
 			planned.Speed = prior.Speed
 		}
-		planned.Palette = prior.Palette
+		if config.Palette.IsNull() {
+			planned.Palette = prior.Palette
+		} else if known(config.Palette) && known(prior.Palette) && palettesEqual([]byte(config.Palette.ValueString()), []byte(prior.Palette.ValueString())) {
+			planned.Palette = config.Palette
+		}
 	}
 	if known(config.Actions) && known(planned.Actions) {
 		for _, value := range config.Actions.Elements() {

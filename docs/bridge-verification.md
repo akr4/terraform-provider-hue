@@ -172,7 +172,7 @@ scene の `actions` は `target.rid` を map のキーにします。
 hex / kelvin は同時に指定しません。API にない属性は省略し、false と 0 は省略しません。
 色温度が null の場合は `mirek` を省略します。
 `metadata.image.rid` は `image_id` に記入するか、未指定のまま import で読み取れます。
-`palette` は読み取り専用なので設定には書きません。
+`palette` は省略すると実機の値を維持します。配色を管理する場合は `jsonencode` で明示します。
 
 scene の所属 group は既存の UUID を直接指定できます。
 その room / zone を同時に Terraform 管理対象にする必要はありません。

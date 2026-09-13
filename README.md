@@ -149,7 +149,31 @@ produces an equivalent result.
 Kelvin conversions are bounded to the API's 153–500 mirek range before writing;
 refresh comparison also accounts for each light's narrower supported range. For
 gamut `other`, the light's explicit gamut triangle is used when available.
-`palette` is a read-only canonical JSON string; `image_id` is preserved on import.
+`palette` is an optional JSON object string (`jsonencode`); it is read on import,
+sent when configured, and preserved on the Bridge when omitted. It is independent
+of per-light `actions`: changing either does not generate the other.
+`image_id` is preserved on import.
+
+For example, add this attribute to a scene to store a reusable dynamic palette:
+
+```hcl
+palette = jsonencode({
+  color = [
+    { color = { xy = { x = 0.16, y = 0.10 } }, dimming = { brightness = 10 } },
+    { color = { xy = { x = 0.45, y = 0.25 } }, dimming = { brightness = 10 } },
+  ]
+  color_temperature = []
+  dimming           = []
+})
+```
+
+Set `auto_dynamic = true` to enable automatic dynamic playback when recalled.
+Applying a scene definition does not recall it. To clear a palette, explicitly
+set its categories to empty arrays, including any effects categories in use.
+Removing the attribute relinquishes management and preserves the remote palette.
+Unknown JSON values defer to apply; the Bridge validates palette entry shapes.
+Empty categories added by the Bridge and numeric rounding up to 0.000001 are
+treated as equivalent; color ordering and substantive changes remain significant.
 Unchanged scene images are omitted from updates because some app-created scenes
 reject image writes. Changing an image can still be rejected by the bridge.
 

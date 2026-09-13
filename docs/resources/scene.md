@@ -3,12 +3,12 @@
 page_title: "hue_scene Resource - hue"
 subcategory: ""
 description: |-
-  Manage a Hue scene. Changing its group replaces it. Palette is read-only in v0.
+  Manage a Hue scene. Changing its group replaces it.
 ---
 
 # hue_scene (Resource)
 
-Manage a Hue scene. Changing its group replaces it. Palette is read-only in v0.
+Manage a Hue scene. Changing its group replaces it.
 
 ## Example Usage
 
@@ -50,12 +50,12 @@ resource "hue_scene" "evening" {
 
 - `auto_dynamic` (Boolean) Enable dynamic playback. Defaults to false.
 - `image_id` (String) Image resource UUID. Preserved on import.
+- `palette` (String) Scene palette as a JSON object; use jsonencode. Independent of actions. Preserved on the bridge when omitted. Specify empty palette arrays to clear it.
 - `speed` (Number) Dynamic scene speed from 0 to 1.
 
 ### Read-Only
 
 - `id` (String) Bridge resource UUID.
-- `palette` (String) Read-only palette as canonical JSON. Never sent in create or update requests.
 
 <a id="nestedatt--actions"></a>
 ### Nested Schema for `actions`
