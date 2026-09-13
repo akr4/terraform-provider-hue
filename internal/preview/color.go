@@ -83,7 +83,16 @@ func sample(v any, exists bool) Sample {
 	if s.Extra != "" {
 		s.Notice = strings.TrimSpace(s.Notice + " Dynamic/gradient appearance is not simulated.")
 	}
+	if s.On == "off" {
+		s.HasColor = false
+		if s.Color == "brightness only" && m["brightness"] == nil {
+			s.Color = ""
+		}
+	}
 	s.Text = fmt.Sprintf("%s · %s · %s", s.Color, s.Brightness, s.On)
+	if s.On == "off" && s.Color == "" && s.Brightness == "unspecified" {
+		s.Text = "off"
+	}
 	return s
 }
 

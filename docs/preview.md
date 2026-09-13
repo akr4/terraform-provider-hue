@@ -33,7 +33,8 @@ number. Unknown plan values and sensitive fields are labeled instead of rendered
 HTML is self-contained and does not load assets or send data over the network.
 Each lighting action has one small normalized-color swatch, with brightness shown
 as a percentage. Unchanged actions appear once; only changed actions show a
-before/after comparison. Light UUIDs are available on hover when names are known.
+before/after comparison. Lights explicitly set to off use an Off marker instead
+of a color swatch, even when the action also stores color or brightness. Light UUIDs are available on hover when names are known.
 CSS XYZ preserves the chromaticity for browser rendering; swatches do not
 represent the lamp's brightness.
 Screen gamut limitations apply. Color temperature is approximated; brightness-only
