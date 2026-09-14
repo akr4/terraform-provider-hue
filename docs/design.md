@@ -330,7 +330,7 @@ name・enabled・configuration と、新規作成時に必要な script_id を�
 configuration は jsonencode で表現する JSON オブジェクト全体とし、機種・script ごとの構造を保持する。
 script_id の変更は置換。実行状態は読み取り専用。割り当て削除は機器のペアリングを解除しない。
 同じ device を参照する割り当てがある場合、新規作成せず既存の import を案内する。
-CLI は ls switch による機器との対応表示、pull による新規取り込み・更新・削除、configuration 内のリテラル単位のマージ に対応する。
+CLI は ls switch による機器との対応表示、import-blocks による未管理分の import ブロック生成に対応する。既存定義の同期・マージは行わない。
 運用手順・制約・API 参照は [スイッチ管理](switch-management.md) を参照。
 
 
@@ -341,5 +341,7 @@ CLI は ls switch による機器との対応表示、pull による新規取り
 各枠の `start_time` は `HH:MM:SS` または `sunset`、`scene` は通常シーンの UUID または参照式。
 `transition_duration` はミリ秒で既定値60000。group の変更は置換となる。
 実行状態と画像は読み取り専用で、作成・更新時に recall や画像変更を送信しない。
-pull は未管理分の import ブロック準備と、管理済み定義の変更・衝突検出に対応する。
+import-blocks は未管理分の import ブロック準備に対応する。既存定義の変更・衝突検出は行わない。
 詳細は [スマートシーン](smart-scenes.md) を参照する。
+
+現在の設定項目ごとの対応範囲・未対応機能・確認根拠は[設定機能の対応表](feature-coverage.md)を参照。

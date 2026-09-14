@@ -78,17 +78,10 @@ Terraform に依存関係を伝えられます。他のボタンや設定も含�
 plan で対象と差分を確認し、ユーザー自身で apply します。更新後は実際のスイッチ操作も確認してください。
 ローカルテストは模擬 Bridge 上の import・更新・差分検出を検証するもので、実機動作の保証にはなりません。
 
-## アプリで変更した設定を取り込む
+## アプリで変更した既存設定
 
-```sh
-hue-tf import-blocks module.bedroom.hue_behavior_instance.switch
-hue-tf import-blocks module.bedroom.hue_behavior_instance.switch --write
-```
-
-name、enabled、script_id、jsonencode configuration が対象です。
-変更されたリテラルを項目ごとに取り込み、変更されていない resource.id 参照やコメントを保持します。
-両側で同じ項目を異なる値へ変更した場合や、式・コメントを失わず更新できない場合は停止します。
-詳細は [取り込み手順](app-to-terraform.md) を参照してください。
+import-blocks は未管理の behavior の import ブロックを生成します。管理済みの設定はスキップし、既存の .tf を更新・マージしません。
+アプリで変更した設定を .tf に反映する場合は、実機の configuration と定義を比較して編集します。
 
 ## 管理をやめる
 
