@@ -7,12 +7,35 @@ A Terraform Plugin Framework provider (protocol v6) for Philips Hue API v2.
 
 See the [feature coverage matrix](docs/feature-coverage.md) for supported settings,
 known gaps, and scope decisions.
-Manage rooms, zones, scenes and switch behaviors, and look up lights and devices by UUID.
+Manage device names and icons, rooms, zones, scenes and switch behaviors, and look up lights and devices by UUID.
 
 This is an initial v0 implementation with synthetic fake-bridge tests. Import,
 scene updates/deletion, and app-to-Terraform pull have also been exercised on a
 physical bridge. It has not been published to the Terraform Registry.
 See [the design](docs/design.md) for the specification.
+
+## Device names and icons
+
+Use `resource "hue_device"` to manage an already paired device's metadata:
+
+```hcl
+resource "hue_device" "desk" {
+  device_id = "11111111-1111-4111-8111-111111111111"
+  name      = "Desk"
+  archetype = "table_shade"
+}
+```
+
+Use the device UUID from `hue-tf ls device`, not a light service UUID. Each UUID
+should have one resource binding. Both metadata attributes are optional: omitted
+attributes retain the Bridge value, including changes made in the app. An explicit
+value is enforced on apply. Import is supported using the device UUID.
+
+Creation adopts the existing device; it does not pair hardware. Removing this
+resource or changing `device_id` leaves the old device paired with its current
+settings. `data "hue_device"` remains available for read-only lookups. This resource
+updates device metadata only; propagation to light service names and app icons
+has not yet been verified on a physical device.
 
 ## Build
 

@@ -19,14 +19,14 @@ Hue公式のAPI v2詳細リファレンスは今回アクセスできなかっ�
 
 | 利用者が行う設定・確認 | 対応状況 | API・実装上の根拠と境界 |
 |---|---|---|
-| 機器の名前変更（照明・スイッチ・センサー） | **未対応** | device.metadata.nameは書込項目。現在のhue_device/hue_lightはdata sourceのみ。deviceとlight両方にmetadataがあるため、照明名への伝播は実装前に検証する。[D] |
-| 機器の種類・アイコン変更 | **未対応** | device.metadata.archetype。部屋のarchetypeとは別。機種別のアプリ編集可否は要確認。[D] |
+| 機器の名前変更（照明・スイッチ・センサー） | **対応（device metadata）** | resource hue_device.nameで変更可能。deviceとlight両方にmetadataがあるため、light名・アプリ表示への伝播は実機未確認。[D] |
+| 機器の種類・アイコン変更 | **対応（device metadata）** | resource hue_device.archetype。部屋のarchetypeとは別。機種別の対応値・アプリ表示は実機未確認。[D] |
 | 部屋への機器の所属・移動 | **対応** | hue_room.childrenはdevice ID。移動は移動元・先両方の構成を編集。複数部屋への同時所属を解決する独自処理はない。 |
 | ゾーンへの照明の所属 | **対応** | hue_zone.childrenはlight ID。 |
 | 電源復帰時の挙動、復帰時の明るさ・色 | **未対応** | light.powerup。プリセットとcustom設定がある。通常シーンの保存・recallとは別。[L] |
 | 機器の識別点滅 | **対象外（CLI対応）** | hue-tf identify。Terraformの永続設定ではない。 |
 | ペアリング・新しい機器の探索 | **対象外** | 登録はアプリで行う既存方針。resource追加で物理機器を新規作成する意味にしない。 |
-| 機器の登録解除・工場リセット | **対象外** | 現在はアプリ側の機器管理。将来の設定resourceのDeleteで登録解除するかは別途設計が必要。 |
+| 機器の登録解除・工場リセット | **対象外** | 現在はアプリ側の機器管理。hue_deviceのDeleteはTerraformの管理だけを解除し、機器と設定を残す。 |
 | ファームウェアの確認、更新操作 | **未対応／要確認** | device_software_updateは存在する。公開Putのinstallは一回限りの操作。アプリの自動更新設定との対応は未確認。[U] |
 
 [D]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/device/schemas/DevicePut.yaml
@@ -101,7 +101,7 @@ Hue公式のAPI v2詳細リファレンスは今回アクセスできなかっ�
 
 ## 実装の優先順位案
 
-1. **機器の名前・archetype**。deviceとlightの関係、既存機器のimport、未指定属性の維持、resource削除時に機器登録を解除しない設計を先に確定する。
+1. **機器の名前・archetypeの実機確認**。hue_deviceを実装済み。import、未指定属性の維持、削除・対象変更で登録解除しない動作は模擬Bridgeでテスト済み。deviceとlightの名前・アプリ表示の関係は実機確認が残る。
 2. **電源復帰時設定**。機種の能力に応じたvalidationとcustom設定の組合せを扱う。
 3. **motionの有効無効・検知感度**。behavior設定と分離し、機器の感度上限を取得する。
 4. **情報取得の拡充**。部屋のライト一覧・電池・接続状態を必要なユースケースから追加する。
@@ -114,7 +114,7 @@ Hue公式のAPI v2詳細リファレンスは今回アクセスできなかっ�
 - 実機で確認したactions対象一致の制約をfake Bridgeと回帰テストへ反映する。フェイクテスト成功だけでは実機の受理を保証しない。
 - paletteやbehaviorのJSON検証はオブジェクト形式が中心。サイズ・項目範囲・機種固有制約までの事前検証は限定的。
 - native import/config生成で相互排他のmirek/kelvinが同時に出るケースがある。color_hex削除だけで解消したと扱わない。
-- Scene v0→v1のstate移行テストはあるが、今後の機器設定resourceの互換性・削除意味は別途必要。
+- Scene v0→v1のstate移行テストはあるが、hue_deviceのimport・削除時の機器保持は模擬Bridgeでテスト済み。将来のschema変更には移行テストが必要。
 - CIのfake acceptance、ドキュメント生成、GoReleaser/GPG設定は存在する。Registry公開・実際のリリース成功・現時点のCI状態は本監査では未確認。
 - 古いpull説明と現行import-blocksの役割を混在させない。
 

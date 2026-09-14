@@ -29,7 +29,7 @@ func (p *hueProvider) Metadata(_ context.Context, _ provider.MetadataRequest, re
 	resp.Version = p.version
 }
 func (p *hueProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
-	resp.Schema = schema.Schema{Description: "Manage rooms, zones, scenes, smart scenes and behavior instances on a Philips Hue bridge using API v2.", Attributes: map[string]schema.Attribute{
+	resp.Schema = schema.Schema{Description: "Manage device settings, rooms, zones, scenes, smart scenes and behavior instances on a Philips Hue bridge using API v2.", Attributes: map[string]schema.Attribute{
 		"host":            schema.StringAttribute{Optional: true, Description: "Bridge IP address or hostname, without scheme or port. Falls back to HUE_BRIDGE_HOST."},
 		"application_key": schema.StringAttribute{Optional: true, Sensitive: true, Description: "Hue application key. Falls back to HUE_BRIDGE_APPLICATION_KEY."},
 	}}
@@ -69,7 +69,7 @@ func (p *hueProvider) Configure(ctx context.Context, req provider.ConfigureReque
 	resp.ResourceData = client
 }
 func (p *hueProvider) Resources(context.Context) []func() resource.Resource {
-	return []func() resource.Resource{func() resource.Resource { return &groupResource{kind: "room", childKind: "device"} }, func() resource.Resource { return &groupResource{kind: "zone", childKind: "light"} }, func() resource.Resource { return &sceneResource{} }, func() resource.Resource { return &behaviorResource{} }, func() resource.Resource { return &smartSceneResource{} }}
+	return []func() resource.Resource{func() resource.Resource { return &deviceResource{} }, func() resource.Resource { return &groupResource{kind: "room", childKind: "device"} }, func() resource.Resource { return &groupResource{kind: "zone", childKind: "light"} }, func() resource.Resource { return &sceneResource{} }, func() resource.Resource { return &behaviorResource{} }, func() resource.Resource { return &smartSceneResource{} }}
 }
 func (p *hueProvider) DataSources(context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{func() datasource.DataSource { return &lookupDataSource{kind: "light"} }, func() datasource.DataSource { return &lookupDataSource{kind: "device"} }}

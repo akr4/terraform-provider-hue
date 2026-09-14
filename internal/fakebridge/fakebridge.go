@@ -156,7 +156,7 @@ func (b *Bridge) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		success(w, data)
 	case "POST", "PUT":
-		if kind != "room" && kind != "zone" && kind != "scene" && kind != "smart_scene" && kind != "behavior_instance" {
+		if kind != "room" && kind != "zone" && kind != "scene" && kind != "smart_scene" && kind != "behavior_instance" && !(kind == "device" && r.Method == "PUT") {
 			failure(w, 405, "read only")
 			return
 		}
@@ -183,6 +183,14 @@ func (b *Bridge) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		var patch map[string]json.RawMessage
 		_ = json.Unmarshal(body, &patch)
+		if kind == "device" {
+			for key := range patch {
+				if key != "metadata" {
+					failure(w, 400, "unexpected device field")
+					return
+				}
+			}
+		}
 		if kind == "smart_scene" {
 			for key := range patch {
 				if key != "metadata" && key != "week_timeslots" && key != "transition_duration" && !(r.Method == "POST" && key == "group") {

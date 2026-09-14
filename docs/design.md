@@ -15,7 +15,7 @@ Philips Hue の設定（room / zone / scene）を GUI ではなくコードで�
 
 - light / device のペアリング（bridge への登録）。Hue アプリで行う前提
 - entertainment、grouped_light の管理
-- light 自体の設定（名前、powerup など）の管理
+- light service自体の設定（powerupなど）の管理。deviceの名前・archetypeは現在対応
 - Hue API v1 のサポート
 
 ## 2. 前提となる Hue API の事実
@@ -127,8 +127,25 @@ data "hue_device" "ceiling" {
 
 - ID は bridge の UUID をそのまま使う
 - `import` に対応する（`terraform import hue_room.x <uuid>` および `import` ブロック）
-- Delete は bridge 上のリソースを削除する
+- Delete は bridge 上のリソースを削除する。ただしhue_deviceは管理の解除のみで、機器と設定を残す
 - 読み取り専用属性（`id_v1` など）は Computed にし、必要なもの以外は schema に載せない
+
+### `hue_device`（resource）
+
+登録済みdeviceの`metadata.name`と`metadata.archetype`を管理する。
+
+| 属性 | 種別 | 説明 |
+|------|------|------|
+| `id` | Computed | device UUID |
+| `device_id` | Required, RequiresReplace | 登録済みdevice UUID。light service IDではない |
+| `name` | Optional + Computed | 1〜32文字。省略した場合は実機の値を維持 |
+| `archetype` | Optional + Computed | 機器アイコンの種類。省略した場合は実機の値を維持 |
+
+Createは既存deviceを取得して明示されたmetadataのみを更新する。POSTによるペアリングは行わない。
+Importはdevice UUIDを受け取り、idとdevice_idを設定する。同じUUIDを複数resourceで管理しない。
+Deleteおよびdevice_id変更時の旧binding削除ではBridgeへの書き込みを行わず、機器と設定を残す。
+Readで404を受けた場合はstateから除去する。再登録はアプリの担当であり、自動で行わない。
+CLIのimport-blocksによるdeviceの一括取り込みは対象外。
 
 ### `hue_room`
 
