@@ -35,3 +35,4 @@ resource "hue_device" "desk" {
 ### Read-Only
 
 - `id` (String) Device UUID.
+- `light_ids` (Set of String) UUIDs of light services owned by this device, suitable for scene actions and zone children. Empty for devices without lights. Use one(light_ids) only for devices with exactly one light service.

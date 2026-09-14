@@ -138,6 +138,7 @@ data "hue_device" "ceiling" {
 |------|------|------|
 | `id` | Computed | device UUID |
 | `device_id` | Required, RequiresReplace | 登録済みdevice UUID。light service IDではない |
+| `light_ids` | Computed, Set of string | 所有するlight service UUID。照明のない機器では空集合 |
 | `name` | Optional + Computed | 1〜32文字。省略した場合は実機の値を維持 |
 | `archetype` | Optional + Computed | 機器アイコンの種類。省略した場合は実機の値を維持 |
 

@@ -5,6 +5,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/akr4/terraform-provider-hue/internal/hue"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -19,6 +20,7 @@ type deviceModel struct {
 	DeviceID  types.String `tfsdk:"device_id"`
 	Name      types.String `tfsdk:"name"`
 	Archetype types.String `tfsdk:"archetype"`
+	LightIDs  types.Set    `tfsdk:"light_ids"`
 }
 
 func (*deviceResource) Metadata(_ context.Context, _ resource.MetadataRequest, r *resource.MetadataResponse) {
@@ -26,6 +28,7 @@ func (*deviceResource) Metadata(_ context.Context, _ resource.MetadataRequest, r
 }
 func (*deviceResource) Schema(_ context.Context, _ resource.SchemaRequest, r *resource.SchemaResponse) {
 	r.Schema = schema.Schema{Description: "Manage the name and archetype of an already paired device. Creation adopts an existing device by UUID; it never pairs hardware. Destroy only removes Terraform management, leaving the device and its settings unchanged.", Attributes: map[string]schema.Attribute{
+		"light_ids": schema.SetAttribute{Computed: true, ElementType: types.StringType, Description: "UUIDs of light services owned by this device, suitable for scene actions and zone children. Empty for devices without lights. Use one(light_ids) only for devices with exactly one light service."},
 		"id":        schema.StringAttribute{Computed: true, Description: "Device UUID."},
 		"device_id": schema.StringAttribute{Required: true, Description: "UUID of an already paired device, not a light service UUID. Changes replace only the Terraform management binding.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 		"name":      schema.StringAttribute{Optional: true, Computed: true, Description: "Device name (1–32 characters). Omitted names are preserved."},
@@ -68,7 +71,17 @@ func deviceMetadata(config deviceModel) map[string]string {
 	}
 	return fields
 }
+func deviceLightIDs(d hue.Device) types.Set {
+	ids := []attr.Value{}
+	for _, service := range d.Services {
+		if service.RType == "light" {
+			ids = append(ids, types.StringValue(service.RID))
+		}
+	}
+	return types.SetValueMust(types.StringType, ids)
+}
 func deviceState(m *deviceModel, d hue.Device) {
+	m.LightIDs = deviceLightIDs(d)
 	m.ID = types.StringValue(d.ID)
 	m.DeviceID = m.ID
 	m.Name = types.StringValue(d.Metadata.Name)
@@ -97,6 +110,7 @@ func (r *deviceResource) Create(ctx context.Context, q resource.CreateRequest, s
 		}
 	}
 	// Record the binding after a successful write, even if readback fails.
+	m.LightIDs = deviceLightIDs(d)
 	m.ID = types.StringValue(d.ID)
 	if c.Name.IsNull() {
 		m.Name = types.StringValue(d.Metadata.Name)
@@ -164,4 +178,29 @@ func (*deviceResource) ImportState(ctx context.Context, q resource.ImportStateRe
 	}
 	s.Diagnostics.Append(s.State.SetAttribute(ctx, path.Root("id"), q.ID)...)
 	s.Diagnostics.Append(s.State.SetAttribute(ctx, path.Root("device_id"), q.ID)...)
+}
+
+// Metadata changes do not change the binding or its light service identifiers.
+// Preserve these references during planning, but never carry them to a different device.
+func (*deviceResource) ModifyPlan(ctx context.Context, q resource.ModifyPlanRequest, s *resource.ModifyPlanResponse) {
+	if q.Plan.Raw.IsNull() {
+		return
+	}
+	var plan deviceModel
+	s.Diagnostics.Append(q.Plan.Get(ctx, &plan)...)
+	if s.Diagnostics.HasError() || !known(plan.DeviceID) {
+		return
+	}
+	s.Diagnostics.Append(s.Plan.SetAttribute(ctx, path.Root("id"), plan.DeviceID)...)
+	if q.State.Raw.IsNull() {
+		return
+	}
+	var state deviceModel
+	s.Diagnostics.Append(q.State.Get(ctx, &state)...)
+	if s.Diagnostics.HasError() {
+		return
+	}
+	if plan.DeviceID.Equal(state.DeviceID) && plan.LightIDs.IsUnknown() && !state.LightIDs.IsNull() && !state.LightIDs.IsUnknown() {
+		s.Diagnostics.Append(s.Plan.SetAttribute(ctx, path.Root("light_ids"), state.LightIDs)...)
+	}
 }

@@ -37,6 +37,30 @@ settings. `data "hue_device"` remains available for read-only lookups. This reso
 updates device metadata only; propagation to light service names and app icons
 has not yet been verified on a physical device.
 
+A device exposes its light service UUIDs as the computed set `light_ids`.
+Use its device `id` in room children, and its light IDs in scene actions or zone
+children. For a device with exactly one light service:
+
+```hcl
+locals {
+  desk_light_id = one(hue_device.desk.light_ids)
+}
+
+resource "hue_scene" "evening" {
+  name  = "Evening"
+  group = hue_room.study.id
+  actions = {
+    (local.desk_light_id) = { on = true, brightness = 30 }
+    # Include the other lights required by the scene's group.
+  }
+}
+```
+
+Devices without lights return an empty set; devices may expose multiple lights.
+Do not select an arbitrary element for multi-light devices. If metadata management
+is unnecessary, `data "hue_device"` also exposes `light_ids` for read-only references.
+Referencing a device does not make Terraform responsible for pairing or unpairing it.
+
 ## Build
 
 Go 1.26 or later is required. `mise install` installs the version in `mise.toml`.

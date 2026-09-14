@@ -11,7 +11,10 @@ import (
 	"github.com/akr4/terraform-provider-hue/internal/fakebridge"
 	"github.com/akr4/terraform-provider-hue/internal/hue"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/knownvalue"
+	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
+	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
 )
 
 func TestAccDeviceSettings(t *testing.T) {
@@ -38,7 +41,7 @@ func TestAccDeviceSettings(t *testing.T) {
 	}, Steps: []resource.TestStep{
 		{Config: cfg(id, `name = ""`), ExpectError: regexp.MustCompile("Invalid name")},
 		{Config: cfg("invalid", ""), ExpectError: regexp.MustCompile("Invalid device ID")},
-		{Config: cfg(id, `name = "寝室の照明"`), Check: check(id, "寝室の照明", "sultan_bulb")},
+		{Config: cfg(id, `name = "寝室の照明"`), Check: resource.ComposeAggregateTestCheckFunc(check(id, "寝室の照明", "sultan_bulb"), resource.TestCheckResourceAttr(addr, "light_ids.#", "1"), resource.TestCheckTypeSetElemAttr(addr, "light_ids.*", fakebridge.LightID))},
 		{Config: cfg(id, `name = "寝室の照明"`), PlanOnly: true},
 		{ResourceName: addr, ImportState: true, ImportStateVerify: true},
 		{Config: cfg(id, `archetype = "table_shade"`), Check: check(id, "寝室の照明", "table_shade")},
@@ -50,7 +53,10 @@ func TestAccDeviceSettings(t *testing.T) {
 			d.Metadata.Name = "App name"
 			b.Put("device", id, d)
 		}, Config: cfg(id, `archetype = "table_shade"`), Check: check(id, "App name", "table_shade")},
-		{Config: cfg(id, `name = "Managed name"`), Check: check(id, "Managed name", "table_shade")},
+		{Config: cfg(id, `name = "Managed name"`), ConfigPlanChecks: resource.ConfigPlanChecks{PreApply: []plancheck.PlanCheck{
+			plancheck.ExpectKnownValue(addr, tfjsonpath.New("id"), knownvalue.StringExact(id)),
+			plancheck.ExpectKnownValue(addr, tfjsonpath.New("light_ids"), knownvalue.SetExact([]knownvalue.Check{knownvalue.StringExact(fakebridge.LightID)})),
+		}}, Check: check(id, "Managed name", "table_shade")},
 		{PreConfig: func() {
 			d, err := hue.GetOne[hue.Device](context.Background(), b.Client(), "device", id)
 			if err != nil {
@@ -110,7 +116,8 @@ func TestAccDeviceAdoptUnconfigured(t *testing.T) {
 	resource.Test(t, resource.TestCase{ProtoV6ProviderFactories: factories(b), Steps: []resource.TestStep{
 		{Config: cfg, Check: resource.ComposeAggregateTestCheckFunc(
 			resource.TestCheckResourceAttr("hue_device.test", "name", "Existing"),
-			resource.TestCheckNoResourceAttr("hue_device.test", "archetype"))},
+			resource.TestCheckNoResourceAttr("hue_device.test", "archetype"),
+			resource.TestCheckResourceAttr("hue_device.test", "light_ids.#", "0"))},
 		{Config: cfg, PlanOnly: true},
 		{ResourceName: "hue_device.test", ImportState: true, ImportStateVerify: true},
 	}})
@@ -118,5 +125,16 @@ func TestAccDeviceAdoptUnconfigured(t *testing.T) {
 		if r.Method != "GET" {
 			t.Fatalf("adoption without settings wrote to the Bridge: %+v", r)
 		}
+	}
+}
+
+func TestDeviceLightIDs(t *testing.T) {
+	a := hue.Reference{RID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", RType: "light"}
+	b := hue.Reference{RID: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", RType: "light"}
+	sensor := hue.Reference{RID: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", RType: "motion"}
+	got := deviceLightIDs(hue.Device{Services: []hue.Reference{a, sensor, b}})
+	want := deviceLightIDs(hue.Device{Services: []hue.Reference{b, a}})
+	if !got.Equal(want) || len(got.Elements()) != 2 {
+		t.Fatalf("light service membership should exclude other services and ignore order: %v", got)
 	}
 }
