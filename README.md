@@ -6,7 +6,8 @@ are already registered on a Hue bridge.**
 A Terraform Plugin Framework provider (protocol v6) for Philips Hue API v2.
 
 See the [feature coverage matrix](docs/feature-coverage.md) for supported settings,
-known gaps, and scope decisions.
+known gaps, and scope decisions. The [API coverage inventory](docs/api-coverage.md)
+compares individual API fields with provider and CLI support.
 Manage device names and icons, rooms, zones, scenes and switch behaviors, and look up lights and devices by UUID.
 
 This is an initial v0 implementation with synthetic fake-bridge tests. Import,

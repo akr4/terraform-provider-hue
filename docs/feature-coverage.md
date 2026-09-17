@@ -1,8 +1,10 @@
 # 設定機能の対応表
 
-確認日: 2026-09-14。アプリで行う操作を起点に、プロバイダーの schema・送受信コード、公開資料、手元 Bridge の読み取り結果を照合する。機能追加時はこの表も更新する。
+確認日: 2026-09-17。アプリで行う操作を起点に、プロバイダーの schema・送受信コード、公開資料、手元 Bridge の読み取り結果を照合する。機能追加時はこの表も更新する。
 
 本表は Bridge 接続による照明・アクセサリー管理を主対象とする。全機種・全アプリ画面の網羅を保証しない。アプリの画面・機種・ファームウェアによって異なる項目は「要確認」とする。未対応とAPI非提供を同一視しない。
+
+APIの項目別の不足と公開前後の区分は[API対応範囲](api-coverage.md)を参照する。
 
 ## 判定と根拠
 
@@ -19,7 +21,7 @@ Hue公式のAPI v2詳細リファレンスは今回アクセスできなかっ�
 
 | 利用者が行う設定・確認 | 対応状況 | API・実装上の根拠と境界 |
 |---|---|---|
-| 機器の名前変更（照明・スイッチ・センサー） | **対応（device metadata）** | resource hue_device.nameで変更可能。deviceとlight両方にmetadataがあるため、light名・アプリ表示への伝播は実機未確認。[D] |
+| 機器の名前変更（照明・スイッチ・センサー） | **対応（device metadata）** | resource hue_device.nameで変更可能。名前変更のアプリ表示への反映は利用者確認済み。light側metadataへの伝播を全機種で保証するものではない。[D] |
 | 機器の種類・アイコン変更 | **対応（device metadata）** | resource hue_device.archetype。部屋のarchetypeとは別。機種別の対応値・アプリ表示は実機未確認。[D] |
 | 部屋への機器の所属・移動 | **対応** | hue_room.childrenはdevice ID。移動は移動元・先両方の構成を編集。複数部屋への同時所属を解決する独自処理はない。 |
 | ゾーンへの照明の所属 | **対応** | hue_zone.childrenはlight ID。 |
@@ -47,7 +49,7 @@ Hue公式のAPI v2詳細リファレンスは今回アクセスできなかっ�
 | スイッチの短押し・長押し・巡回・ダイヤルの割り当て | **JSON対応** | behavior_instance。すべての機種・scriptを検証したという意味ではない。 |
 | 動作の名前変更・有効無効・割り当て削除 | **対応** | behaviorのname/enabled/Delete。物理スイッチの名前やペアリングには影響しない。 |
 | ボタンイベントの繰り返し間隔 | **未対応／要確認** | button.button.repeat_intervalが公開スキーマにある。アプリの長押し動作との関係・機種対応は未確認。[B] |
-| 照度・温度測定サービスの有効無効 | **未対応／要確認** | 実機にlight_level.enabled、temperature.enabledがある。アプリ独立項目の有無と書込仕様は別途確認。 |
+| 照度・温度測定サービスの有効無効 | **未対応／要確認** | light_level / temperatureの公開PUTにenabledがある。アプリ独立項目の有無・実機書込は未確認。 |
 | 電池残量、接続状況、現在の照度・温度・検知状態 | **未対応（専用data sourceなし）** | device_power、zigbee_connectivity、light_level、temperature、motionは実機で確認。raw取得は可能だがTerraformの読取属性は未提供。 |
 
 [M]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/motion/schemas/MotionPut.yaml
@@ -99,13 +101,12 @@ Hue公式のAPI v2詳細リファレンスは今回アクセスできなかっ�
 
 現在のdata sourceはhue_light/hue_deviceのUUID指定のみ。lightは名前・device ID・色/色温度対応・色域種別・mirek範囲、deviceは名前・型番・light ID集合を返す。部屋・ゾーン内の照明一覧、behavior scriptの構成スキーマ、電池や接続状況のdata sourceはない。
 
-## 実装の優先順位案
+## 公開前後の優先順位案
 
-1. **機器の名前・archetypeの実機確認**。hue_deviceを実装済み。import、未指定属性の維持、削除・対象変更で登録解除しない動作は模擬Bridgeでテスト済み。deviceとlightの名前・アプリ表示の関係は実機確認が残る。
-2. **電源復帰時設定**。機種の能力に応じたvalidationとcustom設定の組合せを扱う。
-3. **motionの有効無効・検知感度**。behavior設定と分離し、機器の感度上限を取得する。
-4. **情報取得の拡充**。部屋のライト一覧・電池・接続状態を必要なユースケースから追加する。
-5. **シーン設定の保持範囲を拡充**。dynamics等の未対応項目が更新で失われるかを検証し、対応または明示的な拒否方針を決める。
+1. **公開前: 既存設定の保持を確認**。sceneのdynamics / appdata、smart_sceneのappdataなど、既存resource内の未対応項目を優先する。
+2. **公開前: 標準のimport・配布経路を確認**。config生成、ライフサイクル、CI、通常インストールを点検する。
+3. **公開後: 電源復帰時設定**。機種の能力に応じたvalidationとcustom設定の組合せを扱う。
+4. **公開後: センサー設定・情報取得**。motionの有効無効・感度、照度・温度測定、電池・接続状態などを追加する。
 
 順序は提案であり、機能追加の承認を意味しない。
 
