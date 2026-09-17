@@ -22,6 +22,9 @@ func TestNewSceneGeneration(t *testing.T) {
 		t.Fatal(d)
 	}
 	b := f.Body.(*hclsyntax.Body).Blocks[0].Body
+	if _, ok := b.Attributes["image_id"]; ok {
+		t.Fatal("unmanaged image emitted in configuration")
+	}
 	v, d := b.Attributes["name"].Expr.Value(nil)
 	if d.HasErrors() || v.AsString() != "夜 ${var.secret}" {
 		t.Fatal("template was not escaped")

@@ -66,7 +66,19 @@ func TestAccSmartScene(t *testing.T) {
 			r.Metadata.Image = &hue.Reference{RID: fakebridge.DeviceID, RType: "public_image"}
 			b.Put("smart_scene", id, r)
 		}, Config: smartConfig("Natural night", "00:00:00", smartNightSceneID), PlanOnly: true, ExpectNonEmptyPlan: true},
-		{Config: smartConfig("Natural night", "00:00:00", smartNightSceneID), Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr(addr, "state", "active"), resource.TestCheckResourceAttr(addr, "image_id", fakebridge.DeviceID))},
+		{Config: smartConfig("Natural night", "00:00:00", smartNightSceneID), Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr(addr, "state", "active"), func(s *terraform.State) error {
+			remote, err := hue.GetOne[hue.SmartScene](context.Background(), b.Client(), "smart_scene", id)
+			if err != nil {
+				return err
+			}
+			if remote.Metadata.Image == nil || remote.Metadata.Image.RID != fakebridge.DeviceID {
+				return fmt.Errorf("remote image changed")
+			}
+			if s.RootModule().Resources[addr].Primary.ID != id {
+				return fmt.Errorf("smart scene replaced")
+			}
+			return nil
+		})},
 	}})
 	for _, r := range b.Requests() {
 		if r.Method != "POST" && r.Method != "PUT" {

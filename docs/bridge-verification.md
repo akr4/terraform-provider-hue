@@ -171,7 +171,7 @@ scene の `actions` は `target.rid` を map のキーにします。
 最初の比較では API の正の値である xy / mirek を使います。
 hex / kelvin は同時に指定しません。API にない属性は省略し、false と 0 は省略しません。
 色温度が null の場合は `mirek` を省略します。
-`metadata.image.rid` は `image_id` に記入するか、未指定のまま import で読み取れます。
+シーン画像は管理対象外です。`metadata.image` は送信せず、既存画像には触れません。既存の設定に `image_id` がある場合は削除してください。
 `palette` は省略すると実機の値を維持します。配色を管理する場合は `jsonencode` で明示します。
 
 scene の所属 group は既存の UUID を直接指定できます。

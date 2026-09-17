@@ -205,7 +205,6 @@ resource "hue_scene" "evening" {
 | `actions` | Required, Map of object | キーは light の UUID。値は下記 action object |
 | `speed` | Optional, Computed | 0.0〜1.0 |
 | `auto_dynamic` | Optional, Computed | デフォルト false |
-| `image_id` | Optional, Computed | `metadata.image.rid`。import 時に保持する。新規作成では省略可 |
 
 action object:
 
@@ -363,3 +362,8 @@ import-blocks は未管理分の import ブロック準備に対応する。既�
 詳細は [スマートシーン](smart-scenes.md) を参照する。
 
 現在の設定項目ごとの対応範囲・未対応機能・確認根拠は[設定機能の対応表](feature-coverage.md)を参照。
+
+### シーン画像の管理境界
+
+通常シーン・スマートシーンの画像は管理対象外とする。作成・更新時に `metadata.image` を送信せず、既存画像の再設定や `null` による消去も行わない。
+旧stateの `image_id` はschema移行で取り除くが、Bridgeへの操作は行わない。既存の `.tf` に `image_id` がある場合は、その属性を削除する。

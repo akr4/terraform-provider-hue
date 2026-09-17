@@ -38,9 +38,9 @@
 | zone | children、metadata.name / archetype | 保存資料のPOST/PUT設定項目に確認できた欠落なし。roomのgeometryをzoneにもあると扱わない。[Zone][zone] |
 | scene.actions | on、brightness、xy、mirek/kelvin、gradient / effectsのJSON | **effects_v2.action.effect / parameters**、**dynamics.duration**は型・schemaともに未対応。旧effectsは公式では非推奨。[Scene PUT][scene-put] |
 | scene本体 | name、group、palette、speed、auto_dynamic | **metadata.appdata**、**mapping.algorithm**（SpatialAware対応機種のclassic / spatial）が未対応。[Scene POST][scene-post] |
-| sceneのimage_id | 作成時の画像参照、読取 | 公式ではimageはPOSTにあり、PUTのmetadataにはない。現在のproviderは変更時にPUTへ送るため、image_idの更新は仕様不整合。既存画像が変わらない場合の再送回避だけでは十分でない |
+| scene / smart_sceneの画像 | 管理対象外 | 作成・更新ともmetadata.imageを送らない。公式POSTには画像参照があるが、画像の登録APIは保存資料にない。旧stateのimage_idはローカル移行で除去する |
 | sceneの色温度 | mirek / kelvin指定、機器の能力範囲の取得 | 公式のmirek型は50〜1000。providerは明示mirekを153〜500で検証し、kelvin変換時も同範囲で制限する。拡張色温度の機種に不足。API全体の範囲と個別機種の能力範囲を分ける必要あり |
-| smart_scene | name、group、week_timeslots、transition_duration、稼働状態の読取 | metadata.appdata、POST時のimage指定が未対応。PUTでimageを変更する項目は確認できない。[Smart scene][smart-post] |
+| smart_scene | name、group、week_timeslots、transition_duration、稼働状態の読取 | metadata.appdataが未対応。画像は管理対象外。[Smart scene][smart-post] |
 | behavior_instance | script_id、name、enabled、configuration全体、status / last_errorの読取 | POSTのmigrated_from（v1由来ID）とPUTのtriggerが未対応。前者は移行補助、後者は実行時操作。[Behavior POST][behavior-post]、[PUT][behavior-put] |
 
 paletteとactionsのeffects_v2は区別する。**palette.effects_v2はJSONのまま扱えるが、actionsのeffects_v2は扱えない。**
@@ -144,7 +144,7 @@ data sourceはlight / deviceのUUID指定のみで、API応答全体を返すも
 **公開前に優先して確認・修正する項目**
 
 1. scene.actionsのeffects_v2 / dynamicsの保持。読めない属性を含むactionsを再送する問題として、対応または安全な拒否を検討する。
-2. scene.image_idの作成時専用という扱い。変更時に未定義のPUT属性を送らない設計にする。
+2. 画像は管理対象外とし、POST/PUTに含めない（対応済み）。旧state移行と画像を持つシーンの更新を回帰テストで確認する。
 3. mirek / kelvinの固定153〜500制限。公式型と機種能力に合わせ、importした値をそのまま管理できるか確認する。
 4. appdata、mapping、device / room geometryの更新時保持。省略で残るものまで、公開前の機能追加を必須にしない。
 5. 標準import/config生成、JSON属性の制約、非対応項目を含むリソースの扱いを説明する。

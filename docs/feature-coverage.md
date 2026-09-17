@@ -49,8 +49,8 @@ APIの項目別の不足、根拠リンク、公開前後の区分は[API対応�
 | シーン内の遷移時間 | 未対応 | actions[].action.dynamics.duration。更新時の保持を要確認 |
 | シーンの空間マッピング | 未対応 | mapping.algorithm。SpatialAware対応機種向け |
 | アプリ固有の付加情報 | 未対応 | scene / smart_sceneのmetadata.appdata。省略更新時の保持を要確認 |
-| 通常シーンの画像 | 作成・読取対応、更新に仕様差 | 公式POSTにimageあり、PUTにはなし。providerは変更時にPUTへ送るため修正候補 |
-| スマートシーンの曜日・時刻・日没・遷移時間 | 対応 | hue_smart_scene。画像は読取のみで作成時の指定は未対応 |
+| シーンの画像 | 管理対象外 | 通常・スマートシーンとも画像を送信しない。旧stateのimage_idはローカル移行で除去 |
+| スマートシーンの曜日・時刻・日没・遷移時間 | 対応 | hue_smart_scene。画像は管理対象外 |
 | 再生・ダイナミック開始・スマートシーン稼働切替 | CLI対応 | recall.action。再生時のduration / dimming指定は未対応 |
 | 自動化の構成・名前・有効無効・削除 | 対応 | behavior_instance。configurationはJSON全体を管理 |
 | 自動化の明示的な実行要求 | 未対応 | behavior.trigger。configurationとは別 |
@@ -71,7 +71,7 @@ APIの項目別の不足、根拠リンク、公開前後の区分は[API対応�
 ## 公開前の優先事項
 
 1. scene.actionsのeffects_v2 / dynamics、他の未対応属性を更新時に維持できるか確認する。
-2. scene画像更新の仕様差、mirek / kelvinの固定範囲を整理する。
+2. mirek / kelvinの固定範囲を整理する。画像は管理対象から除外済み。
 3. native import/config生成時のmirek / kelvin重複、実機で判明したactions対象一致を回帰テストへ反映する。
 4. 管理範囲とdestroyの意味を明記し、CI・配布バイナリ・通常インストールの経路を確認する。
 

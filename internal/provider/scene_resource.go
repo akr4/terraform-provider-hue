@@ -29,7 +29,6 @@ type sceneModel struct {
 	Actions     types.Map     `tfsdk:"actions"`
 	Speed       types.Float64 `tfsdk:"speed"`
 	AutoDynamic types.Bool    `tfsdk:"auto_dynamic"`
-	ImageID     types.String  `tfsdk:"image_id"`
 	Palette     types.String  `tfsdk:"palette"`
 }
 type actionModel struct {
@@ -73,13 +72,12 @@ func (r *sceneResource) Metadata(_ context.Context, req resource.MetadataRequest
 	resp.TypeName = req.ProviderTypeName + "_scene"
 }
 func (r *sceneResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
-	resp.Schema = schema.Schema{Version: 1, Description: "Manage a Hue scene. Changing its group replaces it.", Attributes: map[string]schema.Attribute{
+	resp.Schema = schema.Schema{Version: 2, Description: "Manage a Hue scene. Changing its group replaces it.", Attributes: map[string]schema.Attribute{
 		"id":           schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}, Description: "Bridge resource UUID."},
 		"name":         schema.StringAttribute{Required: true, Description: "Scene name."},
 		"group":        schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}, Description: "Room or zone UUID. Changes replace the scene."},
 		"speed":        schema.Float64Attribute{Optional: true, Computed: true, Description: "Dynamic scene speed from 0 to 1."},
 		"auto_dynamic": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), Description: "Enable dynamic playback. Defaults to false."},
-		"image_id":     schema.StringAttribute{Optional: true, Computed: true, Description: "Image resource UUID. Preserved on import."},
 		"palette":      schema.StringAttribute{Optional: true, Computed: true, Description: "Scene palette as a JSON object; use jsonencode. Independent of actions. Preserved on the bridge when omitted. Specify empty palette arrays to clear it."},
 		"actions": schema.MapNestedAttribute{Required: true, Description: "Actions keyed by light UUID.", NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
 			"gradient":   schema.StringAttribute{Optional: true, Computed: true, Description: "Gradient action as a JSON object; use jsonencode. Preserved from the bridge when omitted."},
@@ -111,10 +109,8 @@ func (r *sceneResource) ValidateConfig(ctx context.Context, req resource.Validat
 	if known(m.Name) && m.Name.ValueString() == "" {
 		resp.Diagnostics.AddAttributeError(path.Root("name"), "Invalid name", "name must not be empty.")
 	}
-	for name, value := range map[string]types.String{"group": m.Group, "image_id": m.ImageID} {
-		if known(value) && !validUUID(value.ValueString()) {
-			resp.Diagnostics.AddAttributeError(path.Root(name), "Invalid UUID", name+" must be a UUID.")
-		}
+	if known(m.Group) && !validUUID(m.Group.ValueString()) {
+		resp.Diagnostics.AddAttributeError(path.Root("group"), "Invalid UUID", "group must be a UUID.")
 	}
 	if known(m.Speed) && (m.Speed.ValueFloat64() < 0 || m.Speed.ValueFloat64() > 1) {
 		resp.Diagnostics.AddAttributeError(path.Root("speed"), "Invalid speed", "speed must be between 0 and 1.")
@@ -197,9 +193,6 @@ func (r *sceneResource) body(ctx context.Context, m sceneModel, config sceneMode
 	if known(m.AutoDynamic) {
 		v := m.AutoDynamic.ValueBool()
 		scene.AutoDynamic = &v
-	}
-	if known(m.ImageID) {
-		scene.Metadata.Image = &hue.Reference{RID: m.ImageID.ValueString(), RType: "public_image"}
 	}
 	if known(config.Palette) {
 		if err := hue.ValidateConfiguration([]byte(m.Palette.ValueString())); err != nil {
@@ -362,10 +355,6 @@ func (r *sceneResource) refresh(ctx context.Context, m *sceneModel) error {
 	if scene.AutoDynamic != nil {
 		m.AutoDynamic = types.BoolValue(*scene.AutoDynamic)
 	}
-	m.ImageID = types.StringNull()
-	if scene.Metadata.Image != nil {
-		m.ImageID = types.StringValue(scene.Metadata.Image.RID)
-	}
 	palette, err := reconcilePalette(m.Palette, scene.Palette)
 	if err != nil {
 		return err
@@ -422,20 +411,15 @@ func (r *sceneResource) Read(ctx context.Context, req resource.ReadRequest, resp
 	resp.Diagnostics.Append(resp.State.Set(ctx, &m)...)
 }
 func (r *sceneResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var m, config, prior sceneModel
+	var m, config sceneModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &m)...)
 	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
-	resp.Diagnostics.Append(req.State.Get(ctx, &prior)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 	body, err := r.body(ctx, m, config, false)
 	if err == nil {
-		// Some app-created scenes reject metadata.image even when its value is
-		// unchanged. Preserve imported images without resending them on edits.
-		if m.ImageID.Equal(prior.ImageID) {
-			body.Metadata.Image = nil
-		}
+		// Images are unmanaged: omit metadata.image, including null.
 		// group is immutable and must not be included in PUT.
 		payload := map[string]any{"metadata": body.Metadata, "actions": body.Actions}
 		if len(body.Palette) > 0 {
@@ -488,9 +472,6 @@ func (r *sceneResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 		return
 	}
 	if !req.State.Raw.IsNull() && known(config.Group) && config.Group.Equal(prior.Group) {
-		if config.ImageID.IsNull() {
-			planned.ImageID = prior.ImageID
-		}
 		if config.Speed.IsNull() {
 			planned.Speed = prior.Speed
 		}

@@ -130,6 +130,19 @@ func TestAccSceneActionsAndMetadata(t *testing.T) {
 	b := fakebridge.New()
 	defer b.Close()
 	var id string
+	checkImage := func(s *terraform.State) error {
+		scene, err := hue.GetOne[hue.Scene](context.Background(), b.Client(), "scene", id)
+		if err != nil {
+			return err
+		}
+		if scene.Metadata.Image == nil || scene.Metadata.Image.RID != "66666666-6666-4666-8666-666666666666" {
+			return fmt.Errorf("remote image changed")
+		}
+		if s.RootModule().Resources["hue_scene.test"].Primary.ID != id {
+			return fmt.Errorf("scene replaced")
+		}
+		return nil
+	}
 	config := func(two bool) string {
 		hcl := sceneConfig("on = true\ncolor_xy = { x = 0.6915, y = 0.3083 }", "Original", "room")
 		if two {
@@ -148,20 +161,20 @@ func TestAccSceneActionsAndMetadata(t *testing.T) {
 			scene.Palette = json.RawMessage(`{"color":[],"dimming":[{"brightness":42}],"color_temperature":[]}`)
 			b.Put("scene", id, scene)
 		}, ResourceName: "hue_scene.test", ImportState: true, ImportStateCheck: func(states []*terraform.InstanceState) error {
-			if len(states) != 1 || states[0].Attributes["image_id"] != "66666666-6666-4666-8666-666666666666" {
-				return fmt.Errorf("image missing on import")
+			if len(states) != 1 || states[0].Attributes["image_id"] != "" {
+				return fmt.Errorf("image unexpectedly managed on import")
 			}
 			if !strings.Contains(states[0].Attributes["palette"], "42") {
 				return fmt.Errorf("palette missing on import")
 			}
 			return nil
 		}},
-		{Config: config(true), Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr("hue_scene.test", "actions.%", "2"), resource.TestCheckResourceAttr("hue_scene.test", "image_id", "66666666-6666-4666-8666-666666666666"))},
-		{Config: strings.Replace(config(false), "name = \"Original\"", "name = \"Original\"\n image_id = \"66666666-6666-4666-8666-666666666666\"", 1), Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr("hue_scene.test", "actions.%", "1"), resource.TestCheckResourceAttr("hue_scene.test", "image_id", "66666666-6666-4666-8666-666666666666"))},
-		{Config: config(false), PlanOnly: true},
+		{Config: config(true), Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr("hue_scene.test", "actions.%", "2"), checkImage)},
+		{Config: strings.Replace(config(false), "Original", "Renamed", 1), Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr("hue_scene.test", "actions.%", "1"), checkImage)},
+		{Config: strings.Replace(config(false), "Original", "Renamed", 1), PlanOnly: true},
 	}})
 	for _, req := range b.Requests() {
-		if req.Method == "PUT" && strings.Contains(req.Path, "/scene/") {
+		if (req.Method == "PUT" || req.Method == "POST") && strings.Contains(req.Path, "/scene") {
 			var payload map[string]json.RawMessage
 			if err := json.Unmarshal(req.Body, &payload); err != nil {
 				t.Fatal(err)
@@ -176,7 +189,7 @@ func TestAccSceneActionsAndMetadata(t *testing.T) {
 			if _, ok := payload["palette"]; ok {
 				t.Fatal("wrote palette")
 			}
-			if _, ok := payload["group"]; ok {
+			if _, ok := payload["group"]; ok && req.Method == "PUT" {
 				t.Fatal("wrote immutable group")
 			}
 		}

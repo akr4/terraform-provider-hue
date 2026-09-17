@@ -17,7 +17,7 @@ resource "hue_scene" "reading" {
   auto_dynamic = false
 
   # Include every action from the existing scene, keyed by light UUID.
-  # Copy image_id from metadata.image.rid if you want to configure it explicitly.
+  # Images are unmanaged; metadata.image is never sent.
   actions = {
     "11111111-1111-4111-8111-111111111111" = {
       on         = true

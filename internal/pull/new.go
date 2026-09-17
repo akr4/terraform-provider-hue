@@ -89,9 +89,6 @@ func NewScene(raw json.RawMessage, name string, groups map[string]string) ([]byt
 	if scene.AutoDynamic != nil {
 		b.SetAttributeValue("auto_dynamic", cty.BoolVal(*scene.AutoDynamic))
 	}
-	if scene.Metadata.Image != nil {
-		b.SetAttributeValue("image_id", cty.StringVal(scene.Metadata.Image.RID))
-	}
 	actions := map[string]cty.Value{}
 	for _, a := range scene.Actions {
 		if a.Target.RType != "light" {

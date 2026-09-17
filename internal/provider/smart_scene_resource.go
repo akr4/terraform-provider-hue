@@ -22,7 +22,6 @@ type smartSceneModel struct {
 	Group              types.String `tfsdk:"group"`
 	WeekTimeslots      types.List   `tfsdk:"week_timeslots"`
 	TransitionDuration types.Int64  `tfsdk:"transition_duration"`
-	ImageID            types.String `tfsdk:"image_id"`
 	State              types.String `tfsdk:"state"`
 }
 type smartDayModel struct {
@@ -41,11 +40,10 @@ func (*smartSceneResource) Metadata(_ context.Context, req resource.MetadataRequ
 	resp.TypeName = req.ProviderTypeName + "_smart_scene"
 }
 func (*smartSceneResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
-	resp.Schema = schema.Schema{Description: "Manage a Hue smart scene's recurring schedule. Runtime activation is read-only; creating or updating a schedule does not recall it.", Attributes: map[string]schema.Attribute{
+	resp.Schema = schema.Schema{Version: 1, Description: "Manage a Hue smart scene's recurring schedule. Runtime activation is read-only; creating or updating a schedule does not recall it.", Attributes: map[string]schema.Attribute{
 		"id":                  schema.StringAttribute{Computed: true, Description: "Smart scene UUID.", PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
 		"name":                schema.StringAttribute{Required: true, Description: "Smart scene name."},
 		"group":               schema.StringAttribute{Required: true, Description: "Room or zone UUID. Changing the group replaces the smart scene.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
-		"image_id":            schema.StringAttribute{Computed: true, Description: "Image UUID preserved from the bridge. Images are not modified by this resource."},
 		"state":               schema.StringAttribute{Computed: true, Description: "Runtime activation state: active or inactive. Never sent as a configuration update."},
 		"transition_duration": schema.Int64Attribute{Optional: true, Computed: true, Default: int64default.StaticInt64(60000), Description: "Transition duration in milliseconds. Defaults to 60000."},
 		"week_timeslots": schema.ListNestedAttribute{Required: true, Description: "Ordered daily schedules. Each weekday may occur in only one schedule.", NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
@@ -215,10 +213,6 @@ func (r *smartSceneResource) refresh(ctx context.Context, m *smartSceneModel) er
 	m.Group = types.StringValue(remote.Group.RID)
 	m.TransitionDuration = types.Int64Value(remote.TransitionDuration)
 	m.State = types.StringValue(remote.State)
-	m.ImageID = types.StringNull()
-	if remote.Metadata.Image != nil {
-		m.ImageID = types.StringValue(remote.Metadata.Image.RID)
-	}
 	return nil
 }
 func (r *smartSceneResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -239,7 +233,6 @@ func (r *smartSceneResource) Create(ctx context.Context, req resource.CreateRequ
 	}
 	m.ID = types.StringValue(id)
 	m.State = types.StringNull()
-	m.ImageID = types.StringNull()
 	resp.Diagnostics.Append(resp.State.Set(ctx, &m)...)
 	if err = r.refresh(ctx, &m); err != nil {
 		resp.Diagnostics.AddError("Read created smart scene failed", err.Error())

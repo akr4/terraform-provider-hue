@@ -45,7 +45,6 @@ resource "hue_smart_scene" "natural" {
 ### Read-Only
 
 - `id` (String) Smart scene UUID.
-- `image_id` (String) Image UUID preserved from the bridge. Images are not modified by this resource.
 - `state` (String) Runtime activation state: active or inactive. Never sent as a configuration update.
 
 <a id="nestedatt--week_timeslots"></a>
