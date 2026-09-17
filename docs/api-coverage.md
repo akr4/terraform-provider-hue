@@ -1,141 +1,161 @@
 # Hue API v2とプロバイダーの対応範囲
 
-確認日: 2026-09-17。公開前の不足項目と、公開後の機能拡張を判断するための一覧。
+確認日: 2026-09-17。公開前の修正と公開後の機能拡張を判断するための一覧。
 アプリ操作から見た概要は[設定機能の対応表](feature-coverage.md)を参照する。
 
-## 調査範囲と確度
+## 根拠と範囲
 
-プロバイダーのschemaだけでなく、受信型・更新payload・補助CLIの送信項目を照合した。
-API側は[OpenHue公開スキーマの固定コミット](https://github.com/openhue/openhue-api/tree/1ffc817857abf456d5ff2ae50400ef768dbce28e/src)を使用した。
-同コミットの各リソースのPUTスキーマ、提供されるPOSTスキーマ、参照先のaction・metadata等を確認している。
+利用者が保存した[公式Hue CLIP API v2 Reference][official]のHTMLを基準に、プロバイダーのschema、受信型、送信payload、補助CLIを照合した。
+保存資料はraml2html 7.8.0で生成されたもの。154操作のうちPOST/PUT/DELETEは64操作、PUTを持つリソース種別は41種類。
+コレクションと個別リソースの操作を区別し、POST固有の設定も確認した。
+元HTMLと検索用の抽出JSONはローカル資料として扱い、このリポジトリには収録しない。
+本書は実装との差について独自に整理したもので、公式仕様書や機械可読schemaの再配布ではない。
 
-これはHue公式仕様そのものではない。[公式v2リファレンス](https://developers.meethue.com/develop/hue-api-v2/api-reference/)は取得時に403となった。
-以下の「API項目あり」は**この公開スキーマに書き込み項目がある**という意味であり、全Bridge・全機種での受理を保証しない。
-書き込みによる網羅検証はしていない。スキーマ自体にも、実装済みbehaviorのPOST/DELETE定義がないなどの不足がある。
-したがって、項目の記載がないことを「Hue APIではできない」という証拠にはしない。
+以前の[OpenHueスキーマ](https://github.com/openhue/openhue-api/tree/1ffc817857abf456d5ff2ae50400ef768dbce28e/src)を基にした一覧を訂正した。
+例えば公式仕様ではsceneのeffects_v2やroomのgeometryが存在し、service_groupはservicesではなくchildrenを使う。
+逆にbutton.repeat_intervalやdevice_software_update.installは保存した公式PUTのプロパティとして確認できなかった。
+
+**記載と動作確認は別:** この資料で全機種の動作、既存値の保持、API操作の副作用まで検証したわけではない。
+本文のプロパティを根拠とし、サンプルJSONだけにある項目を設定可能とは判断しない。
+資料にない項目も「全バージョンでAPI非対応」とは断定しない。
 
 - **専用属性**: Terraformの型付き属性で管理する。
-- **JSON対応**: JSON全体を渡せる。各項目のvalidationや専用UIがあるという意味ではない。
-- **未対応**: Terraformの設定・取得属性として公開されていない。
+- **JSON対応**: JSON全体を保持・送信できる。各項目のvalidationや実機検証があるという意味ではない。
+- **未対応**: 設定・取得属性として公開されていない。
 - **CLIのみ**: 一回限りの操作として補助CLIで提供する。
-- **要確認**: 公開スキーマの不足・矛盾や、実機との対応が未確定。
+- **仕様差あり**: 公式資料の構造・範囲と現在の実装が一致しない。
 
-永続設定、現在の点灯状態を変える操作、情報取得は区別する。未対応一覧は、すべてをTerraform resourceに追加する計画ではない。
+永続設定、現在状態を変える操作、情報取得は区別する。未対応一覧は、すべてをTerraform resourceへ追加する計画ではない。
 
-## 対応済みリソースの中にある不足
+[official]: https://developers.meethue.com/develop/hue-api-v2/api-reference/
 
-| APIリソース・項目 | 現在の対応 | 不足・制限 |
+## 対応済みリソースに残る不足・仕様差
+
+| 対象 | 対応済み | 未対応・仕様差 |
 |---|---|---|
-| device.metadata.name / archetype | hue_deviceの専用属性 | 公開PUTのmetadata項目は対応。名前のアプリ反映は利用者確認済み。機種別のarchetypeは未網羅 |
-| device.services内のlight参照 | hue_device.light_ids、data hue_device.light_ids | 照明以外のサービスIDは公開しない |
-| room / zone: children、metadata.name / archetype | 専用属性 | 照合した書込設定項目の欠落なし。機器の所属変更の競合を独自解決しない |
-| scene: metadata.name / image、group、actions、palette、speed、auto_dynamic | 専用属性＋JSON | groupは作成時に指定し、変更は置換。imageは実機が更新を拒否する場合あり |
-| scene.actions[].action.on / dimming / color / color_temperature | 専用属性 | 対応。色温度のmirek/kelvin併用は不可 |
-| scene.actions[].action.gradient / effects | JSON対応 | 未対応ではない。内部の値は主にBridgeが検証 |
-| scene.actions[].action.dynamics.duration | **未対応** | 遷移時間(ms)。Action型にもschemaにもなく、読取・再送で保持しない。[Scene action][action] |
-| scene.metadata.appdata | **未対応** | アプリ固有の自由形式文字列。Metadata型にもなく、読取・再送で保持しない。[Scene metadata][scene-metadata] |
-| smart_scene.metadata.name、group、week_timeslots、transition_duration | 専用属性 | 公開timeslotのtime/sunsetを表現可能 |
-| smart_scene.metadata.appdata | **未対応** | 通常シーンと同じくアプリ固有の文字列。[Smart metadata][smart-metadata] |
-| smart_scene.metadata.image（POST） | **読取のみ** | 作成時のimage指定が公開POSTにあるがproviderでは指定不可。PUTのmetadataにはimageがなく、「既存画像を変更できる」とは判断しない。[Smart POST][smart-post] |
-| behavior_instance.enabled / configuration / metadata.name | 専用属性＋JSON | 公開PUT項目は対応。script_idは作成・importに対応し変更は置換。スクリプト固有configurationはJSONとして扱える |
-| scene / smart_scene: recall | **CLIのみ・一部対応** | actionは対応。通常シーンのrecall.duration、recall.dimmingはCLIでも未対応。[Scene recall][recall] |
+| device | metadata.name / archetype、light_idsの取得 | geometry.objects（サービスの位置・回転）、旧device_mode。旧modeは非推奨でswitch_input_configurationが後継。[Device][device] |
+| room | children、metadata.name / archetype | geometry.objectsの位置・回転。[Room][room] |
+| zone | children、metadata.name / archetype | 保存資料のPOST/PUT設定項目に確認できた欠落なし。roomのgeometryをzoneにもあると扱わない。[Zone][zone] |
+| scene.actions | on、brightness、xy、mirek/kelvin、gradient / effectsのJSON | **effects_v2.action.effect / parameters**、**dynamics.duration**は型・schemaともに未対応。旧effectsは公式では非推奨。[Scene PUT][scene-put] |
+| scene本体 | name、group、palette、speed、auto_dynamic | **metadata.appdata**、**mapping.algorithm**（SpatialAware対応機種のclassic / spatial）が未対応。[Scene POST][scene-post] |
+| sceneのimage_id | 作成時の画像参照、読取 | 公式ではimageはPOSTにあり、PUTのmetadataにはない。現在のproviderは変更時にPUTへ送るため、image_idの更新は仕様不整合。既存画像が変わらない場合の再送回避だけでは十分でない |
+| sceneの色温度 | mirek / kelvin指定、機器の能力範囲の取得 | 公式のmirek型は50〜1000。providerは明示mirekを153〜500で検証し、kelvin変換時も同範囲で制限する。拡張色温度の機種に不足。API全体の範囲と個別機種の能力範囲を分ける必要あり |
+| smart_scene | name、group、week_timeslots、transition_duration、稼働状態の読取 | metadata.appdata、POST時のimage指定が未対応。PUTでimageを変更する項目は確認できない。[Smart scene][smart-post] |
+| behavior_instance | script_id、name、enabled、configuration全体、status / last_errorの読取 | POSTのmigrated_from（v1由来ID）とPUTのtriggerが未対応。前者は移行補助、後者は実行時操作。[Behavior POST][behavior-post]、[PUT][behavior-put] |
 
-**保持の注意:** scene更新はactions全体を組み直して送信する。dynamicsを読み取れないため、既存値を送信に含められない。
-実際にBridgeが既存値を消すかは未検証だが、保持を保証できない。appdataも送信しないが、metadataの部分更新で残るかは別の確認事項。
-「未対応属性が必ず削除される」とは断定しない。
+paletteとactionsのeffects_v2は区別する。**palette.effects_v2はJSONのまま扱えるが、actionsのeffects_v2は扱えない。**
+palette.colorは公式資料では最大9要素、dimming / color_temperatureは各最大1、effects / effects_v2は各最大3。
+gradient.pointsは最大5要素で、palette.colorの上限とは別。providerはこれらの配列長・内部構造を網羅的には検証しない。
 
-[action]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/scene/schemas/ActionPost.yaml
-[scene-metadata]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/scene/schemas/SceneMetadata.yaml
-[smart-metadata]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/smart_scene/schemas/SmartSceneMetadata.yaml
-[smart-post]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/smart_scene/schemas/SmartScenePost.yaml
-[recall]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/scene/schemas/SceneRecall.yaml
+**更新時の保持リスク:** scene更新はactions全体を組み直して送るため、受信型にないeffects_v2 / dynamicsを再送できない。
+Bridgeで実際に値が消えるかは未検証だが、保持を保証できない。appdata、mapping、device / roomのgeometryは省略して送信するため、
+部分更新で維持されるかを別途確認する。「未対応属性が必ず削除される」とは断定しない。
 
-## 書き込み項目があるが未対応の設定
+[device]: https://developers.meethue.com/develop/hue-api-v2/api-reference/#resource_device__id__put
+[room]: https://developers.meethue.com/develop/hue-api-v2/api-reference/#resource_room__id__put
+[zone]: https://developers.meethue.com/develop/hue-api-v2/api-reference/#resource_zone__id__put
+[scene-put]: https://developers.meethue.com/develop/hue-api-v2/api-reference/#resource_scene__id__put
+[scene-post]: https://developers.meethue.com/develop/hue-api-v2/api-reference/#resource_scene_post
+[smart-post]: https://developers.meethue.com/develop/hue-api-v2/api-reference/#resource_smart_scene_post
+[behavior-post]: https://developers.meethue.com/develop/hue-api-v2/api-reference/#resource_behavior_instance_post
+[behavior-put]: https://developers.meethue.com/develop/hue-api-v2/api-reference/#resource_behavior_instance__id__put
 
-| APIリソース | 公開スキーマ上の書き込み項目 | 用途・境界 |
+## APIに設定項目があるが、専用管理機能がないもの
+
+| APIリソース | 未対応の設定項目 | 用途・境界 |
 |---|---|---|
-| light | powerup.preset、on / dimming / colorの復帰設定 | 電源復帰時の状態。safety / powerfail / last_on_state / custom。詳細スキーマの入れ子と実機JSONに差があるため、custom構造は追加確認。[Light][light] |
-| motion | enabled、sensitivity.sensitivity | 検知の有効無効・感度。behavior.enabled、昼光感度とは別。[Motion][motion] |
-| light_level | enabled | 照度測定の有効無効。[Light level][light-level] |
-| temperature | enabled | 温度測定の有効無効。[Temperature][temperature] |
-| button | metadata.control_id、button.repeat_interval | ボタンの識別番号、repeatイベント間隔。操作割り当てはbehaviorで別途対応済み。[Button][button] |
-| contact / camera_motion | enabled | 接触・カメラ検知サービスの有効無効。カメラ全体の設定対応を意味しない。[Contact][contact]、[Camera motion][camera] |
-| convenience_area_motion / security_area_motion | enabled | エリア単位の検知サービスの有効無効。[Convenience][convenience]、[Security][security] |
-| motion_area_configuration | enabled | モーションエリア構成の有効無効。エリアの作成・照明選択・感度設定まで公開されているとは確認できない。[Motion area][motion-area] |
-| service_group | services | サービスのグルーピング。room/zoneとは別。[Service group][service-group] |
-| entertainment_configuration | metadata.name、configuration_type | エンターテインメントエリアの名前・用途。照明位置のGETはあるが、公開PUTには位置・メンバー編集項目がなく、その書込仕様は要確認。[Entertainment configuration][entertainment-config] |
-| zigbee_connectivity | channel.value | Zigbeeチャンネル11 / 15 / 20 / 25。ネットワーク設定変更に当たる。[Zigbee][zigbee] |
-| geofence_client | name | ジオフェンスクライアント名。is_at_homeは現在状態として次表に分離。[Geofence][geofence] |
+| light | metadata.name / function、旧metadata.archetype | service側の名前・用途。deviceの名前管理とは別。service側archetypeは非推奨。[Light][light] |
+| light | dimming_configuration.min_level | 最小調光レベルの設定 |
+| light | powerup.preset、on / dimming / color | 電源復帰時の点灯・明るさ・色。on / dimming / colorはpowerup直下。非公式スキーマにあった入れ子の疑問は公式HTMLで解消 |
+| light | content_configuration.orientation / order、association.association、geometry.pixel_positions | ピクセル照明の向き・順序、画面との関連、ピクセルの空間位置 |
+| motion | enabled、sensitivity.sensitivity | モーション検知の有効無効・感度。behavior.enabledや昼光感度とは別。[Motion][motion] |
+| light_level / temperature | enabled | 照度・温度測定の有効無効 |
+| grouped_motion / grouped_light_level | enabled | 集約サービス側の有効無効。元の個別サービスとは別 |
+| camera_motion / convenience_area_motion / security_area_motion | enabled、sensitivity.sensitivity | 個別カメラ・エリア単位の検知設定 |
+| contact | enabled | 接触センサーの有効無効 |
+| switch_input_configuration | switch_mode.mode | 壁スイッチ入力の単／二連・ロッカー／押しボタン等のモード。[Switch input][switch-input] |
+| power_output_configuration | output_mode.mode | controllable / always_onの出力モード。[Power output][power-output] |
+| service_group | children、metadata.name | サービスのグループ。POST/PUT/DELETEあり。room / zoneとは別。[Service group][service-group] |
+| geolocation | latitude、longitude | 位置情報。両項目がPUT本文に定義されている。[Geolocation][geolocation] |
+| geofence_client | name | クライアント作成・名前の設定・削除。is_at_homeは現在状態として次表に分離 |
+| entertainment_configuration | metadata.name、configuration_type、stream_proxy、locations.service_locations | 作成・更新・削除。サービス選択、位置、equalization_factorも設定可能。映像・音楽の送信とは別。[Entertainment][entertainment-config] |
+| motion_area_configuration | name、group、participants[].resource、enabled | モーションエリアの作成・更新・削除。感度は別のmotion系サービス。[Motion area][motion-area] |
+| behavior_script_formula | description、metadata、configuration_schema、trigger_schema、state_schema、version、supported_features、language / content | HSL formulaの作成・削除。公開済みscriptを使うbehavior_instanceの管理とは別。[Formula][formula] |
+| zigbee_connectivity | channel.value | Zigbeeチャンネル。not_configuredもenumにあるが、実機での設定可否を未確認 |
 
-[light]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/light/schemas/LightPut.yaml
-[motion]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/motion/schemas/MotionPut.yaml
-[light-level]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/light_level/schemas/LightLevelPut.yaml
-[temperature]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/temperature/schemas/TemperaturePut.yaml
-[button]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/button/schemas/ButtonPut.yaml
-[contact]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/contact/schemas/ContactPut.yaml
-[camera]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/camera_motion/schemas/CameraMotionPut.yaml
-[convenience]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/convenience_area_motion/schemas/ConvenienceAreaMotionPut.yaml
-[security]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/security_area_motion/schemas/SecurityAreaMotionPut.yaml
-[motion-area]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/motion_area_configuration/schemas/MotionAreaConfigurationPut.yaml
-[service-group]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/service_group/schemas/ServiceGroupPut.yaml
-[entertainment-config]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/entertainment_configuration/schemas/EntertainmentConfigurationPut.yaml
-[zigbee]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/zigbee_connectivity/schemas/ZigbeeConnectivityPut.yaml
-[geofence]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/geofence_client/schemas/GeofenceClientPut.yaml
+[light]: https://developers.meethue.com/develop/hue-api-v2/api-reference/#resource_light__id__put
+[motion]: https://developers.meethue.com/develop/hue-api-v2/api-reference/#resource_motion__id__put
+[switch-input]: https://developers.meethue.com/develop/hue-api-v2/api-reference/#resource_switch_input_configuration__id__put
+[power-output]: https://developers.meethue.com/develop/hue-api-v2/api-reference/#resource_power_output_configuration__id__put
+[service-group]: https://developers.meethue.com/develop/hue-api-v2/api-reference/#resource_service_group_post
+[geolocation]: https://developers.meethue.com/develop/hue-api-v2/api-reference/#resource_geolocation__id__put
+[entertainment-config]: https://developers.meethue.com/develop/hue-api-v2/api-reference/#resource_entertainment_configuration__id__put
+[motion-area]: https://developers.meethue.com/develop/hue-api-v2/api-reference/#resource_motion_area_configuration_post
+[formula]: https://developers.meethue.com/develop/hue-api-v2/api-reference/#resource_behavior_script_formula_post
 
 ## 実行時操作・現在状態の変更
 
-これらもAPIとの差だが、通常の永続設定resourceとは分けて公開範囲を判断する。
-シーンに保存できることと、light APIへ即時送信できることは同じではない。
+APIとの差ではあるが、すべてを永続設定resourceに載せるとは限らない。
 
-| リソース | 項目 | 現在の対応 |
+| 対象 | 項目・操作 | 現在の対応 |
 |---|---|---|
-| light | on、dimming、color、color_temperature、gradient、effects | 直接制御は未対応。シーンactionsへの保存は対応 |
-| light | dimming_delta、color_temperature_delta、dynamics.duration / speed、alert、signaling、mode | 直接制御は未対応 |
-| light | effects_v2.action.effect / parameters（color、color_temperature、speed）、timed_effects.effect / duration | 未対応。sceneの公開ActionPostにはこれらがなく、scene設定の欠落とは断定しない |
-| grouped_light | on、dimming、dimming_delta、color_temperature、color_temperature_delta、color、alert、signaling、dynamics | グループの直接制御は未対応。room/zone構成の管理とは別 |
-| device | identify.action | CLIのidentifyで対応 |
+| scene / smart_scene | recall.action | CLIで対応。sceneのrecall.duration / dimmingはCLIでも未対応 |
+| light | on、dimming、color、color_temperature、gradient、effects / effects_v2 | 直接操作は未対応。sceneへの保存は上表の範囲で対応 |
+| light | dimming_delta、color_temperature_delta、dynamics、alert、signaling、timed_effects | 直接操作は未対応。timed_effectsをsceneの保存項目としては確認できない |
+| grouped_light | on、dimming、dimming_delta、color_temperature、color_temperature_delta、color、alert、signaling、dynamics | グループの直接操作は未対応 |
+| device / light | identify.action / duration | CLIはlight IDも受け付けるがowner deviceへ送る。duration指定は未対応。CLIの回数指定とは別 |
 | device | usertest.usertest | 一時テストモード。未対応 |
-| device_software_update | install.install_state | 更新開始操作。未対応。自動更新の永続設定とは別 |
-| entertainment_configuration | action（start / stop） | ストリーミングの開始・停止。未対応 |
+| behavior_instance | trigger | scriptのtrigger_schemaに従う実行要求。configuration JSONの管理では代替しない |
+| entertainment_configuration | action | ストリーミングの開始・停止。未対応 |
 | geofence_client | is_at_home | 在宅状態の報告。未対応 |
-| homekit / matter | action（homekit_reset / matter_reset） | 連携のリセット。未対応。ペアリング設定全体の仕様は未確定 |
-| zigbee_device_discovery | action.action_type（search） | 探索開始。未対応。機器登録はアプリ担当の既存方針 |
-| device | DELETE | 機器登録解除は提供しない。hue_deviceのdestroyはTerraform管理の解除のみ |
+| speaker | alarm / chime / alertのsound・volume、alarm.duration、mute.mute | 音の再生・消音。未対応 |
+| homekit / matter | action | 連携リセット。未対応。公式のmatter.actionは文字列であり、非公式スキーマのaction.action_typeとは異なる |
+| zigbee_device_discovery | action.action_type / search_codes / search_channels、add_install_codes | 機器探索・install code登録。未対応 |
+| device / matter_fabric | DELETE | 機器登録解除・fabric削除は未対応。hue_deviceのdestroyは管理の解除だけ |
 
-この表の項目は固定コミットの各 `<resource>/schemas/*Put.yaml` とdeviceのDELETEルートを根拠とする。
-CLIのrecallは前表のとおり一部対応。API v1の旧ルールは調査対象外。
+## 情報取得の不足
 
-## 読み取り側の不足
+data sourceはlight / deviceのUUID指定のみで、API応答全体を返すものではない。
 
-現在のdata sourceはlight / deviceのUUID指定のみ。取得属性もAPI応答全体ではない。
-
-- light: 名前、owner device ID、色・色温度対応、色域種別、mirek範囲を公開。現在の点灯・明るさ・xy・mirek、effect状態、powerup、詳しい色域座標等は公開しない。
-- device: 名前、型番、light ID集合を公開。製品情報全体や照明以外のサービス一覧は公開しない。resourceではname / archetype / light_idsを公開。
-- scene: 設定は読めるが、現在の `status.active` はTerraform属性にない。smart_scene.state、behavior.status / last_errorは対応済み。
+- light: 名前、device ID、色・色温度対応、色域種別、mirek範囲を公開。現在の点灯・明るさ・xy・mirek、effectsの状態、powerup、geometry等は公開しない。
+- device: 名前、型番、light ID集合を公開。製品情報全体や他サービスのID、geometryは公開しない。resourceはname / archetype / light_idsを公開する。
+- scene: status.activeを公開しない。smart_sceneの稼働状態、behaviorのstatus / last_errorは対応済みだが、behaviorのscript固有stateは公開しない。
 - device_power、zigbee_connectivity / zgp_connectivity / wifi_connectivity、device_software_update: 電池・接続・更新状態の専用data sourceなし。
-- motion / light_level / temperature / contact / camera_motion、button / relative_rotary / bell_button / tamper等: 検知値・イベント・状態の専用data sourceなし。
-- behavior_script: 設定schema・script一覧のdata sourceなし。CLIの一覧・raw取得とは区別する。
-- 部屋・ゾーン等の一覧検索、entertainment、Bridgeや連携状態の専用data sourceなし。
-- eventstreamのイベント購読なし。Terraformのrefreshとは別用途。
+- motion / light_level / temperature / contact / camera_motion、button / bell_button / relative_rotary / tamper等: 検知値・イベント・状態の専用data sourceなし。
+- behavior_script / behavior_script_formulaの定義・schema、entertainment、Bridge・連携状態の専用data sourceなし。
+- リソースの一覧検索、部屋内の照明一覧のdata sourceなし。CLIのls / rawとは別。
+- イベント購読は未実装。今回のHTMLはresourceリファレンスであり、eventstreamの詳細仕様までは今回の照合に含めない。
 
-## 公開資料だけでは書込機能を確定できない範囲
+## 設定可能と確認できなかった項目
 
-以下のPUTスキーマには `type` 以外の項目がない。ルートの存在だけで設定機能を数えない。
+次のPUTにはid / type以外の本文プロパティを確認できなかった。
+`bridge`、`device_software_update`、`device_power`、`zgp_connectivity`、`button`、`bell_button`、
+`relative_rotary`、`entertainment`、`tamper`、`motion_area_candidate`、`clip`、`wifi_connectivity`。
 
-`behavior_script`、`bell_button`、`bridge`、`entertainment`、`geolocation`、
-`grouped_light_level`、`grouped_motion`、`matter_fabric`、`motion_area_candidate`、
-`relative_rotary`、`speaker`、`tamper`、`wifi_connectivity`、`zgp_connectivity`。
-
-Bridge名・時刻設定・位置情報、スクリプトのアップロード、エリア作成、カメラ全体の設定、
-アプリの並び順・お気に入りなどは「API対応が確定した未実装設定」の数に含めない。
-`bridge_home`、`device_power`、全体resource取得、eventstreamは、この資料ではGETのみ。
-認証登録のPOSTはhue-tf initで扱い、Terraform resourceにはしない。
+- buttonのcontrol_id / repeat_interval、device_software_updateのinstallは、前の非公式スキーマだけでは対応可否を確定しない。
+- bridgeの例にはtime_zoneがあるが、PUTのプロパティ定義にはない。書込対応の根拠にはしない。
+- light.modeはGET側の状態として扱い、今回の公式PUTで設定可能とは確認できない。
+- behavior_script、matter_fabric、bridge_homeにはこのHTMLでPUTを確認できない。formulaは別リソースでPOSTあり、matter_fabricはDELETEあり。
+- Bridgeの自動更新、ホーム画面の表示順・お気に入り等は、この資料から書込項目との対応を確定できない。
+- v1旧ルールとクラウドAPIは対象外。hue-tf initの認証登録も、このv2 resource一覧とは別。
 
 ## 公開前と公開後の判断
 
-- **公開前の優先調査**: 既に管理するsceneのdynamics / appdata、smart_sceneのappdataが更新時に失われないか。対応・保持・明示的な拒否のいずれかを決める。
-- **公開時に制限を明記**: smart_scene作成時のimage指定、recallの追加パラメーター、JSON属性のvalidation範囲。
-- **公開後の追加候補**: powerup、センサー設定、情報取得、エンターテインメント構成。未対応であること自体を公開阻害条件としない。
-- **別途スコープ判断**: 現在点灯状態の直接制御、ネットワーク変更、連携リセット、機器探索、イベント購読。
+**公開前に優先して確認・修正する項目**
 
-優先順位は提案であり、この一覧は実装の承認・完全な公式API準拠の宣言ではない。
+1. scene.actionsのeffects_v2 / dynamicsの保持。読めない属性を含むactionsを再送する問題として、対応または安全な拒否を検討する。
+2. scene.image_idの作成時専用という扱い。変更時に未定義のPUT属性を送らない設計にする。
+3. mirek / kelvinの固定153〜500制限。公式型と機種能力に合わせ、importした値をそのまま管理できるか確認する。
+4. appdata、mapping、device / room geometryの更新時保持。省略で残るものまで、公開前の機能追加を必須にしない。
+5. 標準import/config生成、JSON属性の制約、非対応項目を含むリソースの扱いを説明する。
+
+**公開後の機能追加候補**
+
+powerup、最小調光レベル、センサー設定、switch_input_configuration / power_output_configuration、情報取得、
+位置・配置情報、エンターテインメント構成、formula、MotionAware関連。APIがあることと製品として提供する判断は分ける。
+
+**補助CLI等の別スコープ候補**
+
+recall / identifyの追加パラメーター、behavior.trigger、直接制御、音再生、探索、ネットワーク・連携操作。
+
+これは実装範囲の提案であり、本調査ではproviderコードや実機設定を変更していない。

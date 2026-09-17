@@ -1,130 +1,79 @@
 # 設定機能の対応表
 
-確認日: 2026-09-17。アプリで行う操作を起点に、プロバイダーの schema・送受信コード、公開資料、手元 Bridge の読み取り結果を照合する。機能追加時はこの表も更新する。
+確認日: 2026-09-17。利用者が保存した公式Hue API v2リファレンスと、プロバイダーの実装を照合した。
+APIの項目別の不足、根拠リンク、公開前後の区分は[API対応範囲](api-coverage.md)を参照する。
+以前の非公式スキーマによる判定は、公式資料で確認できた内容に置き換えている。
 
-本表は Bridge 接続による照明・アクセサリー管理を主対象とする。全機種・全アプリ画面の網羅を保証しない。アプリの画面・機種・ファームウェアによって異なる項目は「要確認」とする。未対応とAPI非提供を同一視しない。
+「対応」は設定を表現・送信できる意味で、全機種の動作保証ではない。「JSON対応」は内部項目の専用validationがある意味ではない。
+未対応、公式資料で確認できない項目、実行時操作としてTerraform設定と分離する項目を区別する。
 
-APIの項目別の不足と公開前後の区分は[API対応範囲](api-coverage.md)を参照する。
+## 照明・機器
 
-## 判定と根拠
-
-- **対応**: 専用のリソース属性で設定できる。全機種での実機検証を意味しない。
-- **JSON対応**: JSON全体を管理できる。スクリプト固有の形や意味は主にBridgeが検証する。
-- **読取のみ**: data sourceまたはComputed属性で取得する。
-- **未対応**: このプロバイダーの設定・data sourceでは扱わない。補助CLIのraw取得とは区別する。
-- **対象外**: 既存の設計上、アプリまたは明示的な実行時操作に任せる。
-- **要確認**: アプリ項目と公開APIの対応、または提供範囲をまだ確定できない。対象外と決めたものではない。
-
-Hue公式のAPI v2詳細リファレンスは今回アクセスできなかった。API項目は主に[OpenHueの公開スキーマ](https://github.com/openhue/openhue-api/tree/1ffc817857abf456d5ff2ae50400ef768dbce28e/src)で照合した。これは非公式資料であり、実機仕様の最終的な保証ではない。手元Bridgeではdeviceのmetadata、lightのpowerup、motionのenabled/sensitivity、電池・接続・エンターテインメント関連リソースの存在をGETで確認した。書き込みによる網羅試験は行っていない。
-
-## 照明・スイッチ・センサー本体
-
-| 利用者が行う設定・確認 | 対応状況 | API・実装上の根拠と境界 |
+| 利用者が行う設定・確認 | 状況 | 境界 |
 |---|---|---|
-| 機器の名前変更（照明・スイッチ・センサー） | **対応（device metadata）** | resource hue_device.nameで変更可能。名前変更のアプリ表示への反映は利用者確認済み。light側metadataへの伝播を全機種で保証するものではない。[D] |
-| 機器の種類・アイコン変更 | **対応（device metadata）** | resource hue_device.archetype。部屋のarchetypeとは別。機種別の対応値・アプリ表示は実機未確認。[D] |
-| 部屋への機器の所属・移動 | **対応** | hue_room.childrenはdevice ID。移動は移動元・先両方の構成を編集。複数部屋への同時所属を解決する独自処理はない。 |
-| ゾーンへの照明の所属 | **対応** | hue_zone.childrenはlight ID。 |
-| 電源復帰時の挙動、復帰時の明るさ・色 | **未対応** | light.powerup。プリセットとcustom設定がある。通常シーンの保存・recallとは別。[L] |
-| 機器の識別点滅 | **対象外（CLI対応）** | hue-tf identify。Terraformの永続設定ではない。 |
-| ペアリング・新しい機器の探索 | **対象外** | 登録はアプリで行う既存方針。resource追加で物理機器を新規作成する意味にしない。 |
-| 機器の登録解除・工場リセット | **対象外** | 現在はアプリ側の機器管理。hue_deviceのDeleteはTerraformの管理だけを解除し、機器と設定を残す。 |
-| ファームウェアの確認、更新操作 | **未対応／要確認** | device_software_updateは存在する。公開Putのinstallは一回限りの操作。アプリの自動更新設定との対応は未確認。[U] |
+| 機器の名前・アイコン変更 | 対応 | hue_device.name / archetype。照明の名前変更とアプリ反映は利用者確認済み |
+| 機器から照明を参照する | 対応 | hue_device.light_ids。data sourceでも取得可能。機器IDとlight IDは別 |
+| 部屋への機器所属・ゾーンへの照明所属 | 対応 | room.childrenはdevice ID、zone.childrenはlight ID |
+| 電源復帰時の点灯・明るさ・色 | 未対応 | light.powerup。公式のcustom構造を確認済み、実機書込は未検証 |
+| 最小調光レベル | 未対応 | light.dimming_configuration.min_level |
+| 照明サービスの用途 | 未対応 | light.metadata.function。機器の名前管理とは別 |
+| 配置・向き・ピクセル位置・画面との関連 | 未対応 | device / roomのgeometry、lightのgeometry / content_configuration / association |
+| 識別点滅 | CLI対応 | identify。APIのduration指定は未対応 |
+| ペアリング・探索・登録解除 | 対象外 | アプリ担当。hue_deviceのdestroyは管理解除だけで機器と設定を残す |
+| ファームウェア更新開始 | 要確認 | GETの状態取得とPUTの操作は別。保存した公式PUTではinstall項目を確認できない |
 
-[D]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/device/schemas/DevicePut.yaml
-[L]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/light/schemas/LightPut.yaml
-[U]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/device_software_update/schemas/DeviceSoftwareUpdatePut.yaml
+## センサー・スイッチ
 
-アプリには電源復帰時のカスタム色や前回状態への復帰がある。[公式リリースノート](https://www.philips-hue.com/pt-pt/support/release-notes/android)。APIのpowerup詳細スキーマには構造上の疑問もあるため、各custom属性は実装時に公式仕様または実機で追加確認する。
-
-## センサー・スイッチの動作
-
-| 利用者が行う設定・確認 | 対応状況 | API・実装上の根拠と境界 |
+| 利用者が行う設定・確認 | 状況 | 境界 |
 |---|---|---|
-| モーション検知そのものの有効・無効 | **未対応** | motion.enabled。behavior.enabledとは別。[M] |
-| 動きを検知する感度 | **未対応** | motion.sensitivity.sensitivity。上限は機器側のsensitivity_max。[M] |
-| 昼光感度（明るいときに点灯させない閾値） | **JSON対応** | センサー用behavior.configurationのdaylight_sensitivity。実際の管理構成で確認。light_level.enabledと混同しない。 |
-| 時間帯別のシーン、対象部屋、点灯後の待ち時間、消灯動作 | **JSON対応** | hue_behavior_instance.configuration。利用するscriptの対応範囲に依存する。 |
-| 「邪魔しない」等、点灯中の照明への動作 | **JSON対応／要確認** | 設定JSONは保持できる。アプリの各選択肢に対応するキーと意味はscriptごとに照合が必要。 |
-| スイッチの短押し・長押し・巡回・ダイヤルの割り当て | **JSON対応** | behavior_instance。すべての機種・scriptを検証したという意味ではない。 |
-| 動作の名前変更・有効無効・割り当て削除 | **対応** | behaviorのname/enabled/Delete。物理スイッチの名前やペアリングには影響しない。 |
-| ボタンイベントの繰り返し間隔 | **未対応／要確認** | button.button.repeat_intervalが公開スキーマにある。アプリの長押し動作との関係・機種対応は未確認。[B] |
-| 照度・温度測定サービスの有効無効 | **未対応／要確認** | light_level / temperatureの公開PUTにenabledがある。アプリ独立項目の有無・実機書込は未確認。 |
-| 電池残量、接続状況、現在の照度・温度・検知状態 | **未対応（専用data sourceなし）** | device_power、zigbee_connectivity、light_level、temperature、motionは実機で確認。raw取得は可能だがTerraformの読取属性は未提供。 |
+| 検知の有効無効・感度 | 未対応 | motion、camera_motion、convenience_area_motion、security_area_motion |
+| 照度・温度測定の有効無効 | 未対応 | light_level / temperature.enabled |
+| 集約サービス・接触センサーの有効無効 | 未対応 | grouped_motion / grouped_light_level / contact.enabled |
+| 昼光感度、時間帯別シーン、対象部屋、待ち時間、消灯動作 | JSON対応 | behavior.configuration。script固有設定。センサー自体の感度とは別 |
+| 短押し・長押し・巡回・ダイヤルの割り当て | JSON対応 | behavior_instance。機種・scriptごとのvalidationは主にBridgeが担当 |
+| 割り当ての名前・有効無効・削除 | 対応 | behaviorのname / enabled / Delete。物理機器の名前とは別 |
+| 壁スイッチ入力モード | 未対応 | switch_input_configuration.switch_mode。旧device_modeは非推奨 |
+| 電源出力モード | 未対応 | power_output_configuration.output_mode |
+| ボタンのrepeat間隔・control_id設定 | 要確認 | 非公式スキーマにはあるが、保存した公式PUTでは確認できない |
+| 電池・接続状態・現在の照度・温度・検知状態 | 未対応 | 専用data sourceなし。CLIのraw取得とは区別する |
 
-[M]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/motion/schemas/MotionPut.yaml
-[B]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/button/schemas/ButtonPut.yaml
+## シーン・自動化
 
-昼光感度とモーション感度、時間帯別動作と待ち時間はアプリ側でも別の設定。[公式モーションセンサーガイド](https://www.philips-hue.com/en-us/explore-hue/blog/motion-detection-lighting)。画面上でセンサー全体を無効化する操作がmotion.enabledとbehavior.enabledのどちらを変更するかは、実装時に切り分ける。
-
-## 部屋・シーン・自動化
-
-| 利用者が行う設定・確認 | 対応状況 | API・実装上の根拠と境界 |
+| 利用者が行う設定・確認 | 状況 | 境界 |
 |---|---|---|
-| 部屋・ゾーンの作成、名前、アイコン、削除 | **対応** | hue_room/hue_zone。 |
-| シーンの作成、名前、削除 | **対応** | hue_scene。所属group変更は置換。 |
-| シーン内の点灯・消灯、明るさ、xy色、色温度 | **対応** | actions。色温度はmirek/kelvin。部屋の全照明を含める必要があることを実機で確認。 |
-| シーンの配色原本、ダイナミック速度・自動プレイ | **対応** | paletteはJSON、speed/auto_dynamicは専用属性。actionsとは独立。 |
-| グラデーション・従来effects | **JSON対応** | actions.gradient/effects。詳細はBridgeが検証。 |
-| シーンactionsのdynamics（遷移時間等） | **未対応** | 公開ActionPostにdynamicsがあるが、現在のAction型は保持しない。[A] |
-| 新しいeffects_v2・timed_effects等 | **未対応／要確認** | light APIにはあるが、scene actionsでの書込・保持仕様は別途確認。任意項目をすべて往復保持する実装ではない。[L] |
-| シーン画像 | **一部対応** | 通常シーンのimage_id参照は設定可。画像のアップロード・ギャラリー検索はない。変更不可の既存画像を再送しない対処あり。 |
-| 曜日・時刻・日没によるシーン切り替え | **対応** | hue_smart_scene。公開timeslotのtime/sunsetに対応。未確認のsunrise対応を欠落と扱わない。[S] |
-| スマートシーンの画像変更 | **読取のみ** | image_idはComputed。 |
-| シーン再生、ダイナミック開始、スマートシーンの稼働切替 | **対象外（CLI対応）** | hue-tf recall。自動プレイの保存設定とは区別する。 |
-| 自動化の名前・有効無効・削除 | **対応** | behavior_instanceに対応する自動化。すべてのアプリ自動化が同形式とは保証しない。 |
-| 自動化の曜日・時刻・対象・動作 | **JSON対応** | Bridge上のbehavior scriptが受理するconfiguration全体。独自scriptのアップロードは非対応。 |
-| ホーム画面の表示順・お気に入り・シーンの整理順 | **要確認** | 対応属性なし。アプリ内設定・クラウド設定・Bridge設定のどこにあるか未確定。 |
+| 部屋・ゾーン・シーンの作成、名前、削除 | 対応 | room / zone / scene。sceneのgroup変更は置換 |
+| シーン内の点灯・明るさ・xy色・色温度 | 対応・範囲制限あり | mirek / kelvinはproviderの153〜500制限が公式型の50〜1000より狭い |
+| 配色原本・ダイナミック速度・自動プレイ | 対応 | paletteはJSON。colorは公式上最大9要素でありgradient.pointsの最大5とは別 |
+| gradient・従来effects | JSON対応 | gradientの内部設定を保持可能。従来effectsは非推奨 |
+| 新しいeffects_v2 | 一部対応 | palette内はJSON対応。scene.actions内は未対応 |
+| シーン内の遷移時間 | 未対応 | actions[].action.dynamics.duration。更新時の保持を要確認 |
+| シーンの空間マッピング | 未対応 | mapping.algorithm。SpatialAware対応機種向け |
+| アプリ固有の付加情報 | 未対応 | scene / smart_sceneのmetadata.appdata。省略更新時の保持を要確認 |
+| 通常シーンの画像 | 作成・読取対応、更新に仕様差 | 公式POSTにimageあり、PUTにはなし。providerは変更時にPUTへ送るため修正候補 |
+| スマートシーンの曜日・時刻・日没・遷移時間 | 対応 | hue_smart_scene。画像は読取のみで作成時の指定は未対応 |
+| 再生・ダイナミック開始・スマートシーン稼働切替 | CLI対応 | recall.action。再生時のduration / dimming指定は未対応 |
+| 自動化の構成・名前・有効無効・削除 | 対応 | behavior_instance。configurationはJSON全体を管理 |
+| 自動化の明示的な実行要求 | 未対応 | behavior.trigger。configurationとは別 |
+| 独自formulaの登録・削除 | 未対応 | behavior_script_formulaの公式POST/DELETEあり。HSLと各schemaを扱う |
 
-[A]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/scene/schemas/ActionPost.yaml
-[S]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/smart_scene/schemas/SmartSceneTimeslotGet.yaml
+## その他
 
-## その他の領域と方針
-
-| 項目 | 対応状況 | 境界 |
+| 項目 | 状況 | 境界 |
 |---|---|---|
-| エンターテインメントエリアの名前・構成・照明位置 | **未対応** | 実機にentertainment_configurationとlocationsが存在。部屋/ゾーンとは別リソース。名前等の公開Putは確認したが、位置の編集・作成仕様は追加確認が必要。[E] |
-| 映像・音楽とのリアルタイム同期 | **対象外** | 永続構成の管理と区別する。エリアの定義まで対象外と決定したものではない。 |
-| Bridgeの名前、位置、タイムゾーン、ネットワーク・Zigbee設定 | **未対応／要確認** | host/keyは接続設定でありBridge本体の設定ではない。Zigbee channelの公開Putはある。他の項目のv2書込可否は未確定。[Z] |
-| 複数Bridge | **未検証** | provider aliasによる個別構成は設計上可能。横断リソースや自動移行は実装していない。 |
-| Secure・カメラ・接触センサー・MotionAware等 | **未対応／要確認** | 本監査では公開API・機種ごとの項目まで照合していない。behaviorで扱える一部設定と領域全体への対応を混同しない。 |
-| Matter・HomeKit・外部アカウント連携 | **未対応／要確認** | ライフサイクルと認証を含む別領域。現在の対象範囲から自動的に拡張しない。 |
-| v1の旧ルール | **対象外** | v2のみ対応する既存方針。v2に見えない参照が存在しないと断言しない。 |
-| アプリで変更した既存設定の.tfへの自動同期 | **対象外** | Terraformのrefresh/planと手動編集を基本とする。import-blocksは未管理分のimportブロック作成のみ。 |
+| エンターテインメントエリアの作成・照明選択・位置・明るさ補正・proxy | 未対応 | 公式のPOST/PUTで設定項目を確認。実際のストリーミングとは別 |
+| MotionAware関連エリアの構成・感度 | 未対応 | motion_area_configurationの名前・group・participants等、motion系サービスの感度 |
+| 位置情報・Zigbeeチャンネル | 未対応 | geolocationの緯度経度、zigbee_connectivity.channel |
+| Bridgeの時刻・自動更新・アプリの並び順等 | 要確認 | サンプルやGETにあるだけで書込可能とは判断しない |
+| スピーカーの音再生・消音、HomeKit/Matterリセット | 未対応 | 実行時操作として別スコープ |
+| v1旧ルール | 対象外 | v2のみの既存方針。behavior作成のmigrated_fromも未対応 |
+| 既存.tfの自動同期 | 対象外 | Terraformのrefresh/planと手動編集を基本とする。import-blocksは新規importブロック生成だけ |
 
-[E]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/entertainment_configuration/schemas/EntertainmentConfigurationPut.yaml
-[Z]: https://github.com/openhue/openhue-api/blob/1ffc817857abf456d5ff2ae50400ef768dbce28e/src/zigbee_connectivity/schemas/ZigbeeConnectivityPut.yaml
+## 公開前の優先事項
 
-アプリにエンターテインメントエリアと同期の設定があることは[公式の移行ガイド](https://www.philips-hue.com/ja-jp/support/article/how-to-upgrade-to-the-hue-bridge-pro/000010)で確認。自動更新設定は[公式Bridgeリリースノート](https://www.philips-hue.com/ja-jp/support/release-notes/bridge)にあるが、公開v2のinstall操作と同じ設定ではない。
+1. scene.actionsのeffects_v2 / dynamics、他の未対応属性を更新時に維持できるか確認する。
+2. scene画像更新の仕様差、mirek / kelvinの固定範囲を整理する。
+3. native import/config生成時のmirek / kelvin重複、実機で判明したactions対象一致を回帰テストへ反映する。
+4. 管理範囲とdestroyの意味を明記し、CI・配布バイナリ・通常インストールの経路を確認する。
 
-## 基本情報の取得
-
-現在のdata sourceはhue_light/hue_deviceのUUID指定のみ。lightは名前・device ID・色/色温度対応・色域種別・mirek範囲、deviceは名前・型番・light ID集合を返す。部屋・ゾーン内の照明一覧、behavior scriptの構成スキーマ、電池や接続状況のdata sourceはない。
-
-## 公開前後の優先順位案
-
-1. **公開前: 既存設定の保持を確認**。sceneのdynamics / appdata、smart_sceneのappdataなど、既存resource内の未対応項目を優先する。
-2. **公開前: 標準のimport・配布経路を確認**。config生成、ライフサイクル、CI、通常インストールを点検する。
-3. **公開後: 電源復帰時設定**。機種の能力に応じたvalidationとcustom設定の組合せを扱う。
-4. **公開後: センサー設定・情報取得**。motionの有効無効・感度、照度・温度測定、電池・接続状態などを追加する。
-
-順序は提案であり、機能追加の承認を意味しない。
-
-## 信頼性・保守上の別課題
-
-- 実機で確認したactions対象一致の制約をfake Bridgeと回帰テストへ反映する。フェイクテスト成功だけでは実機の受理を保証しない。
-- paletteやbehaviorのJSON検証はオブジェクト形式が中心。サイズ・項目範囲・機種固有制約までの事前検証は限定的。
-- native import/config生成で相互排他のmirek/kelvinが同時に出るケースがある。color_hex削除だけで解消したと扱わない。
-- Scene v0→v1のstate移行テストはあるが、hue_deviceのimport・削除時の機器保持は模擬Bridgeでテスト済み。将来のschema変更には移行テストが必要。
-- CIのfake acceptance、ドキュメント生成、GoReleaser/GPG設定は存在する。Registry公開・実際のリリース成功・現時点のCI状態は本監査では未確認。
-- 古いpull説明と現行import-blocksの役割を混在させない。
-
-## コードの参照先
-
-- [リソース登録](../internal/provider/provider.go)
-- [部屋・ゾーン](../internal/provider/group_resource.go)
-- [シーン](../internal/provider/scene_resource.go)、[palette](../internal/provider/scene_palette.go)、[受送信型](../internal/hue/types.go)
-- [behavior](../internal/provider/behavior_resource.go)
-- [スマートシーン](../internal/provider/smart_scene_resource.go)
-- [data source](../internal/provider/data_source.go)
-- [CI](../.github/workflows/test.yml)、[リリース](../.github/workflows/release.yml)
+powerupやセンサー設定などの新機能は公開後の候補。未対応であること自体を公開阻害条件にしない。
+API項目の存在、機種での利用可否、プロバイダーとして提供する範囲は別々に判断する。
