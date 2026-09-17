@@ -43,7 +43,7 @@ func TestNewSceneGeneration(t *testing.T) {
 	}
 }
 func TestNewSceneRejectsUnsupported(t *testing.T) {
-	for _, key := range []string{"dynamics", "future_action"} {
+	for _, key := range []string{"timed_effects", "future_action"} {
 		raw := strings.Replace(newSceneJSON, `"on":{"on":false}`, `"`+key+`":{},"on":{"on":false}`, 1)
 		if _, err := NewScene([]byte(raw), "night", nil); err == nil {
 			t.Fatal("silently dropped " + key)

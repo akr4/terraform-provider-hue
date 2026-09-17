@@ -367,3 +367,11 @@ import-blocks は未管理分の import ブロック準備に対応する。既�
 
 通常シーン・スマートシーンの画像は管理対象外とする。作成・更新時に `metadata.image` を送信せず、既存画像の再設定や `null` による消去も行わない。
 旧stateの `image_id` はschema移行で取り除くが、Bridgeへの操作は行わない。既存の `.tf` に `image_id` がある場合は、その属性を削除する。
+
+### シーンのエフェクトと遷移時間
+
+`actions` の `effects_v2` と `dynamics` はOptional + ComputedのJSON文字列属性とする。
+`effects_v2` は `action.effect` と `action.parameters`、`dynamics` はミリ秒単位の `duration` を表現する。
+明示指定はその値を管理し、省略時はBridgeから読み取った値を保持して更新リクエストに含める。
+属性の削除は解除指示ではない。エフェクト停止には `action.effect = "no_effect"`、即時遷移には `duration = 0` を指定する。
+JSON objectであることを検証し、機種固有の内部制約はBridgeで検証する。

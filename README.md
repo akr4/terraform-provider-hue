@@ -271,3 +271,24 @@ Smart scene schedules are supported by `hue_smart_scene`. See [smart scenes](doc
 
 Use `hue-tf show SCENE_UUID` to inspect scene actions, smart scene schedules, and
 incoming v2 references. See [scene inspection](docs/show.md) for output and limits.
+
+### Scene effect parameters and transitions
+
+Scene actions support `effects_v2` and `dynamics` as JSON objects:
+
+```hcl
+# Inside an actions entry keyed by light UUID:
+effects_v2 = jsonencode({
+  action = {
+    effect = "candle"
+    parameters = { speed = 0.4 }
+  }
+})
+dynamics = jsonencode({ duration = 800 }) # milliseconds
+```
+
+When omitted, these attributes preserve values read from the bridge, including
+on imported scenes. Removing an attribute does not clear it: use
+`action.effect = "no_effect"` to stop an effect or `duration = 0` for an immediate
+transition. Supported effects and parameters depend on the light. The provider
+validates JSON objects; the bridge validates their internal constraints.

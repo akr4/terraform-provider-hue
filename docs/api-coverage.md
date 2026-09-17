@@ -36,19 +36,19 @@
 | device | metadata.name / archetype、light_idsの取得 | geometry.objects（サービスの位置・回転）、旧device_mode。旧modeは非推奨でswitch_input_configurationが後継。[Device][device] |
 | room | children、metadata.name / archetype | geometry.objectsの位置・回転。[Room][room] |
 | zone | children、metadata.name / archetype | 保存資料のPOST/PUT設定項目に確認できた欠落なし。roomのgeometryをzoneにもあると扱わない。[Zone][zone] |
-| scene.actions | on、brightness、xy、mirek/kelvin、gradient / effectsのJSON | **effects_v2.action.effect / parameters**、**dynamics.duration**は型・schemaともに未対応。旧effectsは公式では非推奨。[Scene PUT][scene-put] |
+| scene.actions | on、brightness、xy、mirek/kelvin、gradient / effects / effects_v2 / dynamicsのJSON | effects_v2のaction / parameters、dynamics.durationを保持・設定可能。旧effectsは公式では非推奨。[Scene PUT][scene-put] |
 | scene本体 | name、group、palette、speed、auto_dynamic | **metadata.appdata**、**mapping.algorithm**（SpatialAware対応機種のclassic / spatial）が未対応。[Scene POST][scene-post] |
 | scene / smart_sceneの画像 | 管理対象外 | 作成・更新ともmetadata.imageを送らない。公式POSTには画像参照があるが、画像の登録APIは保存資料にない。旧stateのimage_idはローカル移行で除去する |
 | sceneの色温度 | mirek / kelvin指定、機器の能力範囲の取得 | 公式のmirek型は50〜1000。providerは明示mirekを153〜500で検証し、kelvin変換時も同範囲で制限する。拡張色温度の機種に不足。API全体の範囲と個別機種の能力範囲を分ける必要あり |
 | smart_scene | name、group、week_timeslots、transition_duration、稼働状態の読取 | metadata.appdataが未対応。画像は管理対象外。[Smart scene][smart-post] |
 | behavior_instance | script_id、name、enabled、configuration全体、status / last_errorの読取 | POSTのmigrated_from（v1由来ID）とPUTのtriggerが未対応。前者は移行補助、後者は実行時操作。[Behavior POST][behavior-post]、[PUT][behavior-put] |
 
-paletteとactionsのeffects_v2は区別する。**palette.effects_v2はJSONのまま扱えるが、actionsのeffects_v2は扱えない。**
+paletteとactionsのeffects_v2は区別する。**palette.effects_v2、actionsのeffects_v2ともにJSONで保持・設定できる。**
 palette.colorは公式資料では最大9要素、dimming / color_temperatureは各最大1、effects / effects_v2は各最大3。
 gradient.pointsは最大5要素で、palette.colorの上限とは別。providerはこれらの配列長・内部構造を網羅的には検証しない。
 
-**更新時の保持リスク:** scene更新はactions全体を組み直して送るため、受信型にないeffects_v2 / dynamicsを再送できない。
-Bridgeで実際に値が消えるかは未検証だが、保持を保証できない。appdata、mapping、device / roomのgeometryは省略して送信するため、
+**更新時の保持:** scene更新はactions全体を組み直して送る。effects_v2 / dynamicsは、設定を省略した場合も読取値を保持して再送する。
+fakebridgeでimport・更新・省略時保持を検証済み。全機種での実機動作は未検証。appdata、mapping、device / roomのgeometryは省略して送信するため、
 部分更新で維持されるかを別途確認する。「未対応属性が必ず削除される」とは断定しない。
 
 [device]: https://developers.meethue.com/develop/hue-api-v2/api-reference/#resource_device__id__put
@@ -143,7 +143,7 @@ data sourceはlight / deviceのUUID指定のみで、API応答全体を返すも
 
 **公開前に優先して確認・修正する項目**
 
-1. scene.actionsのeffects_v2 / dynamicsの保持。読めない属性を含むactionsを再送する問題として、対応または安全な拒否を検討する。
+1. scene.actionsのeffects_v2 / dynamicsの保持はJSON属性で対応済み。機種固有のパラメーターや実機応答の差を確認する。
 2. 画像は管理対象外とし、POST/PUTに含めない（対応済み）。旧state移行と画像を持つシーンの更新を回帰テストで確認する。
 3. mirek / kelvinの固定153〜500制限。公式型と機種能力に合わせ、importした値をそのまま管理できるか確認する。
 4. appdata、mapping、device / room geometryの更新時保持。省略で残るものまで、公開前の機能追加を必須にしない。

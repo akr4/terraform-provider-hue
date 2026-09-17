@@ -17,13 +17,15 @@ func TestSceneJSONActionModel(t *testing.T) {
 	old := emptyAction()
 	old.Gradient = types.StringValue(`{"points": [], "mode":"interpolated_palette"}`)
 	old.Effects = types.StringValue(`{"effect":"fire"}`)
+	old.EffectsV2 = types.StringValue(`{"action":{"effect":"prism","parameters":{"speed":0.4}}}`)
+	old.Dynamics = types.StringValue(`{"duration":800}`)
 	actual := hue.Action{Gradient: json.RawMessage(`{"mode":"interpolated_palette","points":[]}`), Effects: json.RawMessage(`{"effect":"candle"}`)}
 	next := reconcileAction(old, actual, hue.Light{})
 	if !next.Gradient.Equal(old.Gradient) || next.Effects.ValueString() != `{"effect":"candle"}` {
 		t.Fatal(next)
 	}
 	planned := planAction(emptyAction(), emptyAction(), old)
-	if !planned.Gradient.Equal(old.Gradient) || !planned.Effects.Equal(old.Effects) {
+	if !planned.Gradient.Equal(old.Gradient) || !planned.Effects.Equal(old.Effects) || !planned.EffectsV2.Equal(old.EffectsV2) || !planned.Dynamics.Equal(old.Dynamics) {
 		t.Fatal("omitted JSON actions lost")
 	}
 	bad := emptyAction()
@@ -38,7 +40,7 @@ func TestAccSceneJSONActions(t *testing.T) {
 	id := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 	groupID := "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 	b.Put("room", groupID, hue.Group{ID: groupID, Type: "room", Metadata: hue.Metadata{Name: "Room", Archetype: "bedroom"}})
-	scene := hue.Scene{ID: id, Metadata: hue.Metadata{Name: "JSON actions"}, Group: hue.Reference{RID: groupID, RType: "room"}, Actions: []hue.SceneAction{{Target: hue.Reference{RID: fakebridge.LightID, RType: "light"}, Action: hue.Action{On: &hue.On{On: true}, Gradient: json.RawMessage(`{"points":[{"color":{"xy":{"x":0.3,"y":0.4}}}],"mode":"interpolated_palette"}`), Effects: json.RawMessage(`{"effect":"fire"}`)}}}}
+	scene := hue.Scene{ID: id, Metadata: hue.Metadata{Name: "JSON actions fire"}, Group: hue.Reference{RID: groupID, RType: "room"}, Actions: []hue.SceneAction{{Target: hue.Reference{RID: fakebridge.LightID, RType: "light"}, Action: hue.Action{On: &hue.On{On: true}, Gradient: json.RawMessage(`{"points":[{"color":{"xy":{"x":0.3,"y":0.4}}}],"mode":"interpolated_palette"}`), Effects: json.RawMessage(`{"effect":"fire"}`), EffectsV2: json.RawMessage(`{"action":{"effect":"fire","parameters":{"speed":0.4,"color":{"xy":{"x":0.3,"y":0.4}}}}}`), Dynamics: json.RawMessage(`{"duration":800}`)}}}}
 	speed, dynamic := 1.0, false
 	scene.Speed, scene.AutoDynamic = &speed, &dynamic
 	scene.Palette = json.RawMessage(`{"color":[],"dimming":[],"color_temperature":[]}`)
@@ -47,7 +49,9 @@ func TestAccSceneJSONActions(t *testing.T) {
 		extras := ""
 		if explicit {
 			extras = fmt.Sprintf(`gradient = jsonencode({ points = [{ color = { xy = { x = 0.3, y = 0.4 } } }], mode = "interpolated_palette" })
- effects = jsonencode({ effect = %q })`, effect)
+ effects = jsonencode({ effect = %q })
+ effects_v2 = jsonencode({ action = { effect = %q, parameters = { speed = 0.4, color = { xy = { x = 0.3, y = 0.4 } } } } })
+ dynamics = jsonencode({ duration = 800 })`, effect, effect)
 		}
 		return accProvider + fmt.Sprintf(`
 resource "hue_scene" "test" {
@@ -68,12 +72,49 @@ resource "hue_scene" "test" {
 			if !sameJSON(got.Actions[0].Action.Gradient, scene.Actions[0].Action.Gradient) || !sameJSON(got.Actions[0].Action.Effects, []byte(fmt.Sprintf(`{"effect":%q}`, effect))) {
 				return fmt.Errorf("JSON action lost: %+v", got.Actions[0].Action)
 			}
+			if !sameJSON(got.Actions[0].Action.EffectsV2, []byte(fmt.Sprintf(`{"action":{"effect":%q,"parameters":{"speed":0.4,"color":{"xy":{"x":0.3,"y":0.4}}}}}`, effect))) || !sameJSON(got.Actions[0].Action.Dynamics, []byte(`{"duration":800}`)) {
+				return fmt.Errorf("effect v2 parameters or duration lost: %+v", got.Actions[0].Action)
+			}
 			return nil
 		}
 	}
 	resource.Test(t, resource.TestCase{ProtoV6ProviderFactories: factories(b), Steps: []resource.TestStep{
-		{Config: config("fire", true) + fmt.Sprintf("\nimport {\n to = hue_scene.test\n id = %q\n}\n", id), Check: check("fire")},
+		{Config: config("fire", false) + fmt.Sprintf("\nimport {\n to = hue_scene.test\n id = %q\n}\n", id), Check: check("fire")},
 		{Config: config("candle", true), Check: check("candle")},
 		{Config: config("keep", false), Check: check("candle")},
+		{Config: config("keep", false), PlanOnly: true},
+		{Config: config("no_effect", true), Check: check("no_effect")},
 	}})
+}
+
+func TestSceneNewJSONFields(t *testing.T) {
+	for _, field := range []string{"effects_v2", "dynamics"} {
+		t.Run(field, func(t *testing.T) {
+			for _, raw := range []string{`[]`, `null`, `42`, `invalid`} {
+				a := emptyAction()
+				if field == "effects_v2" {
+					a.EffectsV2 = types.StringValue(raw)
+				} else {
+					a.Dynamics = types.StringValue(raw)
+				}
+				if len(validateAction(a)) == 0 {
+					t.Fatalf("accepted %s", raw)
+				}
+			}
+		})
+	}
+	prior := emptyAction()
+	prior.EffectsV2 = types.StringValue(`{ "action": {"effect":"fire"} }`)
+	prior.Dynamics = types.StringValue(`{ "duration": 0 }`)
+	actual := hue.Action{EffectsV2: json.RawMessage(`{"action":{"effect":"fire"}}`), Dynamics: json.RawMessage(`{"duration":0}`)}
+	next := reconcileAction(prior, actual, hue.Light{})
+	if !next.EffectsV2.Equal(prior.EffectsV2) || !next.Dynamics.Equal(prior.Dynamics) {
+		t.Fatal("equivalent JSON changed representation")
+	}
+	actual.Dynamics = json.RawMessage(`{"duration":1200}`)
+	actual.EffectsV2 = json.RawMessage(`{"action":{"effect":"candle"}}`)
+	next = reconcileAction(prior, actual, hue.Light{})
+	if next.Dynamics.Equal(prior.Dynamics) || next.EffectsV2.Equal(prior.EffectsV2) {
+		t.Fatal("remote drift not read")
+	}
 }

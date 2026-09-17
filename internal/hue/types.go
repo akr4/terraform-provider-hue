@@ -71,6 +71,8 @@ type ActionColor struct {
 type Action struct {
 	Gradient         json.RawMessage `json:"gradient,omitempty"`
 	Effects          json.RawMessage `json:"effects,omitempty"`
+	EffectsV2        json.RawMessage `json:"effects_v2,omitempty"`
+	Dynamics         json.RawMessage `json:"dynamics,omitempty"`
 	On               *On             `json:"on,omitempty"`
 	Dimming          *Dimming        `json:"dimming,omitempty"`
 	Color            *ActionColor    `json:"color,omitempty"`

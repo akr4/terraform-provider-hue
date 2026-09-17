@@ -45,8 +45,8 @@ APIの項目別の不足、根拠リンク、公開前後の区分は[API対応�
 | シーン内の点灯・明るさ・xy色・色温度 | 対応・範囲制限あり | mirek / kelvinはproviderの153〜500制限が公式型の50〜1000より狭い |
 | 配色原本・ダイナミック速度・自動プレイ | 対応 | paletteはJSON。colorは公式上最大9要素でありgradient.pointsの最大5とは別 |
 | gradient・従来effects | JSON対応 | gradientの内部設定を保持可能。従来effectsは非推奨 |
-| 新しいeffects_v2 | 一部対応 | palette内はJSON対応。scene.actions内は未対応 |
-| シーン内の遷移時間 | 未対応 | actions[].action.dynamics.duration。更新時の保持を要確認 |
+| 新しいeffects_v2 | JSON対応 | palette・scene.actionsともに対応。action / parametersを保持 |
+| シーン内の遷移時間 | JSON対応 | actions[].action.dynamics.duration（ミリ秒）。省略時は読取値を保持 |
 | シーンの空間マッピング | 未対応 | mapping.algorithm。SpatialAware対応機種向け |
 | アプリ固有の付加情報 | 未対応 | scene / smart_sceneのmetadata.appdata。省略更新時の保持を要確認 |
 | シーンの画像 | 管理対象外 | 通常・スマートシーンとも画像を送信しない。旧stateのimage_idはローカル移行で除去 |
@@ -70,7 +70,7 @@ APIの項目別の不足、根拠リンク、公開前後の区分は[API対応�
 
 ## 公開前の優先事項
 
-1. scene.actionsのeffects_v2 / dynamics、他の未対応属性を更新時に維持できるか確認する。
+1. scene.actionsのeffects_v2 / dynamicsは保持に対応済み。他の未対応属性の更新時保持を確認する。
 2. mirek / kelvinの固定範囲を整理する。画像は管理対象から除外済み。
 3. native import/config生成時のmirek / kelvin重複、実機で判明したactions対象一致を回帰テストへ反映する。
 4. 管理範囲とdestroyの意味を明記し、CI・配布バイナリ・通常インストールの経路を確認する。

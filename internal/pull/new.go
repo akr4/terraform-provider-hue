@@ -68,7 +68,7 @@ func NewScene(raw json.RawMessage, name string, groups map[string]string) ([]byt
 	for _, a := range details.Actions {
 		for key := range a.Action {
 			switch key {
-			case "on", "dimming", "color", "color_temperature", "gradient", "effects":
+			case "on", "dimming", "color", "color_temperature", "gradient", "effects", "effects_v2", "dynamics":
 			default:
 				return nil, fmt.Errorf("scene contains unsupported action field %s; definition was not generated", key)
 			}
@@ -98,7 +98,7 @@ func NewScene(raw json.RawMessage, name string, groups map[string]string) ([]byt
 			return nil, fmt.Errorf("duplicate action target")
 		}
 		fields := map[string]cty.Value{}
-		for key, raw := range map[string]json.RawMessage{"gradient": a.Action.Gradient, "effects": a.Action.Effects} {
+		for key, raw := range map[string]json.RawMessage{"gradient": a.Action.Gradient, "effects": a.Action.Effects, "effects_v2": a.Action.EffectsV2, "dynamics": a.Action.Dynamics} {
 			if len(raw) == 0 || string(raw) == "null" {
 				continue
 			}
@@ -220,7 +220,7 @@ func sceneJSONExpressions(src []byte) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		for _, key := range []string{"gradient", "effects"} {
+		for _, key := range []string{"gradient", "effects", "effects_v2", "dynamics"} {
 			e := fields[key]
 			if e == nil {
 				continue
