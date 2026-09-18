@@ -195,3 +195,29 @@ func TestAccSceneActionsAndMetadata(t *testing.T) {
 		}
 	}
 }
+
+func TestAccSceneExtendedTemperature(t *testing.T) {
+	b := fakebridge.New()
+	defer b.Close()
+	light, err := hue.GetOne[hue.Light](context.Background(), b.Client(), "light", fakebridge.LightID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	light.ColorTemperature.MirekSchema = hue.MirekSchema{Min: 50, Max: 1000}
+	b.Put("light", fakebridge.LightID, light)
+	addr := "hue_scene.test"
+	steps := []resource.TestStep{}
+	for _, tc := range []struct{ config, attr, value string }{
+		{"mirek = 50", "mirek", "50"},
+		{"mirek = 1000", "mirek", "1000"},
+		{"kelvin = 1000", "mirek", "1000"},
+		{"kelvin = 20000", "mirek", "50"},
+		{"kelvin = 500", "mirek", "1000"},
+		{"kelvin = 40000", "mirek", "50"},
+	} {
+		cfg := sceneConfig(tc.config, "Extended", "room")
+		steps = append(steps, resource.TestStep{Config: cfg, Check: resource.TestCheckResourceAttr(addr, "actions."+fakebridge.LightID+"."+tc.attr, tc.value)}, resource.TestStep{Config: cfg, PlanOnly: true})
+		steps = append(steps, resource.TestStep{ResourceName: addr, ImportState: true, ImportStateVerify: true, ImportStateVerifyIgnore: []string{"actions." + fakebridge.LightID + ".kelvin"}})
+	}
+	resource.Test(t, resource.TestCase{ProtoV6ProviderFactories: factories(b), CheckDestroy: destroyed(b), Steps: steps})
+}

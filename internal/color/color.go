@@ -9,6 +9,10 @@ import (
 	"github.com/akr4/terraform-provider-hue/internal/hue"
 )
 
+// Hue API v2 bounds; individual lights can advertise a narrower mirek_schema.
+const MinMirek int64 = 50
+const MaxMirek int64 = 1000
+
 func KelvinToMirek(k int64) int64 {
 	if k <= 0 {
 		return 0
@@ -23,7 +27,7 @@ func MirekToKelvin(m int64) int64 {
 }
 func ClampMirek(m, min, max int64) int64 {
 	if min <= 0 || max < min {
-		min, max = 153, 500
+		min, max = MinMirek, MaxMirek
 	}
 	if m < min {
 		return min

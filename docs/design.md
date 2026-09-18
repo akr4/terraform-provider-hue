@@ -212,7 +212,7 @@ action object:
 |---|---|---|
 | `on` | Optional | 点灯状態 |
 | `brightness` | Optional | 0.0〜100.0 |
-| `mirek` | Optional, Computed | 色温度（153〜500） |
+| `mirek` | Optional, Computed | 色温度（50〜1000 mirek、API全体の範囲） |
 | `kelvin` | Optional, Computed | 色温度（ケルビン）。`mirek` と排他 |
 | `color_xy` | Optional, Computed, object `{x, y}` | CIE xy |
 
@@ -377,3 +377,5 @@ import-blocks は未管理分の import ブロック準備に対応する。既�
 JSON objectであることを検証し、機種固有の内部制約はBridgeで検証する。
 
 有効な `effects_v2.action.effect` と、同じアクション直下の `color_xy` / `mirek` / `kelvin` / `gradient` の併用を検証で拒否する。エフェクト内の色指定は `action.parameters` に置く。`no_effect` の併用可否は未検証のため、この事前検証の対象外とする。
+
+色温度の入力検証とKelvin変換の制限にはAPI範囲50〜1000 mirekを使う。個別照明の範囲補正との等価比較は `mirek_schema` に従う。能力範囲が欠落・不正な場合はAPI範囲を使い、旧来の153〜500を仮定して差分を隠さない。

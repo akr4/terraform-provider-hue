@@ -110,3 +110,35 @@ func TestPlanAction(t *testing.T) {
 		t.Fatal("absent pair was not removed")
 	}
 }
+
+func TestExtendedTemperatureValidation(t *testing.T) {
+	for _, m := range []int64{49, 50, 100, 153, 500, 750, 1000, 1001} {
+		a := emptyAction()
+		a.Mirek = types.Int64Value(m)
+		errs := validateAction(a)
+		if (len(errs) == 0) != (m >= 50 && m <= 1000) {
+			t.Fatalf("mirek %d: %v", m, errs)
+		}
+	}
+}
+
+func TestExtendedTemperatureReconcile(t *testing.T) {
+	for _, bounds := range []hue.MirekSchema{{Min: 50, Max: 1000}, {}, {Min: 1000, Max: 50}} {
+		for _, m := range []int64{50, 1000} {
+			prior := emptyAction()
+			prior.Kelvin = types.Int64Value(colors.MirekToKelvin(m))
+			actual := hue.Action{ColorTemperature: &hue.Temperature{Mirek: m}}
+			light := hue.Light{ColorTemperature: &hue.ColorTemperature{MirekSchema: bounds}}
+			got := reconcileAction(prior, actual, light)
+			if !got.Kelvin.Equal(prior.Kelvin) || got.Mirek.ValueInt64() != m {
+				t.Fatalf("%+v: %+v", bounds, got)
+			}
+		}
+	}
+	prior := emptyAction()
+	prior.Mirek = types.Int64Value(750)
+	got := reconcileAction(prior, hue.Action{ColorTemperature: &hue.Temperature{Mirek: 500}}, hue.Light{})
+	if got.Mirek.Equal(prior.Mirek) {
+		t.Fatal("missing capability data masked temperature drift")
+	}
+}

@@ -39,7 +39,7 @@
 | scene.actions | on、brightness、xy、mirek/kelvin、gradient / effects / effects_v2 / dynamicsのJSON | effects_v2のaction / parameters、dynamics.durationを保持・設定可能。旧effectsは公式では非推奨。[Scene PUT][scene-put] |
 | scene本体 | name、group、palette、speed、auto_dynamic | **metadata.appdata**、**mapping.algorithm**（SpatialAware対応機種のclassic / spatial）が未対応。[Scene POST][scene-post] |
 | scene / smart_sceneの画像 | 管理対象外 | 作成・更新ともmetadata.imageを送らない。公式POSTには画像参照があるが、画像の登録APIは保存資料にない。旧stateのimage_idはローカル移行で除去する |
-| sceneの色温度 | mirek / kelvin指定、機器の能力範囲の取得 | 公式のmirek型は50〜1000。providerは明示mirekを153〜500で検証し、kelvin変換時も同範囲で制限する。拡張色温度の機種に不足。API全体の範囲と個別機種の能力範囲を分ける必要あり |
+| sceneの色温度 | mirek / kelvin指定、機器の能力範囲の取得 | 入力検証・kelvin変換は公式型の50〜1000に対応済み。照明のmirek_schemaを用いて機種側の補正と比較する。能力範囲が不明な場合はAPI範囲を使う |
 | smart_scene | name、group、week_timeslots、transition_duration、稼働状態の読取 | metadata.appdataが未対応。画像は管理対象外。[Smart scene][smart-post] |
 | behavior_instance | script_id、name、enabled、configuration全体、status / last_errorの読取 | POSTのmigrated_from（v1由来ID）とPUTのtriggerが未対応。前者は移行補助、後者は実行時操作。[Behavior POST][behavior-post]、[PUT][behavior-put] |
 
@@ -145,7 +145,7 @@ data sourceはlight / deviceのUUID指定のみで、API応答全体を返すも
 
 1. scene.actionsのeffects_v2 / dynamicsの保持はJSON属性で対応済み。機種固有のパラメーターや実機応答の差を確認する。
 2. 画像は管理対象外とし、POST/PUTに含めない（対応済み）。旧state移行と画像を持つシーンの更新を回帰テストで確認する。
-3. mirek / kelvinの固定153〜500制限。公式型と機種能力に合わせ、importした値をそのまま管理できるか確認する。
+3. mirek / kelvinの範囲は50〜1000に修正済み。fakebridgeで拡張範囲の作成・更新・importと従来の機種範囲補正を検証する。
 4. appdata、mapping、device / room geometryの更新時保持。省略で残るものまで、公開前の機能追加を必須にしない。
 5. 標準import/config生成、JSON属性の制約、非対応項目を含むリソースの扱いを説明する。
 

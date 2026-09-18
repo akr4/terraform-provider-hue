@@ -88,8 +88,8 @@ func (r *sceneResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 			"dynamics":   schema.StringAttribute{Optional: true, Computed: true, Description: "Light transition settings as a JSON object; use jsonencode({ duration = 800 }) for milliseconds. Preserved from the bridge when omitted."},
 			"on":         schema.BoolAttribute{Optional: true, Description: "On/off state."},
 			"brightness": schema.Float64Attribute{Optional: true, Description: "Brightness from 0 to 100."},
-			"mirek":      schema.Int64Attribute{Optional: true, Computed: true, Description: "Color temperature, 153–500. Conflicts with kelvin; may omit both."},
-			"kelvin":     schema.Int64Attribute{Optional: true, Computed: true, Description: "Positive color temperature in kelvin. Conflicts with mirek."},
+			"mirek":      schema.Int64Attribute{Optional: true, Computed: true, Description: "Color temperature, 50–1000 mirek. Individual lights may support a narrower range. Conflicts with kelvin; may omit both."},
+			"kelvin":     schema.Int64Attribute{Optional: true, Computed: true, Description: "Positive color temperature in kelvin. Converted to mirek and bounded to the API range 50–1000; individual lights may further limit it. Conflicts with mirek."},
 			"color_xy":   schema.SingleNestedAttribute{Optional: true, Computed: true, Description: "CIE xy chromaticity. Brightness is configured separately.", Attributes: map[string]schema.Attribute{"x": schema.Float64Attribute{Required: true}, "y": schema.Float64Attribute{Required: true}}},
 		}}},
 	}}
@@ -172,8 +172,8 @@ func validateAction(a actionModel) []string {
 	if !a.Mirek.IsNull() && !a.Kelvin.IsNull() {
 		errs = append(errs, "mirek and kelvin cannot both be configured.")
 	}
-	if known(a.Mirek) && (a.Mirek.ValueInt64() < 153 || a.Mirek.ValueInt64() > 500) {
-		errs = append(errs, "mirek must be between 153 and 500.")
+	if known(a.Mirek) && (a.Mirek.ValueInt64() < colors.MinMirek || a.Mirek.ValueInt64() > colors.MaxMirek) {
+		errs = append(errs, "mirek must be between 50 and 1000.")
 	}
 	if known(a.Kelvin) && a.Kelvin.ValueInt64() <= 0 {
 		errs = append(errs, "kelvin must be positive.")
@@ -264,7 +264,7 @@ func (r *sceneResource) body(ctx context.Context, m sceneModel, config sceneMode
 		if known(c.Mirek) {
 			action.ColorTemperature = &hue.Temperature{Mirek: c.Mirek.ValueInt64()}
 		} else if known(c.Kelvin) {
-			action.ColorTemperature = &hue.Temperature{Mirek: colors.ClampMirek(colors.KelvinToMirek(c.Kelvin.ValueInt64()), 153, 500)}
+			action.ColorTemperature = &hue.Temperature{Mirek: colors.ClampMirek(colors.KelvinToMirek(c.Kelvin.ValueInt64()), colors.MinMirek, colors.MaxMirek)}
 		}
 		if p, ok := readXY(c.XY); ok {
 			action.Color = &hue.ActionColor{XY: colors.Round(p)}
@@ -313,7 +313,7 @@ func reconcileAction(prior actionModel, actual hue.Action, light hue.Light) acti
 			expected = colors.KelvinToMirek(prior.Kelvin.ValueInt64())
 			ok = true
 		}
-		min, max := int64(153), int64(500)
+		min, max := colors.MinMirek, colors.MaxMirek
 		if light.ColorTemperature != nil {
 			min, max = light.ColorTemperature.MirekSchema.Min, light.ColorTemperature.MirekSchema.Max
 		}

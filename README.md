@@ -197,7 +197,7 @@ before upgrading. Do not recalculate an already managed color from hex.
 For temperature, choose at most one of `mirek` / `kelvin`; the other is computed.
 Comparisons preserve configured values when hardware gamut/range clipping
 produces an equivalent result.
-Kelvin conversions are bounded to the API's 153–500 mirek range before writing;
+Kelvin conversions are bounded to the API's 50–1000 mirek range before writing;
 refresh comparison also accounts for each light's narrower supported range. For
 gamut `other`, the light's explicit gamut triangle is used when available.
 `palette` is an optional JSON object string (`jsonencode`); it is read on import,

@@ -67,8 +67,8 @@ Optional:
 - `effects` (String) Effect action as a JSON object; use jsonencode. Preserved from the bridge when omitted.
 - `effects_v2` (String) Effect v2 action and parameters as a JSON object; use jsonencode. Preserved from the bridge when omitted. Use action.effect = no_effect to stop an effect.
 - `gradient` (String) Gradient action as a JSON object; use jsonencode. Preserved from the bridge when omitted.
-- `kelvin` (Number) Positive color temperature in kelvin. Conflicts with mirek.
-- `mirek` (Number) Color temperature, 153–500. Conflicts with kelvin; may omit both.
+- `kelvin` (Number) Positive color temperature in kelvin. Converted to mirek and bounded to the API range 50–1000; individual lights may further limit it. Conflicts with mirek.
+- `mirek` (Number) Color temperature, 50–1000 mirek. Individual lights may support a narrower range. Conflicts with kelvin; may omit both.
 - `on` (Boolean) On/off state.
 
 <a id="nestedatt--actions--color_xy"></a>
