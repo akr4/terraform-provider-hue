@@ -292,3 +292,7 @@ on imported scenes. Removing an attribute does not clear it: use
 `action.effect = "no_effect"` to stop an effect or `duration = 0` for an immediate
 transition. Supported effects and parameters depend on the light. The provider
 validates JSON objects; the bridge validates their internal constraints.
+
+An active `effects_v2.action.effect` cannot be combined with an action-level
+`color_xy`, `mirek`, `kelvin`, or `gradient`. Omit these attributes on the effect
+light; effect-specific color settings belong inside `action.parameters`.

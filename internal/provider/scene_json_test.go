@@ -40,7 +40,7 @@ func TestAccSceneJSONActions(t *testing.T) {
 	id := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 	groupID := "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 	b.Put("room", groupID, hue.Group{ID: groupID, Type: "room", Metadata: hue.Metadata{Name: "Room", Archetype: "bedroom"}})
-	scene := hue.Scene{ID: id, Metadata: hue.Metadata{Name: "JSON actions fire"}, Group: hue.Reference{RID: groupID, RType: "room"}, Actions: []hue.SceneAction{{Target: hue.Reference{RID: fakebridge.LightID, RType: "light"}, Action: hue.Action{On: &hue.On{On: true}, Gradient: json.RawMessage(`{"points":[{"color":{"xy":{"x":0.3,"y":0.4}}}],"mode":"interpolated_palette"}`), Effects: json.RawMessage(`{"effect":"fire"}`), EffectsV2: json.RawMessage(`{"action":{"effect":"fire","parameters":{"speed":0.4,"color":{"xy":{"x":0.3,"y":0.4}}}}}`), Dynamics: json.RawMessage(`{"duration":800}`)}}}}
+	scene := hue.Scene{ID: id, Metadata: hue.Metadata{Name: "JSON actions fire"}, Group: hue.Reference{RID: groupID, RType: "room"}, Actions: []hue.SceneAction{{Target: hue.Reference{RID: fakebridge.LightID, RType: "light"}, Action: hue.Action{On: &hue.On{On: true}, Effects: json.RawMessage(`{"effect":"fire"}`), EffectsV2: json.RawMessage(`{"action":{"effect":"fire","parameters":{"speed":0.4,"color":{"xy":{"x":0.3,"y":0.4}}}}}`), Dynamics: json.RawMessage(`{"duration":800}`)}}}}
 	speed, dynamic := 1.0, false
 	scene.Speed, scene.AutoDynamic = &speed, &dynamic
 	scene.Palette = json.RawMessage(`{"color":[],"dimming":[],"color_temperature":[]}`)
@@ -48,8 +48,7 @@ func TestAccSceneJSONActions(t *testing.T) {
 	config := func(effect string, explicit bool) string {
 		extras := ""
 		if explicit {
-			extras = fmt.Sprintf(`gradient = jsonencode({ points = [{ color = { xy = { x = 0.3, y = 0.4 } } }], mode = "interpolated_palette" })
- effects = jsonencode({ effect = %q })
+			extras = fmt.Sprintf(`effects = jsonencode({ effect = %q })
  effects_v2 = jsonencode({ action = { effect = %q, parameters = { speed = 0.4, color = { xy = { x = 0.3, y = 0.4 } } } } })
  dynamics = jsonencode({ duration = 800 })`, effect, effect)
 		}
@@ -69,7 +68,7 @@ resource "hue_scene" "test" {
 			if err != nil {
 				return err
 			}
-			if !sameJSON(got.Actions[0].Action.Gradient, scene.Actions[0].Action.Gradient) || !sameJSON(got.Actions[0].Action.Effects, []byte(fmt.Sprintf(`{"effect":%q}`, effect))) {
+			if len(got.Actions[0].Action.Gradient) != 0 || !sameJSON(got.Actions[0].Action.Effects, []byte(fmt.Sprintf(`{"effect":%q}`, effect))) {
 				return fmt.Errorf("JSON action lost: %+v", got.Actions[0].Action)
 			}
 			if !sameJSON(got.Actions[0].Action.EffectsV2, []byte(fmt.Sprintf(`{"action":{"effect":%q,"parameters":{"speed":0.4,"color":{"xy":{"x":0.3,"y":0.4}}}}}`, effect))) || !sameJSON(got.Actions[0].Action.Dynamics, []byte(`{"duration":800}`)) {
@@ -116,5 +115,34 @@ func TestSceneNewJSONFields(t *testing.T) {
 	next = reconcileAction(prior, actual, hue.Light{})
 	if next.Dynamics.Equal(prior.Dynamics) || next.EffectsV2.Equal(prior.EffectsV2) {
 		t.Fatal("remote drift not read")
+	}
+}
+
+func TestSceneEffectV2ColorConflicts(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  func(*actionModel)
+	}{
+		{"mirek", func(a *actionModel) { a.Mirek = types.Int64Value(370) }},
+		{"kelvin", func(a *actionModel) { a.Kelvin = types.Int64Value(2700) }},
+		{"xy", func(a *actionModel) { a.XY = xyValue(hue.XY{X: 0.3, Y: 0.4}) }},
+		{"gradient", func(a *actionModel) { a.Gradient = types.StringValue(`{"points":[]}`) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := emptyAction()
+			a.EffectsV2 = types.StringValue(`{"action":{"effect":"candle"}}`)
+			tc.set(&a)
+			if len(validateAction(a)) == 0 {
+				t.Fatal("accepted effect with conflicting color")
+			}
+		})
+	}
+	a := emptyAction()
+	a.On = types.BoolValue(true)
+	a.Brightness = types.Float64Value(25)
+	a.Dynamics = types.StringValue(`{"duration":800}`)
+	a.EffectsV2 = types.StringValue(`{"action":{"effect":"candle","parameters":{"color_temperature":{"mirek":370},"speed":0.4}}}`)
+	if errs := validateAction(a); len(errs) != 0 {
+		t.Fatal(errs)
 	}
 }

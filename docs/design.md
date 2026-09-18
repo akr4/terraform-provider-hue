@@ -375,3 +375,5 @@ import-blocks は未管理分の import ブロック準備に対応する。既�
 明示指定はその値を管理し、省略時はBridgeから読み取った値を保持して更新リクエストに含める。
 属性の削除は解除指示ではない。エフェクト停止には `action.effect = "no_effect"`、即時遷移には `duration = 0` を指定する。
 JSON objectであることを検証し、機種固有の内部制約はBridgeで検証する。
+
+有効な `effects_v2.action.effect` と、同じアクション直下の `color_xy` / `mirek` / `kelvin` / `gradient` の併用を検証で拒否する。エフェクト内の色指定は `action.parameters` に置く。`no_effect` の併用可否は未検証のため、この事前検証の対象外とする。

@@ -159,6 +159,16 @@ func validateAction(a actionModel) []string {
 			}
 		}
 	}
+	if known(a.EffectsV2) {
+		var effect struct {
+			Action struct {
+				Effect string `json:"effect"`
+			} `json:"action"`
+		}
+		if json.Unmarshal([]byte(a.EffectsV2.ValueString()), &effect) == nil && effect.Action.Effect != "" && effect.Action.Effect != "no_effect" && (known(a.XY) || known(a.Mirek) || known(a.Kelvin) || known(a.Gradient)) {
+			errs = append(errs, "effects_v2.action.effect cannot be combined with color_xy, mirek, kelvin or gradient. Configure effect colors inside effects_v2.action.parameters instead.")
+		}
+	}
 	if !a.Mirek.IsNull() && !a.Kelvin.IsNull() {
 		errs = append(errs, "mirek and kelvin cannot both be configured.")
 	}
