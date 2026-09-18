@@ -35,6 +35,8 @@ type Client struct {
 	http           *http.Client
 	limiter        *rate.Limiter
 	sem            chan struct{}
+	readSem        chan struct{}
+	reads          *readPacer
 	capabilitiesMu sync.Mutex
 	capabilities   map[string]Light
 }
@@ -112,7 +114,8 @@ func NewClient(host, key string) (*Client, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil // Bridge credentials must never be sent through environment proxies.
 	transport.TLSClientConfig = TLSConfig(roots)
-	transport.MaxConnsPerHost = 1
+	transport.MaxConnsPerHost = 5
+	transport.MaxIdleConnsPerHost = 5
 	authority := host
 	if strings.Contains(host, ":") {
 		authority = "[" + host + "]"
@@ -135,7 +138,7 @@ func NewClientWithHTTP(base, key string, h *http.Client) (*Client, error) {
 	if copyHTTP.Timeout == 0 {
 		copyHTTP.Timeout = 30 * time.Second
 	}
-	return &Client{base: base, key: key, http: &copyHTTP, limiter: rate.NewLimiter(5, 1), sem: make(chan struct{}, 1)}, nil
+	return &Client{base: base, key: key, http: &copyHTTP, limiter: rate.NewLimiter(5, 1), sem: make(chan struct{}, 1), readSem: make(chan struct{}, 4), reads: newReadPacer()}, nil
 }
 
 func validPath(p string) bool {
@@ -169,14 +172,24 @@ func (c *Client) request(ctx context.Context, method, path string, body any) ([]
 			return nil, err
 		}
 	}
+	sem := c.sem
+	if method == http.MethodGet {
+		sem = c.readSem
+	}
 	select {
-	case c.sem <- struct{}{}:
-		defer func() { <-c.sem }()
+	case sem <- struct{}{}:
+		defer func() { <-sem }()
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
 	for attempt := 0; attempt <= maxRetries; attempt++ {
-		if err := c.limiter.Wait(ctx); err != nil {
+		var epoch uint64
+		if method == http.MethodGet {
+			epoch, err = c.reads.acquire(ctx)
+		} else {
+			err = c.limiter.Wait(ctx)
+		}
+		if err != nil {
 			return nil, err
 		}
 		req, err := http.NewRequestWithContext(ctx, method, c.base+path, bytes.NewReader(payload))
@@ -202,11 +215,19 @@ func (c *Client) request(ctx context.Context, method, path string, body any) ([]
 		if len(data) > maxBody {
 			return nil, errors.New("bridge response exceeds size limit")
 		}
-		if resp.StatusCode == 429 && attempt < maxRetries {
-			if err := wait(ctx, retryDelay(resp.Header.Get("Retry-After"), time.Now(), attempt)); err != nil {
-				return nil, err
+		if resp.StatusCode == 429 {
+			delay := retryDelay(resp.Header.Get("Retry-After"), time.Now(), attempt)
+			if method == http.MethodGet {
+				c.reads.throttle(delay)
 			}
-			continue
+			if attempt < maxRetries {
+				if method != http.MethodGet {
+					if err := wait(ctx, delay); err != nil {
+						return nil, err
+					}
+				}
+				continue
+			}
 		}
 		var envelope struct {
 			Errors []struct {
@@ -224,6 +245,9 @@ func (c *Client) request(ctx context.Context, method, path string, body any) ([]
 				descriptions = append(descriptions, description)
 			}
 			return nil, &APIError{Status: resp.StatusCode, Descriptions: descriptions}
+		}
+		if method == http.MethodGet {
+			c.reads.success(epoch)
 		}
 		return data, nil
 	}
