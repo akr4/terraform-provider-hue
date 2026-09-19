@@ -59,6 +59,7 @@ resource "hue_%s" "test" {
 				{Config: config("Changed", "[]"), Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr(addr, "name", "Changed"), resource.TestCheckResourceAttr(addr, "children.#", "0"))},
 				{Config: config("Changed", "[]"), PlanOnly: true},
 			}})
+			assertUnmanagedFieldsOmitted(t, b, kind, []string{"geometry"}, nil)
 		})
 	}
 }
@@ -173,6 +174,7 @@ func TestAccSceneActionsAndMetadata(t *testing.T) {
 		{Config: strings.Replace(config(false), "Original", "Renamed", 1), Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr("hue_scene.test", "actions.%", "1"), checkImage)},
 		{Config: strings.Replace(config(false), "Original", "Renamed", 1), PlanOnly: true},
 	}})
+	assertUnmanagedFieldsOmitted(t, b, "scene", []string{"mapping"}, []string{"appdata", "image"})
 	for _, req := range b.Requests() {
 		if (req.Method == "PUT" || req.Method == "POST") && strings.Contains(req.Path, "/scene") {
 			var payload map[string]json.RawMessage

@@ -48,8 +48,12 @@ palette.colorは公式資料では最大9要素、dimming / color_temperatureは
 gradient.pointsは最大5要素で、palette.colorの上限とは別。providerはこれらの配列長・内部構造を網羅的には検証しない。
 
 **更新時の保持:** scene更新はactions全体を組み直して送る。effects_v2 / dynamicsは、設定を省略した場合も読取値を保持して再送する。
-fakebridgeでimport・更新・省略時保持を検証済み。全機種での実機動作は未検証。appdata、mapping、device / roomのgeometryは省略して送信するため、
-部分更新で維持されるかを別途確認する。「未対応属性が必ず削除される」とは断定しない。
+fakebridgeでimport・更新・省略時保持を検証済み。全機種での実機動作は未検証。
+
+appdata、mapping、device / roomのgeometryは管理対象外とし、更新リクエストに含めない。
+scene / smart_sceneのmetadata.appdata、sceneのmapping、device / roomのgeometryが、nullも含めてPUTに現れないことをTerraform経由の回帰テストで検証する。
+取得した既存値の再送もしない。metadataは管理対象のname等だけを含むため、metadata内の未指定項目を維持する部分更新がBridge側で必要となる。
+このテストは送信内容の保証であり、実機での保持を証明するものではない。実機での更新前後の比較は別途必要。
 
 [device]: https://developers.meethue.com/develop/hue-api-v2/api-reference/#resource_device__id__put
 [room]: https://developers.meethue.com/develop/hue-api-v2/api-reference/#resource_room__id__put

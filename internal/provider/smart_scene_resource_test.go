@@ -80,6 +80,7 @@ func TestAccSmartScene(t *testing.T) {
 			return nil
 		})},
 	}})
+	assertUnmanagedFieldsOmitted(t, b, "smart_scene", nil, []string{"appdata", "image"})
 	for _, r := range b.Requests() {
 		if r.Method != "POST" && r.Method != "PUT" {
 			continue

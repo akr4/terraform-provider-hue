@@ -67,6 +67,7 @@ func TestAccDeviceSettings(t *testing.T) {
 		}, Config: cfg(id, `name = "Managed name"`), Check: check(id, "Managed name", "table_shade")},
 		{Config: cfg(other, `name = "New binding"`), Check: check(other, "New binding", "sultan_bulb")},
 	}})
+	assertUnmanagedFieldsOmitted(t, b, "device", []string{"geometry"}, nil)
 	for _, r := range b.Requests() {
 		if !strings.Contains(r.Path, "/device") {
 			continue
