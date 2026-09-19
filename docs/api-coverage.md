@@ -53,7 +53,10 @@ fakebridgeでimport・更新・省略時保持を検証済み。全機種での�
 appdata、mapping、device / roomのgeometryは管理対象外とし、更新リクエストに含めない。
 scene / smart_sceneのmetadata.appdata、sceneのmapping、device / roomのgeometryが、nullも含めてPUTに現れないことをTerraform経由の回帰テストで検証する。
 取得した既存値の再送もしない。metadataは管理対象のname等だけを含むため、metadata内の未指定項目を維持する部分更新がBridge側で必要となる。
-このテストは送信内容の保証であり、実機での保持を証明するものではない。実機での更新前後の比較は別途必要。
+このテストは送信内容の保証であり、実機での保持を証明するものではない。
+sceneのmetadata.appdataについては、実機の既存シーンをTerraformで名前変更し、更新前後の値が一致することを確認済み。
+同じ確認で、actionsは配列順序のみが変わり、各ターゲットの設定は一致した。
+smart_sceneのappdata、sceneのmapping、device / roomのgeometryの実機での保持は未検証。sceneでの結果を他リソースへ一般化しない。
 
 [device]: https://developers.meethue.com/develop/hue-api-v2/api-reference/#resource_device__id__put
 [room]: https://developers.meethue.com/develop/hue-api-v2/api-reference/#resource_room__id__put
