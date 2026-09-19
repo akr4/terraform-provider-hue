@@ -269,6 +269,12 @@ checksums are GPG-signed. Configure `GPG_PRIVATE_KEY` and `PASSPHRASE` secrets
 before releasing. Publishing the draft and registering the provider in the
 Terraform (`akr4/hue`) and OpenTofu registries are manual steps.
 
+To check packaging locally with GoReleaser v2, run `make release-check`.
+This builds unsigned snapshot archives for every configured OS/architecture under
+`dist/provider` and `dist/cli`, without publishing or creating a tag. Override
+`GORELEASER` to use a binary outside PATH. Signing and registry publication require
+separate verification.
+
 ## License
 
 MIT. Philips Hue is a trademark of its owner; this project is independent.
