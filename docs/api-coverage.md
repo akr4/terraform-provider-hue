@@ -154,7 +154,7 @@ data sourceはlight / deviceのUUID指定のみで、API応答全体を返すも
 2. 画像は管理対象外とし、POST/PUTに含めない（対応済み）。旧state移行と画像を持つシーンの更新を回帰テストで確認する。
 3. mirek / kelvinの範囲は50〜1000に修正済み。fakebridgeで拡張範囲の作成・更新・importと従来の機種範囲補正を検証する。
 4. appdata、mapping、device / room geometryの更新時保持。省略で残るものまで、公開前の機能追加を必須にしない。
-5. 標準import/config生成、JSON属性の制約、非対応項目を含むリソースの扱いを説明する。
+5. 標準import/config生成は、device・room・zone・scene・smart_scene・behavior_instanceをfakebridgeで検証する。実Terraform CLIで生成した設定を無編集で適用し、importブロック削除後のplanが差分なし、API書き込みなしになることを回帰テストで確認する。sceneは色温度・xy・palette・gradient・effects / effects_v2・dynamicsを含む。色温度のimportではmirekを採用し、kelvinとの重複生成を避ける。JSON属性の内部構造すべてを検証するものではない。
 
 **公開後の機能追加候補**
 

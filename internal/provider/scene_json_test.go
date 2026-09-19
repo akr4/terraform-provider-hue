@@ -146,3 +146,20 @@ func TestSceneEffectV2ColorConflicts(t *testing.T) {
 		t.Fatal(errs)
 	}
 }
+
+func TestSceneJSONImportCanonicalization(t *testing.T) {
+	raw := []byte(`{ "z": 1.0, "a": [9007199254740993, 0.40, null, false] }`)
+	got := sceneJSONValue(types.StringNull(), raw)
+	want := `{"a":[9007199254740993,0.4,null,false],"z":1}`
+	if got.ValueString() != want {
+		t.Fatalf("got %s, want %s", got.ValueString(), want)
+	}
+	prior := types.StringValue(string(raw))
+	if !sceneJSONValue(prior, []byte(want)).Equal(prior) {
+		t.Fatal("existing user formatting was changed")
+	}
+	changed := []byte(`{"a":[9007199254740994,0.4,null,false],"z":1}`)
+	if sceneJSONValue(prior, changed).Equal(prior) {
+		t.Fatal("real drift was hidden")
+	}
+}

@@ -194,7 +194,13 @@ Scene colors use `color_xy` with independent `brightness`. `color_hex` is no
 longer a resource attribute; schema version 1 removes the old state alias while
 preserving saved xy. Existing hex configurations must be changed to the saved xy
 before upgrading. Do not recalculate an already managed color from hex.
-For temperature, choose at most one of `mirek` / `kelvin`; the other is computed.
+For temperature, choose at most one of `mirek` / `kelvin`. Import reads the native
+`mirek` value and leaves `kelvin` unset, so Terraform configuration generation does
+not emit conflicting temperature settings. Explicit `kelvin` configuration remains
+supported; existing computed temperature counterparts are retained.
+Newly read scene action JSON is normalized to match `jsonencode`, avoiding
+formatting-only changes in generated configuration. Equivalent existing JSON
+keeps its configured representation.
 Comparisons preserve configured values when hardware gamut/range clipping
 produces an equivalent result.
 Kelvin conversions are bounded to the API's 50–1000 mirek range before writing;
@@ -203,7 +209,7 @@ gamut `other`, the light's explicit gamut triangle is used when available.
 `palette` is an optional JSON object string (`jsonencode`); it is read on import,
 sent when configured, and preserved on the Bridge when omitted. It is independent
 of per-light `actions`: changing either does not generate the other.
-`image_id` is preserved on import.
+Scene images are not managed by the provider; updates omit image metadata.
 
 For example, add this attribute to a scene to store a reusable dynamic palette:
 

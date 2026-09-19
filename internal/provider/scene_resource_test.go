@@ -11,6 +11,26 @@ import (
 
 func TestReconcileAction(t *testing.T) {
 	light := hue.Light{Color: &hue.Color{GamutType: "C"}, ColorTemperature: &hue.ColorTemperature{MirekSchema: hue.MirekSchema{Min: 200, Max: 450}}}
+	t.Run("import keeps only native temperature", func(t *testing.T) {
+		actual := hue.Action{ColorTemperature: &hue.Temperature{Mirek: 300}}
+		got := reconcileAction(emptyAction(), actual, light)
+		if got.Mirek.ValueInt64() != 300 || !got.Kelvin.IsNull() {
+			t.Fatalf("import must not populate both temperature inputs: %+v", got)
+		}
+		got = reconcileAction(got, actual, light)
+		if !got.Kelvin.IsNull() {
+			t.Fatal("subsequent refresh introduced kelvin")
+		}
+	})
+	t.Run("resolves planned computed kelvin", func(t *testing.T) {
+		a := emptyAction()
+		a.Mirek = types.Int64Value(200)
+		a.Kelvin = types.Int64Unknown()
+		got := reconcileAction(a, hue.Action{ColorTemperature: &hue.Temperature{Mirek: 200}}, light)
+		if got.Kelvin.ValueInt64() != 5000 {
+			t.Fatal(got)
+		}
+	})
 	t.Run("preserves clipped kelvin", func(t *testing.T) {
 		a := emptyAction()
 		a.Kelvin = types.Int64Value(1000)

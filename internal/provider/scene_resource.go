@@ -7,6 +7,8 @@ import (
 	"math"
 	"sort"
 
+	ctyjson "github.com/zclconf/go-cty/cty/json"
+
 	colors "github.com/akr4/terraform-provider-hue/internal/color"
 	"github.com/akr4/terraform-provider-hue/internal/hue"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
@@ -307,7 +309,12 @@ func reconcileAction(prior actionModel, actual hue.Action, light hue.Light) acti
 	if actual.ColorTemperature != nil {
 		m := actual.ColorTemperature.Mirek
 		next.Mirek = types.Int64Value(m)
-		next.Kelvin = types.Int64Value(colors.MirekToKelvin(m))
+		// Import has no configured temperature representation. Keep only the API
+		// value so Terraform does not generate mutually exclusive attributes.
+		// Existing/planned kelvin (including a computed unknown) still resolves.
+		if !prior.Kelvin.IsNull() {
+			next.Kelvin = types.Int64Value(colors.MirekToKelvin(m))
+		}
 		expected, ok := prior.Mirek.ValueInt64(), known(prior.Mirek)
 		if !ok && known(prior.Kelvin) {
 			expected = colors.KelvinToMirek(prior.Kelvin.ValueInt64())
@@ -579,6 +586,14 @@ func sceneJSONValue(prior types.String, raw json.RawMessage) types.String {
 	}
 	if known(prior) && sameJSON([]byte(prior.ValueString()), raw) {
 		return prior
+	}
+	// Match Terraform jsonencode for newly read values (including exact numbers),
+	// otherwise generated configuration can propose formatting-only updates.
+	var value ctyjson.SimpleJSONValue
+	if err := value.UnmarshalJSON(raw); err == nil {
+		if canonical, err := value.MarshalJSON(); err == nil {
+			return types.StringValue(string(canonical))
+		}
 	}
 	return types.StringValue(string(raw))
 }
