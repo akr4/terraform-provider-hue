@@ -8,7 +8,8 @@ It supports creation, import, updates, and deletion through Terraform.
 - Each timeslot has a `start_time` (`HH:MM:SS` or `sunset`) and a `scene` UUID.
   Direct `hue_scene.NAME.id` references express dependencies.
 - `transition_duration` is in milliseconds and defaults to 60000.
-- `state` is read-only. Images are unmanaged: create/update requests omit `metadata.image` entirely and never send a recall command. Older `image_id` state is removed locally during schema upgrade.
+- `state` is read-only. The Bridge starts a new smart scene immediately, which applies the current timeslot's scene, so creation sends `recall.action = deactivate`. Updates never send a recall and keep the current state. Start a smart scene with `hue-tf recall` or the Hue app.
+- Images are unmanaged: create/update requests omit `metadata.image` entirely. Older `image_id` state is removed locally during schema upgrade.
 - An existing scene must belong to the smart scene's room or zone to be used in its schedule.
 
 A sensor or switch can recall the smart scene through its behavior configuration:

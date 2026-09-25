@@ -360,7 +360,7 @@ CLI は ls switch による機器との対応表示、import-blocks による未
 曜日ごとの `week_timeslots` は、曜日集合 `recurrence` と順序付きの `timeslots` で定義する。
 各枠の `start_time` は `HH:MM:SS` または `sunset`、`scene` は通常シーンの UUID または参照式。
 `transition_duration` はミリ秒で既定値60000。group の変更は置換となる。
-実行状態と画像は読み取り専用で、作成・更新時に recall や画像変更を送信しない。
+実行状態と画像は読み取り専用。Bridge は新しい smart_scene をすぐ稼働させ、その時間帯のシーンをライトに反映するため、作成時は `recall.action = deactivate` を送って停止状態で作る。更新時は recall を送らず、稼働状態を変えない。画像変更は送信しない。
 import-blocks は未管理分の import ブロック準備に対応する。既存定義の変更・衝突検出は行わない。
 詳細は [スマートシーン](smart-scenes.md) を参照する。
 
