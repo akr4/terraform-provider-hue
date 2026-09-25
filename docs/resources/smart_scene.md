@@ -3,12 +3,12 @@
 page_title: "hue_smart_scene Resource - hue"
 subcategory: ""
 description: |-
-  Manage a Hue smart scene's recurring schedule. Runtime activation is read-only; creating or updating a schedule does not recall it.
+  Manage a Hue smart scene's recurring schedule. Runtime activation is read-only: new smart scenes are created deactivated, and updates keep the current activation state.
 ---
 
 # hue_smart_scene (Resource)
 
-Manage a Hue smart scene's recurring schedule. Runtime activation is read-only; creating or updating a schedule does not recall it.
+Manage a Hue smart scene's recurring schedule. Runtime activation is read-only: new smart scenes are created deactivated, and updates keep the current activation state.
 
 ## Example Usage
 

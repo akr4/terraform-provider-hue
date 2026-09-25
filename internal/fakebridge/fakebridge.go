@@ -193,7 +193,7 @@ func (b *Bridge) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		if kind == "smart_scene" {
 			for key := range patch {
-				if key != "metadata" && key != "week_timeslots" && key != "transition_duration" && !(r.Method == "POST" && key == "group") {
+				if key != "metadata" && key != "week_timeslots" && key != "transition_duration" && !(r.Method == "POST" && (key == "group" || key == "recall")) {
 					failure(w, 400, "unexpected smart scene field")
 					return
 				}
@@ -210,7 +210,22 @@ func (b *Bridge) serve(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if r.Method == "POST" {
-				value["state"] = json.RawMessage(`"inactive"`)
+				// A physical bridge starts a new smart scene unless the request deactivates it.
+				state := "active"
+				if raw, ok := patch["recall"]; ok {
+					var recall struct {
+						Action string `json:"action"`
+					}
+					if json.Unmarshal(raw, &recall) != nil || (recall.Action != "activate" && recall.Action != "deactivate") {
+						failure(w, 400, "invalid smart scene recall")
+						return
+					}
+					if recall.Action == "deactivate" {
+						state = "inactive"
+					}
+					delete(patch, "recall")
+				}
+				value["state"], _ = json.Marshal(state)
 			}
 		}
 		if kind == "behavior_instance" {

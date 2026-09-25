@@ -40,7 +40,7 @@ func (*smartSceneResource) Metadata(_ context.Context, req resource.MetadataRequ
 	resp.TypeName = req.ProviderTypeName + "_smart_scene"
 }
 func (*smartSceneResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
-	resp.Schema = schema.Schema{Version: 1, Description: "Manage a Hue smart scene's recurring schedule. Runtime activation is read-only; creating or updating a schedule does not recall it.", Attributes: map[string]schema.Attribute{
+	resp.Schema = schema.Schema{Version: 1, Description: "Manage a Hue smart scene's recurring schedule. Runtime activation is read-only: new smart scenes are created deactivated, and updates keep the current activation state.", Attributes: map[string]schema.Attribute{
 		"id":                  schema.StringAttribute{Computed: true, Description: "Smart scene UUID.", PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
 		"name":                schema.StringAttribute{Required: true, Description: "Smart scene name."},
 		"group":               schema.StringAttribute{Required: true, Description: "Room or zone UUID. Changing the group replaces the smart scene.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
@@ -125,9 +125,13 @@ type smartSceneWrite struct {
 	Metadata struct {
 		Name string `json:"name"`
 	} `json:"metadata"`
-	Group              *hue.Reference `json:"group,omitempty"`
-	WeekTimeslots      []hue.SmartDay `json:"week_timeslots"`
-	TransitionDuration int64          `json:"transition_duration"`
+	Group              *hue.Reference    `json:"group,omitempty"`
+	WeekTimeslots      []hue.SmartDay    `json:"week_timeslots"`
+	TransitionDuration int64             `json:"transition_duration"`
+	Recall             *smartSceneRecall `json:"recall,omitempty"`
+}
+type smartSceneRecall struct {
+	Action string `json:"action"`
 }
 
 func (r *smartSceneResource) body(ctx context.Context, m smartSceneModel, creating bool) (smartSceneWrite, error) {
@@ -161,6 +165,9 @@ func (r *smartSceneResource) body(ctx context.Context, m smartSceneModel, creati
 			}
 		}
 		body.Group = &hue.Reference{RID: group.ID, RType: kind}
+		// The bridge starts a new smart scene unless told otherwise, which would
+		// immediately apply the current timeslot's scene to the lights.
+		body.Recall = &smartSceneRecall{Action: "deactivate"}
 	} else {
 		for _, day := range days {
 			for _, slot := range day.Timeslots {

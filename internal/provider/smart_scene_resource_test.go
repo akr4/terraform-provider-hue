@@ -92,10 +92,16 @@ func TestAccSmartScene(t *testing.T) {
 		if err := json.Unmarshal(r.Body, &body); err != nil {
 			t.Fatal(err)
 		}
-		for _, key := range []string{"recall", "state", "active_timeslot"} {
+		for _, key := range []string{"state", "active_timeslot"} {
 			if body[key] != nil {
 				t.Fatalf("runtime field sent: %s", r.Body)
 			}
+		}
+		if r.Method == "POST" && string(body["recall"]) != `{"action":"deactivate"}` {
+			t.Fatalf("smart scene not created deactivated: %s", r.Body)
+		}
+		if r.Method == "PUT" && body["recall"] != nil {
+			t.Fatalf("recall sent on update: %s", r.Body)
 		}
 		if r.Method == "PUT" && body["group"] != nil {
 			t.Fatal("group sent on update")
