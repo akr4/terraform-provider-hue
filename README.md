@@ -90,9 +90,8 @@ To import existing resources, run `hue-tf import-blocks --write`, then
 ## Development
 
 ```sh
-# Unit and acceptance tests against a fake bridge
-TF_ACC=1 TF_ACC_TERRAFORM_PATH="$(command -v terraform)" go test ./...
-make docs   # Regenerate the reference docs from the schema
+TF_ACC=1 go test ./...   # Unit and acceptance tests against a fake bridge
+make docs                # Regenerate the reference docs from the schema
 ```
 
 Tests never connect to a real bridge, even when Hue environment variables are set.

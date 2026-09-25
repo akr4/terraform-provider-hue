@@ -39,7 +39,11 @@ func TestAccPullRoundTrip(t *testing.T) {
 	}
 	tf := os.Getenv("TF_ACC_TERRAFORM_PATH")
 	if tf == "" {
-		t.Fatal("TF_ACC_TERRAFORM_PATH is required")
+		var err error
+		tf, err = exec.LookPath("terraform")
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	root := t.TempDir()
 	t.Chdir(root)
