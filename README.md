@@ -98,4 +98,4 @@ Tests never connect to a real bridge, even when Hue environment variables are se
 
 ## License
 
-MIT. Philips Hue is a trademark of its owner; this project is independent.
+MIT. This is an independent project, not a Signify product.
