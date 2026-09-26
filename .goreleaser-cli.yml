@@ -22,5 +22,7 @@ checksum:
   algorithm: sha256
 release:
   draft: true
+  # Upload to the draft created by the provider configuration.
+  use_existing_draft: true
 changelog:
   disable: true
