@@ -3,7 +3,9 @@ package hue
 import "context"
 
 // ResetLightCapabilities starts a new capability snapshot. Providers call this
-// on Configure; writes invalidate it too. Live light state is never cached.
+// on Configure. Writes keep the snapshot: none of them changes a light's gamut
+// or temperature range, and an unknown light ID reloads it. Live light state is
+// never cached.
 func (c *Client) ResetLightCapabilities() {
 	c.capabilitiesMu.Lock()
 	defer c.capabilitiesMu.Unlock()

@@ -51,3 +51,39 @@ func TestSceneRefreshCapabilityRequests(t *testing.T) {
 		})
 	}
 }
+
+// Applying many scenes writes and then refreshes each one. The writes must not
+// make every refresh reload the light inventory.
+func TestSceneWritesShareCapabilities(t *testing.T) {
+	const count = 10
+	b := fakebridge.New()
+	defer b.Close()
+	r := sceneResource{client: b.Client()}
+	ctx := context.Background()
+	zone, err := r.client.Create(ctx, "zone", hue.Group{Metadata: hue.Metadata{Name: "Zone"}, Children: []hue.Reference{{RID: fakebridge.LightID, RType: "light"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < count; i++ {
+		id, err := r.client.Create(ctx, "scene", hue.Scene{Type: "scene", Metadata: hue.Metadata{Name: "Write"}, Group: hue.Reference{RID: zone, RType: "zone"}, Actions: []hue.SceneAction{{Target: hue.Reference{RID: fakebridge.LightID, RType: "light"}, Action: hue.Action{On: &hue.On{On: true}}}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := r.client.Update(ctx, "scene", id, map[string]any{"metadata": hue.Metadata{Name: "Updated"}}); err != nil {
+			t.Fatal(err)
+		}
+		m := sceneModel{ID: types.StringValue(id), Actions: types.MapNull(actionType)}
+		if err := r.refresh(ctx, &m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lights := 0
+	for _, req := range b.Requests() {
+		if req.Method == "GET" && req.Path == "/clip/v2/resource/light" {
+			lights++
+		}
+	}
+	if lights != 1 {
+		t.Fatalf("%d scene writes made %d light inventory requests, want 1", count, lights)
+	}
+}
