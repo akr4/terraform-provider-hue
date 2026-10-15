@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
-	"regexp"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -16,14 +14,10 @@ import (
 )
 
 func showScene(ctx context.Context, args []string, out io.Writer, deps dependencies) error {
-	if len(args) != 1 || !regexp.MustCompile(`^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$`).MatchString(args[0]) {
+	if len(args) != 1 || !operationUUID.MatchString(args[0]) {
 		return fmt.Errorf("usage: hue-tf show SCENE_UUID")
 	}
-	key := os.Getenv("HUE_BRIDGE_APPLICATION_KEY")
-	if key == "" {
-		return fmt.Errorf("HUE_BRIDGE_APPLICATION_KEY is required; run hue-tf init")
-	}
-	client, err := deps.newClient(os.Getenv("HUE_BRIDGE_HOST"), key)
+	client, err := clientFromEnv(deps)
 	if err != nil {
 		return err
 	}
@@ -149,7 +143,7 @@ func printSceneDetails(data []json.RawMessage, id string, out io.Writer) error {
 				colors = append(colors, huecolor.XYToHex(a.Action.Color.XY))
 			}
 			if t := a.Action.ColorTemperature; t != nil && t.Mirek > 0 {
-				colors = append(colors, fmt.Sprintf("%d K (%d mirek)", 1000000/t.Mirek, t.Mirek))
+				colors = append(colors, fmt.Sprintf("%d K (%d mirek)", huecolor.MirekToKelvin(t.Mirek), t.Mirek))
 			}
 			if len(colors) > 0 {
 				color = strings.Join(colors, " / ")

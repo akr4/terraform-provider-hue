@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -59,11 +58,7 @@ func operate(ctx context.Context, command string, args []string, out io.Writer, 
 	if id == "" {
 		return fmt.Errorf("%s", usage)
 	}
-	key := os.Getenv("HUE_BRIDGE_APPLICATION_KEY")
-	if key == "" {
-		return fmt.Errorf("HUE_BRIDGE_APPLICATION_KEY is required; run hue-tf init")
-	}
-	client, err := deps.newClient(os.Getenv("HUE_BRIDGE_HOST"), key)
+	client, err := clientFromEnv(deps)
 	if err != nil {
 		return err
 	}

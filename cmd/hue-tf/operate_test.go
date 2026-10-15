@@ -60,6 +60,7 @@ func TestOperateRequests(t *testing.T) {
 		{"write failure", []string{"recall", opScene}, "scene/" + opScene, "recall", "active", 400, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HUE_BRIDGE_HOST", "fake.local")
 			t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
 			gets, puts := 0, 0
 			waits := 0
@@ -144,6 +145,7 @@ func TestOperateRejectsUnresolvableIdentify(t *testing.T) {
 		fmt.Sprintf(`{"id":%q,"type":"light","owner":{"rid":%q,"rtype":"device"}}`, opLight, opDevice),
 	} {
 		t.Run(raw, func(t *testing.T) {
+			t.Setenv("HUE_BRIDGE_HOST", "fake.local")
 			t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
 			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != "GET" {
@@ -165,6 +167,7 @@ func TestOperateRejectsUnresolvableIdentify(t *testing.T) {
 }
 
 func TestIdentifyCancelBetweenSignals(t *testing.T) {
+	t.Setenv("HUE_BRIDGE_HOST", "fake.local")
 	t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
 	puts := 0
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"github.com/akr4/terraform-provider-hue/internal/fakebridge"
 	"github.com/akr4/terraform-provider-hue/internal/hue"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCLIValidation(t *testing.T) {
@@ -20,6 +22,52 @@ func TestCLIValidation(t *testing.T) {
 		}
 	}
 }
+func TestCLIHelpAndVersion(t *testing.T) {
+	for _, arg := range []string{"help", "-h", "--help"} {
+		var out bytes.Buffer
+		if err := run(context.Background(), []string{arg}, &out, &bytes.Buffer{}); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(out.String(), "Usage: hue-tf") || !strings.Contains(out.String(), "import-blocks") {
+			t.Fatalf("%s: %s", arg, out.String())
+		}
+	}
+	for _, arg := range []string{"version", "--version"} {
+		var out bytes.Buffer
+		if err := run(context.Background(), []string{arg}, &out, &bytes.Buffer{}); err != nil {
+			t.Fatal(err)
+		}
+		if out.String() != "hue-tf dev\n" {
+			t.Fatalf("%s: %q", arg, out.String())
+		}
+	}
+	err := run(context.Background(), []string{"unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "--help") {
+		t.Fatal(err)
+	}
+}
+
+func TestCLIRequiresBridgeEnvironment(t *testing.T) {
+	deps := dependencies{newClient: func(string, string) (*hue.Client, error) {
+		t.Fatal("contacted a bridge without its settings")
+		return nil, nil
+	}}
+	for _, c := range []struct{ host, key, want string }{
+		{"", "", "HUE_BRIDGE_APPLICATION_KEY is not set; run hue-tf init"},
+		{"", "test-key", "HUE_BRIDGE_HOST is not set; run hue-tf discover"},
+		{"192.0.2.1", "", "HUE_BRIDGE_APPLICATION_KEY is not set"},
+	} {
+		t.Setenv("HUE_BRIDGE_HOST", c.host)
+		t.Setenv("HUE_BRIDGE_APPLICATION_KEY", c.key)
+		for _, args := range [][]string{{"ls", "light"}, {"show", "11111111-1111-4111-8111-111111111111"}, {"recall", "11111111-1111-4111-8111-111111111111"}} {
+			err := runWith(context.Background(), args, &bytes.Buffer{}, &bytes.Buffer{}, deps)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("%v with host %q, key %q: %v", args, c.host, c.key, err)
+			}
+		}
+	}
+}
+
 func TestShellQuote(t *testing.T) {
 	if got := shellQuote("abc'$(id)"); got != "'abc'\"'\"'$(id)'" {
 		t.Fatal(got)
@@ -94,6 +142,35 @@ func TestCLIInit(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Fatal("unexpected registration")
+	}
+}
+
+func TestCLIInitTimeout(t *testing.T) {
+	t.Setenv("HUE_BRIDGE_HOST", "192.0.2.1")
+	pending := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[{"error":{"type":101}}]`))
+	}))
+	defer pending.Close()
+	// Reading the body lets the server notice when the client gives up.
+	silent := httptest.NewTLSServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		<-r.Context().Done()
+	}))
+	defer silent.Close()
+	for _, c := range []struct {
+		server *httptest.Server
+		want   string
+	}{
+		{pending, "the link button on bridge 192.0.2.1 was not pressed within 1.5s; run hue-tf init again"},
+		{silent, "could not reach bridge 192.0.2.1 within 1.5s"},
+	} {
+		deps := dependencies{linkTimeout: 1500 * time.Millisecond, newClient: func(string, string) (*hue.Client, error) {
+			return hue.NewClientWithHTTP(c.server.URL, "", c.server.Client())
+		}}
+		err := runWith(context.Background(), []string{"init"}, &bytes.Buffer{}, &bytes.Buffer{}, deps)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Fatalf("want %q, got %v", c.want, err)
+		}
 	}
 }
 
@@ -194,6 +271,7 @@ func TestCLISceneGroups(t *testing.T) {
 func TestCLISceneEmpty(t *testing.T) {
 	b := fakebridge.New()
 	defer b.Close()
+	t.Setenv("HUE_BRIDGE_HOST", "fake.local")
 	t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
 	var out bytes.Buffer
 	if err := runWith(context.Background(), []string{"ls", "scene"}, &out, &bytes.Buffer{}, dependencies{newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }}); err != nil {
