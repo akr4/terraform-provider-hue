@@ -11,7 +11,6 @@ docs:
 
 # Build unsigned local archives without creating a tag or publishing a release.
 release-check:
-	$(GORELEASER) check --config .goreleaser.yml
-	$(GORELEASER) check --config .goreleaser-cli.yml
-	$(GORELEASER) release --snapshot --clean --skip=publish,sign --config .goreleaser.yml
-	$(GORELEASER) release --snapshot --clean --skip=publish,sign --config .goreleaser-cli.yml
+	$(GORELEASER) check
+	$(GORELEASER) release --snapshot --clean --skip=publish,sign
+	sh scripts/check-release-files.sh
