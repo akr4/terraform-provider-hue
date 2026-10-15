@@ -177,7 +177,7 @@ resource "hue_room" "study" {
 - room や zone を削除すると、bridge はそこに属する scene も一緒に削除する。Hue アプリで作った scene も含む。plan に出るのは room / zone の削除だけで、apply もエラーにならない
 - ほかの room に属する device を `children` に入れて room を作ると、bridge は device を移す。移動元の room の scene からはその light の action が消え、`last_actions_update.source` が `autogrow` になる
 - room を削除すると、その device はどの room にも属さなくなり、`bridge_home` の `children` に入る
-- smart_scene も一緒に削除される。ただし同時とは限らず、削除の約1秒後にまだ残っていたことがある（数分後には消えていた）
+- smart_scene も bridge が削除する。ただし少し遅れる。Hue アプリを閉じた状態で、削除の約1秒後には残っていて、約2秒後には消えていた
 
 削除時の保護:
 
