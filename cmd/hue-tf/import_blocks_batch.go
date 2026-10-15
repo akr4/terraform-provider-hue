@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -36,7 +37,14 @@ func terraformCommand(ctx context.Context, args ...string) ([]byte, error) {
 	cmd.Stderr = &stderr
 	data, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("terraform %s failed: %s", strings.Join(args, " "), stderr.String())
+		command := "terraform " + strings.Join(args, " ")
+		if errors.Is(err, exec.ErrNotFound) {
+			return nil, fmt.Errorf("%s failed: %w; install Terraform or add it to PATH", command, err)
+		}
+		if detail := strings.TrimSpace(stderr.String()); detail != "" {
+			return nil, fmt.Errorf("%s failed (%w): %s", command, err, detail)
+		}
+		return nil, fmt.Errorf("%s failed: %w", command, err)
 	}
 	return data, nil
 }
@@ -58,15 +66,18 @@ func stateReader(deps dependencies) func(context.Context) ([]byte, error) {
 		if len(bytes.TrimSpace(s)) > 0 {
 			return s, nil
 		}
-		shown, e := run(ctx, "show", "-json")
-		if e != nil {
-			return nil, e
+		shown, err := run(ctx, "show", "-json")
+		if err != nil {
+			return nil, err
 		}
 		var v map[string]json.RawMessage
-		if json.Unmarshal(shown, &v) == nil && v["values"] == nil {
-			return []byte(`{"resources":[]}`), nil
+		if err := json.Unmarshal(shown, &v); err != nil {
+			return nil, fmt.Errorf("cannot read Terraform state: terraform show -json returned invalid JSON: %w", err)
 		}
-		return nil, fmt.Errorf("cannot read Terraform state: %v", err)
+		if v["values"] != nil {
+			return nil, fmt.Errorf("cannot read Terraform state: terraform state pull returned nothing, but terraform show -json lists resources")
+		}
+		return []byte(`{"resources":[]}`), nil
 	}
 }
 func fetchPullResources(ctx context.Context, client *hue.Client) (map[string]map[string]json.RawMessage, error) {
@@ -421,7 +432,7 @@ func writeImportBlocks(plan *importBlocksPlan, out io.Writer) (err error) {
 		return err
 	}
 	for _, c := range plan.Changes {
-		if _, err = c.Write(); err != nil {
+		if err = c.Write(); err != nil {
 			return err
 		}
 		writtenChanges = append(writtenChanges, c)

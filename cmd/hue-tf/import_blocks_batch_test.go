@@ -344,6 +344,40 @@ func TestBatchStateReader(t *testing.T) {
 			t.Fatalf("%s %v", data, e)
 		}
 	}
+	// An empty state pull that show -json contradicts used to report "<nil>".
+	for shown, want := range map[string]string{
+		`{"format_version":"1.0","values":{"root_module":{}}}`: "terraform show -json lists resources",
+		`not json`: "terraform show -json returned invalid JSON",
+	} {
+		read := stateReader(dependencies{terraform: func(_ context.Context, args ...string) ([]byte, error) {
+			if args[0] == "state" {
+				return nil, nil
+			}
+			return []byte(shown), nil
+		}})
+		if _, e := read(context.Background()); e == nil || !strings.Contains(e.Error(), want) || strings.Contains(e.Error(), "<nil>") {
+			t.Fatalf("%q: %v", shown, e)
+		}
+	}
+}
+
+// A missing terraform used to fail with "terraform state pull failed: " and nothing after it.
+func TestTerraformCommandErrors(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	_, e := terraformCommand(context.Background(), "state", "pull")
+	if e == nil || !strings.Contains(e.Error(), "terraform state pull failed") || !strings.Contains(e.Error(), "executable file not found") || !strings.Contains(e.Error(), "add it to PATH") {
+		t.Fatalf("%v", e)
+	}
+	bin := t.TempDir()
+	script := "#!/bin/sh\necho 'Error: backend locked' >&2\nexit 1\n"
+	if e = os.WriteFile(filepath.Join(bin, "terraform"), []byte(script), 0700); e != nil {
+		t.Fatal(e)
+	}
+	t.Setenv("PATH", bin)
+	_, e = terraformCommand(context.Background(), "state", "pull")
+	if e == nil || !strings.Contains(e.Error(), "exit status 1") || !strings.Contains(e.Error(), "Error: backend locked") {
+		t.Fatalf("%v", e)
+	}
 }
 
 func TestBatchCombinedImportFile(t *testing.T) {
@@ -377,6 +411,10 @@ func TestBatchCombinedImportFile(t *testing.T) {
 	content, e := os.ReadFile("imports_hue.tf")
 	if e != nil || strings.Count(string(content), "import {") != 3 || !strings.Contains(string(content), id) || !strings.Contains(string(content), third) {
 		t.Fatalf("%s %v", content, e)
+	}
+	// Appending used to leave a .hue-pull-backup-* copy behind on every success.
+	if leftovers, _ := filepath.Glob(".hue-pull-*"); len(leftovers) != 0 {
+		t.Fatalf("left %v", leftovers)
 	}
 	again, e := prepareImportBlocks(state, remote, pullNewOptions{})
 	if e != nil || len(again.Problems) > 0 || len(again.Changes) > 0 || len(again.Creates) > 0 {

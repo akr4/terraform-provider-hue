@@ -33,55 +33,44 @@ func (c *Change) finish() {
 	}
 }
 
-// Write keeps a private backup and refuses stale edits or symlink destinations.
-func (c *Change) Write() (string, error) {
+// Write replaces the file atomically and refuses stale edits or symlink
+// destinations. The caller keeps the backup of the original: import-blocks
+// saves it in its transaction directory before writing anything.
+func (c *Change) Write() error {
 	if len(c.Edits) == 0 {
-		return "", nil
+		return nil
 	}
 	info, err := os.Lstat(c.Path)
 	if err != nil {
-		return "", err
+		return err
 	}
 	if !info.Mode().IsRegular() {
-		return "", fmt.Errorf("destination must be a regular file")
+		return fmt.Errorf("destination must be a regular file")
 	}
 	current, err := os.ReadFile(c.Path)
 	if err != nil {
-		return "", err
+		return err
 	}
 	if !bytes.Equal(current, c.Original) {
-		return "", fmt.Errorf("file changed since preview")
-	}
-	backup, err := os.CreateTemp(filepath.Dir(c.Path), ".hue-pull-backup-*")
-	if err != nil {
-		return "", err
-	}
-	backupName := backup.Name()
-	_, err = backup.Write(c.Original)
-	closeErr := backup.Close()
-	if err != nil {
-		return backupName, err
-	}
-	if closeErr != nil {
-		return backupName, closeErr
+		return fmt.Errorf("file changed since preview")
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(c.Path), ".hue-pull-*")
 	if err != nil {
-		return backupName, err
+		return err
 	}
 	defer os.Remove(tmp.Name())
 	if _, err = tmp.Write(c.Updated); err != nil {
 		tmp.Close()
-		return backupName, err
+		return err
 	}
 	if err = tmp.Chmod(info.Mode().Perm()); err != nil {
 		tmp.Close()
-		return backupName, err
+		return err
 	}
 	if err = tmp.Close(); err != nil {
-		return backupName, err
+		return err
 	}
-	return backupName, os.Rename(tmp.Name(), c.Path)
+	return os.Rename(tmp.Name(), c.Path)
 }
 
 // WriteNew creates a file and never replaces an existing one.

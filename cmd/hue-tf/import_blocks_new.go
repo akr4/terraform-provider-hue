@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/akr4/terraform-provider-hue/internal/hue"
@@ -38,15 +37,9 @@ func pullNew(ctx context.Context, args []string, out io.Writer, deps dependencie
 		return fmt.Errorf("HUE_BRIDGE_APPLICATION_KEY is required")
 	}
 	// Without a UUID, list the unmanaged resources.
-	readState := deps.readState
-	if readState == nil {
-		readState = func(ctx context.Context) ([]byte, error) {
-			return exec.CommandContext(ctx, "terraform", "state", "pull").Output()
-		}
-	}
-	data, err := readState(ctx)
+	data, err := stateReader(deps)(ctx)
 	if err != nil {
-		return fmt.Errorf("cannot read Terraform state; use the existing Terraform directory and workspace")
+		return err
 	}
 	resources, err := pull.ManagedResources(data)
 	if err != nil {

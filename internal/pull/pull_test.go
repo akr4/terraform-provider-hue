@@ -17,9 +17,10 @@ func appendChange(t *testing.T, path, original, addition string) *Change {
 }
 
 func TestChangeWrite(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "imports_hue.tf")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "imports_hue.tf")
 	c := appendChange(t, path, "# keep\n", "import {}\n")
-	if _, err := c.Write(); err != nil {
+	if err := c.Write(); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(path)
@@ -29,6 +30,11 @@ func TestChangeWrite(t *testing.T) {
 	info, _ := os.Stat(path)
 	if info.Mode().Perm() != 0640 {
 		t.Fatal("mode changed")
+	}
+	// The caller keeps the backup, so nothing else is left next to the file.
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 1 {
+		t.Fatalf("left %d files", len(entries))
 	}
 }
 
@@ -56,7 +62,7 @@ func TestChangeWriteRefusesStaleFileAndSymlink(t *testing.T) {
 		} else {
 			os.WriteFile(path, []byte("# keep\n# new edit\n"), 0600)
 		}
-		if _, err := c.Write(); err == nil {
+		if err := c.Write(); err == nil {
 			t.Fatal("overwrote stale file/symlink")
 		}
 	}
