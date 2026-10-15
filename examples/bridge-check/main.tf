@@ -5,5 +5,5 @@ terraform {
   }
 }
 
-# Credentials come from HUE_BRIDGE_HOST and HUE_BRIDGE_APPLICATION_KEY.
+# Credentials come from HUE_BRIDGE_HOST, HUE_BRIDGE_ID and HUE_BRIDGE_APPLICATION_KEY.
 provider "hue" {}

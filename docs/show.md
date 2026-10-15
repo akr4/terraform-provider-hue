@@ -2,8 +2,8 @@
 
 `hue-tf show SCENE_UUID` reads one v2 resource snapshot and displays an ordinary
 scene or smart scene without changing the Bridge, Terraform configuration, or
-state. It uses the same `HUE_BRIDGE_HOST` and `HUE_BRIDGE_APPLICATION_KEY`
-environment variables as `ls`.
+state. It uses the same `HUE_BRIDGE_HOST`, `HUE_BRIDGE_ID` and
+`HUE_BRIDGE_APPLICATION_KEY` environment variables as `ls`.
 
 The output includes:
 

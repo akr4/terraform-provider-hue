@@ -234,9 +234,9 @@ func ConfigModules(root string) (map[string]string, map[string]string, error) {
 	return dirs, unusable, walk(root, "", "", 0)
 }
 
-// CheckProviderEnvironment refuses provider "hue" blocks whose host or
-// application_key cannot be matched to the environment hue-tf uses.
-func CheckProviderEnvironment(modules map[string]string, host, key string) error {
+// CheckProviderEnvironment refuses provider "hue" blocks whose host,
+// application_key or bridge_id cannot be matched to the environment hue-tf uses.
+func CheckProviderEnvironment(modules map[string]string, host, key, bridgeID string) error {
 	seen := map[string]bool{}
 	for _, dir := range modules {
 		// A shared source appears under several module addresses.
@@ -252,11 +252,11 @@ func CheckProviderEnvironment(modules map[string]string, host, key string) error
 			if b.Labels[0] != "hue" {
 				continue
 			}
-			attrs, err := blockAttributes(b, "host", "application_key")
+			attrs, err := blockAttributes(b, "host", "application_key", "bridge_id")
 			if err != nil {
 				return err
 			}
-			for name, want := range map[string]string{"host": host, "application_key": key} {
+			for name, want := range map[string]string{"host": host, "application_key": key, "bridge_id": bridgeID} {
 				a := attrs[name]
 				if a == nil {
 					continue

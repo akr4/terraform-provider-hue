@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/akr4/terraform-provider-hue/internal/hue"
@@ -32,9 +31,9 @@ func pullNew(ctx context.Context, args []string, out io.Writer, deps dependencie
 		return importBlocksOptions(ctx, opts, out, deps)
 	}
 
-	key := os.Getenv("HUE_BRIDGE_APPLICATION_KEY")
-	if key == "" {
-		return fmt.Errorf("HUE_BRIDGE_APPLICATION_KEY is required")
+	client, err := clientFromEnv(deps)
+	if err != nil {
+		return err
 	}
 	// Without a UUID, list the unmanaged resources.
 	data, err := stateReader(deps)(ctx)
@@ -48,10 +47,6 @@ func pullNew(ctx context.Context, args []string, out io.Writer, deps dependencie
 	managed := map[string]bool{}
 	for _, r := range resources {
 		managed[r.ID] = true
-	}
-	client, err := deps.newClient(os.Getenv("HUE_BRIDGE_HOST"), key)
-	if err != nil {
-		return err
 	}
 	count := 0
 	for _, resourceKind := range []string{"room", "zone", "scene", "smart_scene", "behavior_instance"} {

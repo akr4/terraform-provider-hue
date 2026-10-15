@@ -63,24 +63,31 @@ func TestSyncProviderEnvironment(t *testing.T) {
 	if e := os.WriteFile(dir+"/main.tf", []byte(source), 0600); e != nil {
 		t.Fatal(e)
 	}
-	e := CheckProviderEnvironment(map[string]string{"": dir}, "bridge", "test-key")
+	e := CheckProviderEnvironment(map[string]string{"": dir}, "bridge", "test-key", "001788fffe000000")
 	if e == nil || strings.Contains(e.Error(), "different-secret") {
 		t.Fatalf("%v", e)
 	}
 	if e = os.WriteFile(dir+"/main.tf", []byte(`provider "hue" {}`), 0600); e != nil {
 		t.Fatal(e)
 	}
-	if e = CheckProviderEnvironment(map[string]string{"": dir}, "bridge", "test-key"); e != nil {
+	if e = CheckProviderEnvironment(map[string]string{"": dir}, "bridge", "test-key", "001788fffe000000"); e != nil {
 		t.Fatal(e)
 	}
 	// JSON configuration is checked as well, and a matching literal passes.
 	if e = os.WriteFile(dir+"/provider.tf.json", []byte(`{"provider":{"hue":{"host":"other-bridge"}}}`), 0600); e != nil {
 		t.Fatal(e)
 	}
-	if e = CheckProviderEnvironment(map[string]string{"": dir}, "bridge", "test-key"); e == nil || !strings.Contains(e.Error(), "provider.tf.json") {
+	if e = CheckProviderEnvironment(map[string]string{"": dir}, "bridge", "test-key", "001788fffe000000"); e == nil || !strings.Contains(e.Error(), "provider.tf.json") {
 		t.Fatalf("%v", e)
 	}
-	if e = CheckProviderEnvironment(map[string]string{"": dir}, "other-bridge", "test-key"); e != nil {
+	if e = CheckProviderEnvironment(map[string]string{"": dir}, "other-bridge", "test-key", "001788fffe000000"); e != nil {
 		t.Fatal(e)
+	}
+	// The bridge ID must match too.
+	if e = os.WriteFile(dir+"/main.tf", []byte(`provider "hue" { bridge_id = "001788fffe111111" }`), 0600); e != nil {
+		t.Fatal(e)
+	}
+	if e = CheckProviderEnvironment(map[string]string{"": dir}, "other-bridge", "test-key", "001788fffe000000"); e == nil || !strings.Contains(e.Error(), "bridge_id") {
+		t.Fatalf("%v", e)
 	}
 }

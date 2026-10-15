@@ -17,8 +17,9 @@ type hueProvider struct {
 	client  *hue.Client
 }
 type providerModel struct {
-	Host types.String `tfsdk:"host"`
-	Key  types.String `tfsdk:"application_key"`
+	Host     types.String `tfsdk:"host"`
+	BridgeID types.String `tfsdk:"bridge_id"`
+	Key      types.String `tfsdk:"application_key"`
 }
 
 func New(version string) func() provider.Provider {
@@ -31,6 +32,7 @@ func (p *hueProvider) Metadata(_ context.Context, _ provider.MetadataRequest, re
 func (p *hueProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{Description: "Manage device settings, rooms, zones, scenes, smart scenes and behavior instances on a Philips Hue bridge using API v2. This is an independent project, not a Signify product.", Attributes: map[string]schema.Attribute{
 		"host":            schema.StringAttribute{Optional: true, Description: "Bridge IP address or hostname, without scheme or port. Falls back to HUE_BRIDGE_HOST."},
+		"bridge_id":       schema.StringAttribute{Optional: true, Description: "Bridge ID, 16 hexadecimal digits. The provider connects only to the bridge whose certificate names this ID. `hue-tf init` and `hue-tf discover` print it. Falls back to HUE_BRIDGE_ID."},
 		"application_key": schema.StringAttribute{Optional: true, Sensitive: true, Description: "Hue application key. Falls back to HUE_BRIDGE_APPLICATION_KEY."},
 	}}
 }
@@ -40,25 +42,30 @@ func (p *hueProvider) Configure(ctx context.Context, req provider.ConfigureReque
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if config.Host.IsUnknown() || config.Key.IsUnknown() {
-		resp.Diagnostics.AddError("Unknown provider configuration", "host and application_key must be known before configuring the provider.")
+	if config.Host.IsUnknown() || config.BridgeID.IsUnknown() || config.Key.IsUnknown() {
+		resp.Diagnostics.AddError("Unknown provider configuration", "host, bridge_id and application_key must be known before configuring the provider.")
 		return
 	}
-	host, key := os.Getenv("HUE_BRIDGE_HOST"), os.Getenv("HUE_BRIDGE_APPLICATION_KEY")
+	host, id, key := os.Getenv("HUE_BRIDGE_HOST"), os.Getenv("HUE_BRIDGE_ID"), os.Getenv("HUE_BRIDGE_APPLICATION_KEY")
 	if !config.Host.IsNull() {
 		host = config.Host.ValueString()
+	}
+	if !config.BridgeID.IsNull() {
+		id = config.BridgeID.ValueString()
 	}
 	if !config.Key.IsNull() {
 		key = config.Key.ValueString()
 	}
-	if host == "" || key == "" {
-		resp.Diagnostics.AddError("Missing provider configuration", "Set host and application_key or their HUE_BRIDGE_ environment variables.")
+	if host == "" || id == "" || key == "" {
+		resp.Diagnostics.AddError("Missing provider configuration", "Set host, bridge_id and application_key, or HUE_BRIDGE_HOST, HUE_BRIDGE_ID and HUE_BRIDGE_APPLICATION_KEY. hue-tf init prints all three.")
 		return
 	}
 	var err error
 	client := p.client
 	if client == nil {
-		client, err = hue.NewClient(host, key)
+		client, err = hue.NewClient(host, key, id)
+	} else {
+		_, err = hue.ParseBridgeID(id)
 	}
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid bridge configuration", err.Error())

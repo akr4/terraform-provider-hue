@@ -5,11 +5,13 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -191,7 +193,10 @@ func TestHostValidation(t *testing.T) {
 		}
 	}
 }
-func TestTLSChainVerification(t *testing.T) {
+
+// testBridgeCA returns a root and a function that issues bridge certificates.
+func testBridgeCA(t *testing.T) (*x509.CertPool, func(*x509.Certificate) []byte, *ecdsa.PrivateKey) {
+	t.Helper()
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	root := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "test CA"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
 	raw, err := x509.CreateCertificate(rand.Reader, root, root, &key.PublicKey, key)
@@ -201,29 +206,55 @@ func TestTLSChainVerification(t *testing.T) {
 	cert, _ := x509.ParseCertificate(raw)
 	roots := x509.NewCertPool()
 	roots.AddCert(cert)
+	issue := func(leaf *x509.Certificate) []byte {
+		raw, err := x509.CreateCertificate(rand.Reader, leaf, cert, &key.PublicKey, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	return roots, issue, key
+}
+
+func bridgeLeaf(cn string) *x509.Certificate {
+	return &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: cn}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+}
+
+func TestTLSChainVerification(t *testing.T) {
+	roots, issue, _ := testBridgeCA(t)
+	pin := func(id string) error {
+		if id != "001788fffe5a5a5a" {
+			return fmt.Errorf("other bridge %s", id)
+		}
+		return nil
+	}
 	for _, tc := range []struct {
 		name                           string
+		cn                             string
 		expired, clientAuth, untrusted bool
-	}{{name: "CN mismatch allowed"}, {name: "expired", expired: true}, {name: "client usage rejected", clientAuth: true}, {name: "untrusted", untrusted: true}} {
+		wantErr                        bool
+	}{
+		// Real bridges put the ID in upper case.
+		{name: "same bridge", cn: "001788FFFE5A5A5A"},
+		{name: "other bridge", cn: "001788FFFE000000", wantErr: true},
+		{name: "expired", cn: "001788FFFE5A5A5A", expired: true, wantErr: true},
+		{name: "client usage rejected", cn: "001788FFFE5A5A5A", clientAuth: true, wantErr: true},
+		{name: "untrusted", cn: "001788FFFE5A5A5A", untrusted: true, wantErr: true},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
-			leaf := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "bridge-id-not-host"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+			leaf := bridgeLeaf(tc.cn)
 			if tc.expired {
 				leaf.NotAfter = time.Now().Add(-time.Minute)
 			}
 			if tc.clientAuth {
 				leaf.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
 			}
-			raw, err := x509.CreateCertificate(rand.Reader, leaf, root, &key.PublicKey, key)
-			if err != nil {
-				t.Fatal(err)
-			}
 			pool := roots
 			if tc.untrusted {
 				pool = x509.NewCertPool()
 			}
-			err = TLSConfig(pool).VerifyPeerCertificate([][]byte{raw}, nil)
-			wantErr := tc.expired || tc.clientAuth || tc.untrusted
-			if (err != nil) != wantErr {
+			err := TLSConfig(pool, pin).VerifyPeerCertificate([][]byte{issue(leaf)}, nil)
+			if (err != nil) != tc.wantErr {
 				t.Fatalf("verification: %v", err)
 			}
 		})
@@ -290,5 +321,51 @@ func TestRegistrationErrorDetails(t *testing.T) {
 				t.Fatalf("key=%q pending=%v err=%v", key, pending, err)
 			}
 		})
+	}
+}
+
+func TestParseBridgeID(t *testing.T) {
+	if id, err := ParseBridgeID("001788FFFE5A5A5A"); err != nil || id != "001788fffe5a5a5a" {
+		t.Fatal(id, err)
+	}
+	for _, id := range []string{"", "001788fffe299e7", "001788fffe5a5a5a5", "001788fffe299e7g", " 001788fffe299e7"} {
+		if _, err := ParseBridgeID(id); err == nil {
+			t.Errorf("accepted %q", id)
+		}
+	}
+	if _, err := NewClient("192.0.2.1", "key", ""); err == nil {
+		t.Fatal("client without a bridge ID")
+	}
+}
+
+func TestObserveBridgeID(t *testing.T) {
+	roots, issue, key := testBridgeCA(t)
+	for _, tc := range []struct {
+		cn, want string
+		roots    *x509.CertPool
+	}{
+		{cn: "001788FFFE5A5A5A", want: "001788fffe5a5a5a", roots: roots},
+		{cn: "001788FFFE5A5A5A", roots: x509.NewCertPool()},
+		{cn: "not-a-bridge", roots: roots},
+	} {
+		ln, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{issue(bridgeLeaf(tc.cn))}, PrivateKey: key}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		go func() {
+			for {
+				conn, err := ln.Accept()
+				if err != nil {
+					return
+				}
+				_ = conn.(*tls.Conn).Handshake()
+				conn.Close()
+			}
+		}()
+		id, err := observeBridgeID(context.Background(), ln.Addr().String(), tc.roots)
+		ln.Close()
+		if id != tc.want || (err == nil) != (tc.want != "") {
+			t.Fatalf("%s: got %q, %v", tc.cn, id, err)
+		}
 	}
 }

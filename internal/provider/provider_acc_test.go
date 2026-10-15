@@ -18,6 +18,7 @@ import (
 
 const accProvider = `provider "hue" {
  host = "fake.local"
+ bridge_id = "001788fffe000000"
  application_key = "test-key"
 }
 `
@@ -35,6 +36,27 @@ func destroyed(b *fakebridge.Bridge) func(*terraform.State) error {
 		return nil
 	}
 }
+func TestAccProviderRequiresBridgeID(t *testing.T) {
+	t.Setenv("HUE_BRIDGE_ID", "")
+	b := fakebridge.New()
+	defer b.Close()
+	config := func(id string) string {
+		return fmt.Sprintf(`provider "hue" {
+ host = "fake.local"
+ application_key = "test-key"
+ %s
+}
+data "hue_light" "test" {
+ id = %q
+}
+`, id, fakebridge.LightID)
+	}
+	resource.Test(t, resource.TestCase{ProtoV6ProviderFactories: factories(b), Steps: []resource.TestStep{
+		{Config: config(""), ExpectError: regexp.MustCompile(`Missing provider configuration`)},
+		{Config: config(`bridge_id = "not-a-bridge"`), ExpectError: regexp.MustCompile(`16 hexadecimal digits`)},
+	}})
+}
+
 func TestAccGroups(t *testing.T) {
 	for _, kind := range []string{"room", "zone"} {
 		t.Run(kind, func(t *testing.T) {

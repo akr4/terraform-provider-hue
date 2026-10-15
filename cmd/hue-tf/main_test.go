@@ -48,21 +48,23 @@ func TestCLIHelpAndVersion(t *testing.T) {
 }
 
 func TestCLIRequiresBridgeEnvironment(t *testing.T) {
-	deps := dependencies{newClient: func(string, string) (*hue.Client, error) {
+	deps := dependencies{newClient: func(string, string, string) (*hue.Client, error) {
 		t.Fatal("contacted a bridge without its settings")
 		return nil, nil
 	}}
-	for _, c := range []struct{ host, key, want string }{
-		{"", "", "HUE_BRIDGE_APPLICATION_KEY is not set; run hue-tf init"},
-		{"", "test-key", "HUE_BRIDGE_HOST is not set; run hue-tf discover"},
-		{"192.0.2.1", "", "HUE_BRIDGE_APPLICATION_KEY is not set"},
+	for _, c := range []struct{ host, id, key, want string }{
+		{"", "", "", "HUE_BRIDGE_APPLICATION_KEY is not set; run hue-tf init"},
+		{"", "", "test-key", "HUE_BRIDGE_HOST is not set; run hue-tf discover"},
+		{"192.0.2.1", "", "test-key", "HUE_BRIDGE_ID is not set; run hue-tf discover"},
+		{"192.0.2.1", "001788fffe000000", "", "HUE_BRIDGE_APPLICATION_KEY is not set"},
 	} {
 		t.Setenv("HUE_BRIDGE_HOST", c.host)
+		t.Setenv("HUE_BRIDGE_ID", c.id)
 		t.Setenv("HUE_BRIDGE_APPLICATION_KEY", c.key)
 		for _, args := range [][]string{{"ls", "light"}, {"show", "11111111-1111-4111-8111-111111111111"}, {"recall", "11111111-1111-4111-8111-111111111111"}} {
 			err := runWith(context.Background(), args, &bytes.Buffer{}, &bytes.Buffer{}, deps)
 			if err == nil || !strings.Contains(err.Error(), c.want) {
-				t.Fatalf("%v with host %q, key %q: %v", args, c.host, c.key, err)
+				t.Fatalf("%v with host %q, ID %q, key %q: %v", args, c.host, c.id, c.key, err)
 			}
 		}
 	}
@@ -81,9 +83,10 @@ func TestCLIReadCommands(t *testing.T) {
 	b := fakebridge.New()
 	defer b.Close()
 	t.Setenv("HUE_BRIDGE_HOST", "fake.local")
+	t.Setenv("HUE_BRIDGE_ID", "001788fffe000000")
 	t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
-	deps := dependencies{newClient: func(host, key string) (*hue.Client, error) {
-		if host != "fake.local" || key != "test-key" {
+	deps := dependencies{newClient: func(host, key, id string) (*hue.Client, error) {
+		if host != "fake.local" || key != "test-key" || id != "001788fffe000000" {
 			t.Fatal("environment not passed")
 		}
 		return b.Client(), nil
@@ -107,6 +110,7 @@ func TestCLIReadCommands(t *testing.T) {
 }
 func TestCLIInit(t *testing.T) {
 	t.Setenv("HUE_BRIDGE_HOST", "")
+	t.Setenv("HUE_BRIDGE_ID", "")
 	var calls int
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
@@ -120,33 +124,71 @@ func TestCLIInit(t *testing.T) {
 		_, _ = w.Write([]byte(`[{"success":{"username":"new-key"}}]`))
 	}))
 	defer server.Close()
-	deps := dependencies{discover: func(context.Context) ([]string, error) { return []string{"192.0.2.1"}, nil }, newClient: func(host, key string) (*hue.Client, error) {
-		if host != "192.0.2.1" || key != "" {
-			t.Fatal("invalid selected host/key")
-		}
-		return hue.NewClientWithHTTP(server.URL, key, server.Client())
-	}}
+	var gotID string
+	deps := dependencies{
+		discover: func(context.Context) ([]bridge, error) {
+			return []bridge{{Host: "192.0.2.1", ID: "001788fffe5a5a5a"}}, nil
+		},
+		observe: func(context.Context, string) (string, error) {
+			t.Fatal("observed a certificate although discovery named the bridge")
+			return "", nil
+		},
+		newClient: func(host, key, id string) (*hue.Client, error) {
+			if host != "192.0.2.1" || key != "" {
+				t.Fatal("invalid selected host/key")
+			}
+			gotID = id
+			return hue.NewClientWithHTTP(server.URL, key, server.Client())
+		},
+	}
 	var out, prompt bytes.Buffer
 	if err := runWith(context.Background(), []string{"init"}, &out, &prompt, deps); err != nil {
 		t.Fatal(err)
 	}
-	if out.String() != "export HUE_BRIDGE_HOST='192.0.2.1'\nexport HUE_BRIDGE_APPLICATION_KEY='new-key'\n" {
-		t.Fatal(out.String())
+	if gotID != "001788fffe5a5a5a" || out.String() != "export HUE_BRIDGE_HOST='192.0.2.1'\nexport HUE_BRIDGE_ID='001788fffe5a5a5a'\nexport HUE_BRIDGE_APPLICATION_KEY='new-key'\n" {
+		t.Fatal(gotID, out.String())
 	}
 	if !strings.Contains(prompt.String(), "link button") || strings.Contains(prompt.String(), "new-key") {
 		t.Fatal("invalid prompt")
 	}
-	deps.discover = func(context.Context) ([]string, error) { return []string{"192.0.2.1", "192.0.2.2"}, nil }
+	deps.discover = func(context.Context) ([]bridge, error) {
+		return []bridge{{Host: "192.0.2.1"}, {Host: "192.0.2.2"}}, nil
+	}
 	if err := runWith(context.Background(), []string{"init"}, &out, &prompt, deps); err == nil {
 		t.Fatal("ambiguous discovery registered a key")
 	}
 	if calls != 2 {
 		t.Fatal("unexpected registration")
 	}
+
+	// With HUE_BRIDGE_HOST alone, the first contact reads the ID from the
+	// bridge's certificate. With both set, nothing is looked up.
+	t.Setenv("HUE_BRIDGE_HOST", "192.0.2.1")
+	deps.discover = func(context.Context) ([]bridge, error) {
+		t.Fatal("discovered although HUE_BRIDGE_HOST is set")
+		return nil, nil
+	}
+	for _, c := range []struct{ envID, want string }{{"", "001788fffe111111"}, {"001788fffe222222", "001788fffe222222"}} {
+		t.Setenv("HUE_BRIDGE_ID", c.envID)
+		deps.observe = func(_ context.Context, host string) (string, error) {
+			if c.envID != "" || host != "192.0.2.1" {
+				t.Fatal("unexpected certificate lookup")
+			}
+			return "001788fffe111111", nil
+		}
+		out.Reset()
+		if err := runWith(context.Background(), []string{"init"}, &out, &prompt, deps); err != nil {
+			t.Fatal(err)
+		}
+		if gotID != c.want || !strings.Contains(out.String(), "export HUE_BRIDGE_ID='"+c.want+"'") {
+			t.Fatal(gotID, out.String())
+		}
+	}
 }
 
 func TestCLIInitTimeout(t *testing.T) {
 	t.Setenv("HUE_BRIDGE_HOST", "192.0.2.1")
+	t.Setenv("HUE_BRIDGE_ID", "001788fffe000000")
 	pending := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`[{"error":{"type":101}}]`))
 	}))
@@ -164,7 +206,7 @@ func TestCLIInitTimeout(t *testing.T) {
 		{pending, "the link button on bridge 192.0.2.1 was not pressed within 1.5s; run hue-tf init again"},
 		{silent, "could not reach bridge 192.0.2.1 within 1.5s"},
 	} {
-		deps := dependencies{linkTimeout: 1500 * time.Millisecond, newClient: func(string, string) (*hue.Client, error) {
+		deps := dependencies{linkTimeout: 1500 * time.Millisecond, newClient: func(string, string, string) (*hue.Client, error) {
 			return hue.NewClientWithHTTP(c.server.URL, "", c.server.Client())
 		}}
 		err := runWith(context.Background(), []string{"init"}, &bytes.Buffer{}, &bytes.Buffer{}, deps)
@@ -177,7 +219,9 @@ func TestCLIInitTimeout(t *testing.T) {
 func TestCLIDiscover(t *testing.T) {
 	t.Setenv("HUE_BRIDGE_HOST", "192.0.2.9")
 	t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "")
-	deps := dependencies{discover: func(context.Context) ([]string, error) { return []string{"192.0.2.1", "192.0.2.2"}, nil }, newClient: func(string, string) (*hue.Client, error) {
+	deps := dependencies{discover: func(context.Context) ([]bridge, error) {
+		return []bridge{{Host: "192.0.2.1", ID: "001788fffe5a5a5a"}, {Host: "192.0.2.2"}}, nil
+	}, newClient: func(string, string, string) (*hue.Client, error) {
 		t.Fatal("discover contacted a bridge")
 		return nil, nil
 	}}
@@ -185,10 +229,10 @@ func TestCLIDiscover(t *testing.T) {
 	if err := runWith(context.Background(), []string{"discover"}, &out, &bytes.Buffer{}, deps); err != nil {
 		t.Fatal(err)
 	}
-	if out.String() != "192.0.2.1\n192.0.2.2\n" {
-		t.Fatal(out.String())
+	if out.String() != "ADDRESS    BRIDGE ID\n192.0.2.1  001788fffe5a5a5a\n192.0.2.2  -\n" {
+		t.Fatalf("%q", out.String())
 	}
-	deps.discover = func(context.Context) ([]string, error) { return nil, nil }
+	deps.discover = func(context.Context) ([]bridge, error) { return nil, nil }
 	if err := runWith(context.Background(), []string{"discover"}, &bytes.Buffer{}, &bytes.Buffer{}, deps); err == nil {
 		t.Fatal("empty discovery succeeded")
 	}
@@ -198,8 +242,9 @@ func TestCLISceneGroups(t *testing.T) {
 	b := fakebridge.New()
 	defer b.Close()
 	t.Setenv("HUE_BRIDGE_HOST", "fake.local")
+	t.Setenv("HUE_BRIDGE_ID", "001788fffe000000")
 	t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
-	deps := dependencies{newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }}
+	deps := dependencies{newClient: func(string, string, string) (*hue.Client, error) { return b.Client(), nil }}
 	room1 := hue.Reference{RID: "55555555-5555-4555-8555-555555555555", RType: "room"}
 	room2 := hue.Reference{RID: "66666666-6666-4666-8666-666666666666", RType: "room"}
 	zone := hue.Reference{RID: "77777777-7777-4777-8777-777777777777", RType: "zone"}
@@ -272,9 +317,10 @@ func TestCLISceneEmpty(t *testing.T) {
 	b := fakebridge.New()
 	defer b.Close()
 	t.Setenv("HUE_BRIDGE_HOST", "fake.local")
+	t.Setenv("HUE_BRIDGE_ID", "001788fffe000000")
 	t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
 	var out bytes.Buffer
-	if err := runWith(context.Background(), []string{"ls", "scene"}, &out, &bytes.Buffer{}, dependencies{newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }}); err != nil {
+	if err := runWith(context.Background(), []string{"ls", "scene"}, &out, &bytes.Buffer{}, dependencies{newClient: func(string, string, string) (*hue.Client, error) { return b.Client(), nil }}); err != nil {
 		t.Fatal(err)
 	}
 	if len(b.Requests()) != 1 || len(strings.Split(strings.TrimSpace(out.String()), "\n")) != 1 {

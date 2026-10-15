@@ -7,7 +7,7 @@ resource 定義の生成、既存定義の更新・削除、state の更新、�
 ## 操作
 
 Terraform のルートディレクトリから実行します。既存の backend と workspace の state を読み取ります。
-`HUE_BRIDGE_HOST` と `HUE_BRIDGE_APPLICATION_KEY` は Terraform が使う Bridge と一致させてください。
+`HUE_BRIDGE_HOST`、`HUE_BRIDGE_ID`、`HUE_BRIDGE_APPLICATION_KEY` は Terraform が使う Bridge と一致させてください。
 provider に host / application_key を直接設定する場合は環境変数と同じリテラル値にしてください。変数などの式で指定されている場合は照合できないため停止します。
 
 ```sh

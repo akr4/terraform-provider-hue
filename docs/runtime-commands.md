@@ -2,7 +2,7 @@
 
 These commands send explicit runtime operations to the Hue Bridge. They do not
 read or write Terraform state, edit configuration files, or create resources.
-They require the same `HUE_BRIDGE_HOST` and `HUE_BRIDGE_APPLICATION_KEY` as `ls`.
+They require the same `HUE_BRIDGE_HOST`, `HUE_BRIDGE_ID` and `HUE_BRIDGE_APPLICATION_KEY` as `ls`.
 
 ## Recall a scene
 

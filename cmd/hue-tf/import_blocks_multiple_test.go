@@ -12,6 +12,8 @@ import (
 
 func TestPullMultipleSelectors(t *testing.T) {
 	t.Chdir(t.TempDir())
+	t.Setenv("HUE_BRIDGE_HOST", "fake.local")
+	t.Setenv("HUE_BRIDGE_ID", "001788fffe000000")
 	t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
 	const old = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 	const added = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
@@ -23,7 +25,7 @@ func TestPullMultipleSelectors(t *testing.T) {
 	defer b.Close()
 	b.Put("room", old, hue.Group{ID: old, Type: "room", Metadata: hue.Metadata{Name: "Changed", Archetype: "bedroom"}})
 	b.Put("room", added, hue.Group{ID: added, Type: "room", Metadata: hue.Metadata{Name: "New"}})
-	deps := dependencies{newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) { return batchState(old, "Old"), nil }, terraform: func(context.Context, ...string) ([]byte, error) { return nil, nil }}
+	deps := dependencies{newClient: func(string, string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) { return batchState(old, "Old"), nil }, terraform: func(context.Context, ...string) ([]byte, error) { return nil, nil }}
 	var out bytes.Buffer
 	if err := importBlocks(context.Background(), []string{"hue_room.room", added, "missing", "--write"}, &out, deps); err == nil {
 		t.Fatal("missing selector did not block write")

@@ -118,7 +118,7 @@ func prepareImportBlocks(state []byte, remote map[string]map[string]json.RawMess
 	if err != nil {
 		return nil, err
 	}
-	if err := pull.CheckProviderEnvironment(modules, os.Getenv("HUE_BRIDGE_HOST"), os.Getenv("HUE_BRIDGE_APPLICATION_KEY")); err != nil {
+	if err := pull.CheckProviderEnvironment(modules, os.Getenv("HUE_BRIDGE_HOST"), os.Getenv("HUE_BRIDGE_APPLICATION_KEY"), os.Getenv("HUE_BRIDGE_ID")); err != nil {
 		return nil, err
 	}
 	scope := strings.TrimSuffix(opts.module, ".")
@@ -293,9 +293,9 @@ func importBlocks(ctx context.Context, args []string, out io.Writer, deps depend
 
 func importBlocksOptions(ctx context.Context, opts pullNewOptions, out io.Writer, deps dependencies) error {
 
-	key := os.Getenv("HUE_BRIDGE_APPLICATION_KEY")
-	if key == "" {
-		return fmt.Errorf("HUE_BRIDGE_APPLICATION_KEY is required")
+	client, err := clientFromEnv(deps)
+	if err != nil {
+		return err
 	}
 	if _, err := os.Stat(".hue-pull-transaction"); err == nil {
 		return fmt.Errorf("an interrupted pull needs recovery; inspect .hue-pull-transaction before retrying")
@@ -304,10 +304,6 @@ func importBlocksOptions(ctx context.Context, opts pullNewOptions, out io.Writer
 	}
 	readState := stateReader(deps)
 	state, err := readState(ctx)
-	if err != nil {
-		return err
-	}
-	client, err := deps.newClient(os.Getenv("HUE_BRIDGE_HOST"), key)
 	if err != nil {
 		return err
 	}
