@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +45,25 @@ func TestCLIHelpAndVersion(t *testing.T) {
 	err := run(context.Background(), []string{"unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "--help") {
 		t.Fatal(err)
+	}
+}
+
+// go install builds print the version in the same form as release builds.
+func TestCLIVersionForms(t *testing.T) {
+	for _, c := range []struct{ version, module, want string }{
+		{"0.1.1", "", "0.1.1"},
+		{"dev", "v0.1.1", "0.1.1"},
+		{"dev", "v0.1.2-0.20261015120000-abcdef123456", "0.1.2-0.20261015120000-abcdef123456"},
+		{"dev", "(devel)", "dev"},
+		{"dev", "", "dev"},
+	} {
+		info := &debug.BuildInfo{Main: debug.Module{Version: c.module}}
+		if got := buildVersion(c.version, info); got != c.want {
+			t.Errorf("buildVersion(%q, %q) = %q, want %q", c.version, c.module, got, c.want)
+		}
+	}
+	if got := buildVersion("dev", nil); got != "dev" {
+		t.Errorf("without build info: %q", got)
 	}
 }
 
