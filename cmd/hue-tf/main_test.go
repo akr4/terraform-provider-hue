@@ -14,7 +14,7 @@ import (
 )
 
 func TestCLIValidation(t *testing.T) {
-	for _, args := range [][]string{nil, {"unknown"}, {"raw"}, {"raw", "/clip/v2/resource", "extra"}, {"ls", "invalid"}, {"ls", "room", "--bad"}, {"init", "extra"}} {
+	for _, args := range [][]string{nil, {"unknown"}, {"raw"}, {"raw", "/clip/v2/resource", "extra"}, {"ls", "invalid"}, {"ls", "room", "--bad"}, {"init", "extra"}, {"discover", "extra"}} {
 		if err := run(context.Background(), args, &bytes.Buffer{}, &bytes.Buffer{}); err == nil {
 			t.Errorf("accepted %v", args)
 		}
@@ -94,6 +94,26 @@ func TestCLIInit(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Fatal("unexpected registration")
+	}
+}
+
+func TestCLIDiscover(t *testing.T) {
+	t.Setenv("HUE_BRIDGE_HOST", "192.0.2.9")
+	t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "")
+	deps := dependencies{discover: func(context.Context) ([]string, error) { return []string{"192.0.2.1", "192.0.2.2"}, nil }, newClient: func(string, string) (*hue.Client, error) {
+		t.Fatal("discover contacted a bridge")
+		return nil, nil
+	}}
+	var out bytes.Buffer
+	if err := runWith(context.Background(), []string{"discover"}, &out, &bytes.Buffer{}, deps); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "192.0.2.1\n192.0.2.2\n" {
+		t.Fatal(out.String())
+	}
+	deps.discover = func(context.Context) ([]string, error) { return nil, nil }
+	if err := runWith(context.Background(), []string{"discover"}, &bytes.Buffer{}, &bytes.Buffer{}, deps); err == nil {
+		t.Fatal("empty discovery succeeded")
 	}
 }
 

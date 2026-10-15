@@ -41,7 +41,7 @@ func run(ctx context.Context, args []string, out, errout io.Writer) error {
 }
 func runWith(ctx context.Context, args []string, out, errout io.Writer, deps dependencies) error {
 	if len(args) == 0 {
-		return errors.New("usage: hue-tf init | ls <room|zone|scene|smart_scene|light|device|switch|behavior_instance|behavior_script|button> [--json] | show SCENE_UUID | recall SCENE_UUID [--action ACTION] | identify DEVICE_UUID_OR_LIGHT_UUID [--count N] | raw /clip/v2/<path> | preview [PLAN_JSON|-] [--html] [--all] [--output FILE] | import-blocks [UUID | RESOURCE_ADDRESS ...] [--module NAME[.NAME...]] [--write]")
+		return errors.New("usage: hue-tf init | discover | ls <room|zone|scene|smart_scene|light|device|switch|behavior_instance|behavior_script|button> [--json] | show SCENE_UUID | recall SCENE_UUID [--action ACTION] | identify DEVICE_UUID_OR_LIGHT_UUID [--count N] | raw /clip/v2/<path> | preview [PLAN_JSON|-] [--html] [--all] [--output FILE] | import-blocks [UUID | RESOURCE_ADDRESS ...] [--module NAME[.NAME...]] [--write]")
 	}
 	if args[0] == "preview" {
 		return previewCommand(args[1:], deps.stdin, out)
@@ -63,6 +63,20 @@ func runWith(ctx context.Context, args []string, out, errout io.Writer, deps dep
 			return errors.New("usage: hue-tf init")
 		}
 		return initialize(ctx, out, errout, deps)
+	}
+	if args[0] == "discover" {
+		if len(args) != 1 {
+			return errors.New("usage: hue-tf discover")
+		}
+		hosts, err := deps.discover(ctx)
+		if err != nil {
+			return err
+		}
+		if len(hosts) == 0 {
+			return errors.New("no bridge discovered on the local network")
+		}
+		_, err = fmt.Fprintln(out, strings.Join(hosts, "\n"))
+		return err
 	}
 	if args[0] != "raw" && args[0] != "ls" {
 		return fmt.Errorf("unknown command %q", args[0])

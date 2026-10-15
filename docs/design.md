@@ -265,6 +265,7 @@ action object:
 | コマンド | 内容 |
 |---|---|
 | `hue-tf init` | mDNS で bridge を探索し、リンクボタン押下を待って application key を発行する。結果を環境変数の形式で表示する（`export HUE_BRIDGE_HOST=…` / `export HUE_BRIDGE_APPLICATION_KEY=…`） |
+| `hue-tf discover` | mDNS で bridge を探索し、見つかったアドレスを表示する。application key は発行しない |
 | `hue-tf ls <type>` | room / zone / scene / light / device / behavior_instance / behavior_script / button、および switch の対応表を表形式または `--json` で一覧表示する |
 | `hue-tf raw <path>` | 任意の v2 エンドポイントに GET し、レスポンスをそのまま出力する |
 
