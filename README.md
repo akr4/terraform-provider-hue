@@ -93,6 +93,7 @@ To import existing resources, run `hue-tf import-blocks --write`, then
 ## Development
 
 ```sh
+lefthook install         # Git hooks: gitleaks, gofmt, terraform fmt, go vet
 TF_ACC=1 go test ./...   # Unit and acceptance tests against a fake bridge
 make docs                # Regenerate the reference docs from the schema
 ```

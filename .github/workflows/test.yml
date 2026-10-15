@@ -21,6 +21,14 @@ jobs:
         run: test -z "$(gofmt -l .)"
       - name: Build
         run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Check that go.mod and go.sum are tidy
+        run: go mod tidy && git diff --exit-code -- go.mod go.sum
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive examples
+      - name: Check for known vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - name: Unit and fake bridge acceptance tests
         run: go test -race ./... -timeout=10m
         env:

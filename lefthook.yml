@@ -1,0 +1,22 @@
+# Git hooks. mise.toml pins lefthook and gitleaks; enable the hooks with
+# `lefthook install`.
+pre-commit:
+  parallel: true
+  jobs:
+    - name: gitleaks
+      run: gitleaks git --pre-commit --staged --redact --no-banner
+    - name: gofmt
+      glob: "*.go"
+      run: test -z "$(gofmt -l {staged_files} | tee /dev/stderr)"
+    - name: terraform fmt
+      glob: "*.tf"
+      run: terraform fmt -check {staged_files}
+
+pre-push:
+  parallel: true
+  jobs:
+    # Commits on local branches that no remote has yet.
+    - name: gitleaks
+      run: gitleaks git --redact --no-banner --log-opts="--branches --not --remotes"
+    - name: go vet
+      run: go vet ./...
