@@ -1,7 +1,6 @@
 package pull
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -87,7 +86,7 @@ func PendingImports(modules map[string]string, managed []ManagedResource) ([]Man
 					return nil, fmt.Errorf("import UUID %s already maps to %s", id, old)
 				}
 				byAddress[address], byID[id] = id, address
-				result = append(result, ManagedResource{Address: address, ID: id, Kind: kind, Attributes: map[string]json.RawMessage{}})
+				result = append(result, ManagedResource{Address: address, ID: id, Kind: kind})
 			}
 		}
 	}

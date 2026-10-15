@@ -99,6 +99,10 @@ func prepareImportBlocks(state []byte, remote map[string]map[string]json.RawMess
 	if err != nil {
 		return nil, err
 	}
+	stateAddresses, err := pull.StateAddresses(state)
+	if err != nil {
+		return nil, err
+	}
 	modules, err := pull.ConfigModules(".")
 	if err != nil {
 		return nil, err
@@ -182,14 +186,14 @@ func prepareImportBlocks(state []byte, remote map[string]map[string]json.RawMess
 			}
 			addr := opts.module + "hue_" + kind + "." + name
 			exists, pathErr := pull.HasResourceDefinition(destination, kind, name)
-			if pull.AddressReserved(state, kind, name, scope) || reserved[addr] || exists || pathErr != nil {
+			if stateAddresses[addr] || reserved[addr] || exists || pathErr != nil {
 				// Batch import must accommodate repeated Hue scene names without
 				// silently overwriting a declaration. UUIDs make the suffix stable.
 				name += "_" + strings.ReplaceAll(id, "-", "_")
 				addr = opts.module + "hue_" + kind + "." + name
 				exists, pathErr = pull.HasResourceDefinition(destination, kind, name)
 			}
-			if exists || pathErr != nil || pull.AddressReserved(state, kind, name, scope) || reserved[addr] {
+			if exists || pathErr != nil || stateAddresses[addr] || reserved[addr] {
 				plan.Problems = append(plan.Problems, addr+": destination is reserved or cannot be parsed")
 				continue
 			}

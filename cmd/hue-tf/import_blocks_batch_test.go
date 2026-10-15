@@ -65,6 +65,46 @@ func TestBatchManagedResourcesAreUntouched(t *testing.T) {
 		}
 	}
 }
+
+// Import-blocks used to stop on any of these state entries, so it generated nothing.
+func TestBatchComplexState(t *testing.T) {
+	t.Chdir(t.TempDir())
+	const newID = "90000000-0000-4000-8000-000000000000"
+	state := []byte(`{"resources":[
+ {"mode":"managed","type":"hue_device","name":"lamp","provider":"provider[\"registry.terraform.io/akr4/hue\"]","instances":[{"attributes":{"id":"11111111-1111-4111-8111-111111111111"}}]},
+ {"mode":"managed","type":"hue_zone","name":"counted","provider":"provider[\"registry.terraform.io/akr4/hue\"]","instances":[{"index_key":0,"attributes":{"id":"20000000-0000-4000-8000-000000000000"}}]},
+ {"mode":"managed","type":"hue_scene","name":"each","provider":"provider[\"registry.terraform.io/akr4/hue\"]","instances":[{"index_key":"day","attributes":{"id":"30000000-0000-4000-8000-000000000000"}}]},
+ {"mode":"managed","type":"hue_room","name":"replaced","provider":"provider[\"registry.terraform.io/akr4/hue\"]","instances":[{"attributes":{"id":"40000000-0000-4000-8000-000000000000"}},{"deposed":"1a2b3c4d","attributes":{"id":"41000000-0000-4000-8000-000000000000"}}]},
+ {"mode":"managed","type":"hue_zone","name":"other_bridge","provider":"provider[\"registry.terraform.io/akr4/hue\"].second","instances":[{"attributes":{"id":"50000000-0000-4000-8000-000000000000"}}]},
+ {"mode":"managed","module":"module.rooms[\"office\"]","type":"hue_smart_scene","name":"natural","provider":"provider[\"registry.terraform.io/akr4/hue\"]","instances":[{"attributes":{"id":"60000000-0000-4000-8000-000000000000"}}]}
+]}`)
+	remote := map[string]map[string]json.RawMessage{"room": {}, "zone": {}, "scene": {}, "smart_scene": {}, "behavior_instance": {}}
+	for id, kind := range map[string]string{
+		"20000000-0000-4000-8000-000000000000": "zone",
+		"30000000-0000-4000-8000-000000000000": "scene",
+		"40000000-0000-4000-8000-000000000000": "room",
+		"41000000-0000-4000-8000-000000000000": "room",
+		"50000000-0000-4000-8000-000000000000": "zone",
+		"60000000-0000-4000-8000-000000000000": "smart_scene",
+		newID:                                  "zone",
+	} {
+		raw, _ := json.Marshal(hue.Group{ID: id, Metadata: hue.Metadata{Name: "counted"}})
+		remote[kind][id] = raw
+	}
+	plan, e := prepareImportBlocks(state, remote, pullNewOptions{})
+	if e != nil || len(plan.Problems) > 0 {
+		t.Fatalf("%+v %v", plan, e)
+	}
+	// hue_zone.counted is in state with count, so the new zone takes a UUID suffix.
+	if len(plan.Creates) != 1 || plan.Creates[0].ID != newID || plan.Creates[0].Address != "hue_zone.counted_90000000_0000_4000_8000_000000000000" {
+		t.Fatalf("%+v", plan.Creates)
+	}
+	plan, e = prepareImportBlocks(state, remote, pullNewOptions{selectors: []string{"hue_zone.counted[0]", "41000000-0000-4000-8000-000000000000"}})
+	if e != nil || len(plan.Problems) > 0 || len(plan.Creates) != 0 || len(plan.Skipped) != 2 {
+		t.Fatalf("%+v %v", plan, e)
+	}
+}
+
 func TestBatchNewNameCollision(t *testing.T) {
 	t.Chdir(t.TempDir())
 	id := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"

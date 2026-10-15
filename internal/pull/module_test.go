@@ -91,7 +91,8 @@ func TestModuleState(t *testing.T) {
 	if err != nil || len(groups) != 0 {
 		t.Fatal("cross-module direct reference")
 	}
-	if !AddressReserved(raw, "room", "bedroom", "module.bedroom") || AddressReserved(raw, "room", "bedroom") {
-		t.Fatal("wrong collision scope")
+	addresses, err := StateAddresses(raw)
+	if err != nil || !addresses["module.bedroom.hue_room.bedroom"] || addresses["hue_room.bedroom"] {
+		t.Fatal("wrong collision scope", addresses, err)
 	}
 }

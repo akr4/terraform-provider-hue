@@ -78,7 +78,8 @@ func TestNewInventory(t *testing.T) {
 	if err != nil || !ids["scene"] || groups["group-id"] != "hue_room.bedroom" {
 		t.Fatalf("%v %v %v", ids, groups, err)
 	}
-	if !AddressReserved(raw, "scene", "night") || AddressReserved(raw, "scene", "unused") {
-		t.Fatal("state address collision detection")
+	addresses, err := StateAddresses(raw)
+	if err != nil || !addresses["hue_scene.night"] || !addresses["module.x.hue_scene.existing"] || addresses["hue_scene.unused"] {
+		t.Fatalf("state address collision detection: %v %v", addresses, err)
 	}
 }

@@ -17,26 +17,79 @@ import (
 
 type ManagedResource struct {
 	Address, ID, Kind string
-	Attributes        map[string]json.RawMessage
 }
 
-func ManagedResources(data []byte) ([]ManagedResource, error) {
-	var s struct {
-		Resources []struct {
-			Mode, Type, Name, Module, Provider string
-			Instances                          []struct {
-				IndexKey   json.RawMessage `json:"index_key"`
-				Deposed    string
-				Attributes map[string]json.RawMessage
-			}
-		}
+// importable lists the resource types that import-blocks discovers on the bridge.
+var importable = map[string]bool{"hue_room": true, "hue_zone": true, "hue_scene": true, "hue_smart_scene": true, "hue_behavior_instance": true}
+
+type stateResource struct {
+	Mode, Type, Name, Module string
+	Instances                []struct {
+		IndexKey   json.RawMessage `json:"index_key"`
+		Deposed    string
+		Attributes struct{ ID string }
 	}
+}
+
+func decodeState(data []byte) ([]stateResource, error) {
+	var s struct{ Resources []stateResource }
 	if err := json.Unmarshal(data, &s); err != nil {
+		return nil, fmt.Errorf("invalid Terraform state")
+	}
+	return s.Resources, nil
+}
+
+// ManagedResources lists every managed instance of an importable type, so its
+// UUID is never proposed for import again. Count and for_each instances,
+// deposed objects, module instances and provider aliases are all included.
+// Other Hue types, such as hue_device, are not import candidates and are skipped.
+func ManagedResources(data []byte) ([]ManagedResource, error) {
+	resources, err := decodeState(data)
+	if err != nil {
 		return nil, err
 	}
 	var result []ManagedResource
-	seen := map[string]bool{}
-	for _, r := range s.Resources {
+	seen := map[string]string{}
+	for _, r := range resources {
+		if r.Mode != "managed" || !importable[r.Type] {
+			continue
+		}
+		base := r.Type + "." + r.Name
+		if r.Module != "" {
+			base = r.Module + "." + base
+		}
+		for _, i := range r.Instances {
+			address := base
+			if len(i.IndexKey) > 0 {
+				address += "[" + string(i.IndexKey) + "]"
+			}
+			id := i.Attributes.ID
+			if id == "" {
+				continue
+			}
+			if other, ok := seen[id]; ok {
+				if other != address {
+					return nil, fmt.Errorf("UUID %s is managed at multiple addresses: %s and %s", id, other, address)
+				}
+				continue
+			}
+			seen[id] = address
+			result = append(result, ManagedResource{Address: address, ID: id, Kind: strings.TrimPrefix(r.Type, "hue_")})
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Address < result[j].Address })
+	return result, nil
+}
+
+// StateAddresses returns the address of every managed resource in the state,
+// without instance keys, so a new import never targets an address in use.
+func StateAddresses(data []byte) (map[string]bool, error) {
+	resources, err := decodeState(data)
+	if err != nil {
+		return nil, err
+	}
+	result := map[string]bool{}
+	for _, r := range resources {
 		if r.Mode != "managed" {
 			continue
 		}
@@ -44,24 +97,8 @@ func ManagedResources(data []byte) ([]ManagedResource, error) {
 		if r.Module != "" {
 			address = r.Module + "." + address
 		}
-		kind, _, err := ResourceAddress(address)
-		if !strings.HasPrefix(r.Type, "hue_") {
-			continue
-		}
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", address, err)
-		}
-		baseline, err := State(data, address)
-		if err != nil {
-			return nil, err
-		}
-		if seen[baseline.ID] {
-			return nil, fmt.Errorf("UUID %s is managed at multiple addresses", baseline.ID)
-		}
-		seen[baseline.ID] = true
-		result = append(result, ManagedResource{Address: address, ID: baseline.ID, Kind: kind, Attributes: r.Instances[0].Attributes})
+		result[address] = true
 	}
-	sort.Slice(result, func(i, j int) bool { return result[i].Address < result[j].Address })
 	return result, nil
 }
 

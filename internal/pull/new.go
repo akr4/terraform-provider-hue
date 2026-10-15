@@ -182,21 +182,6 @@ func WriteNew(path string, src []byte) error {
 	return nil
 }
 
-func AddressReserved(data []byte, kind, name string, scope ...string) bool {
-	var state struct {
-		Resources []struct{ Mode, Type, Name, Module string }
-	}
-	if json.Unmarshal(data, &state) != nil {
-		return true
-	}
-	for _, r := range state.Resources {
-		if r.Mode == "managed" && r.Module == moduleScope(scope) && r.Type == "hue_"+kind && r.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
 func moduleScope(scope []string) string {
 	if len(scope) > 0 {
 		return scope[0]
