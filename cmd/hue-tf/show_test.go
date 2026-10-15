@@ -85,8 +85,9 @@ func TestShowCLI(t *testing.T) {
 	}))
 	defer server.Close()
 	t.Setenv("HUE_BRIDGE_HOST", "fake.local")
+	t.Setenv("HUE_BRIDGE_ID", "001788fffe000000")
 	t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
-	deps := dependencies{newClient: func(string, string) (*hue.Client, error) {
+	deps := dependencies{newClient: func(string, string, string) (*hue.Client, error) {
 		return hue.NewClientWithHTTP(server.URL, "test-key", server.Client())
 	}}
 	var out bytes.Buffer

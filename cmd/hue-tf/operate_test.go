@@ -28,7 +28,10 @@ func TestOperateValidation(t *testing.T) {
 		{"recall", opScene, "--action"}, {"recall", opScene, "--action", "bad"},
 		{"recall", opScene, "--action", "active", "--action", "active"},
 	} {
-		if err := runWith(context.Background(), args, &bytes.Buffer{}, &bytes.Buffer{}, dependencies{newClient: func(string, string) (*hue.Client, error) { t.Fatal("invalid args accessed bridge"); return nil, nil }}); err == nil {
+		if err := runWith(context.Background(), args, &bytes.Buffer{}, &bytes.Buffer{}, dependencies{newClient: func(string, string, string) (*hue.Client, error) {
+			t.Fatal("invalid args accessed bridge")
+			return nil, nil
+		}}); err == nil {
 			t.Fatalf("accepted %v", args)
 		}
 	}
@@ -61,6 +64,7 @@ func TestOperateRequests(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("HUE_BRIDGE_HOST", "fake.local")
+			t.Setenv("HUE_BRIDGE_ID", "001788fffe000000")
 			t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
 			gets, puts := 0, 0
 			waits := 0
@@ -102,7 +106,7 @@ func TestOperateRequests(t *testing.T) {
 				}
 				waits++
 				return nil
-			}, newClient: func(string, string) (*hue.Client, error) {
+			}, newClient: func(string, string, string) (*hue.Client, error) {
 				return hue.NewClientWithHTTP(server.URL, "test-key", server.Client())
 			}, readState: func(context.Context) ([]byte, error) { t.Fatal("read state"); return nil, nil }, terraform: func(context.Context, ...string) ([]byte, error) { t.Fatal("ran Terraform"); return nil, nil }}
 			var out bytes.Buffer
@@ -146,6 +150,7 @@ func TestOperateRejectsUnresolvableIdentify(t *testing.T) {
 	} {
 		t.Run(raw, func(t *testing.T) {
 			t.Setenv("HUE_BRIDGE_HOST", "fake.local")
+			t.Setenv("HUE_BRIDGE_ID", "001788fffe000000")
 			t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
 			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != "GET" {
@@ -156,7 +161,7 @@ func TestOperateRejectsUnresolvableIdentify(t *testing.T) {
 				fmt.Fprintf(w, `{"errors":[],"data":[%s]}`, raw)
 			}))
 			defer server.Close()
-			deps := dependencies{newClient: func(string, string) (*hue.Client, error) {
+			deps := dependencies{newClient: func(string, string, string) (*hue.Client, error) {
 				return hue.NewClientWithHTTP(server.URL, "test-key", server.Client())
 			}}
 			if err := runWith(context.Background(), []string{"identify", opLight}, &bytes.Buffer{}, &bytes.Buffer{}, deps); err == nil {
@@ -168,6 +173,7 @@ func TestOperateRejectsUnresolvableIdentify(t *testing.T) {
 
 func TestIdentifyCancelBetweenSignals(t *testing.T) {
 	t.Setenv("HUE_BRIDGE_HOST", "fake.local")
+	t.Setenv("HUE_BRIDGE_ID", "001788fffe000000")
 	t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
 	puts := 0
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -181,7 +187,7 @@ func TestIdentifyCancelBetweenSignals(t *testing.T) {
 	defer server.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	deps := dependencies{newClient: func(string, string) (*hue.Client, error) {
+	deps := dependencies{newClient: func(string, string, string) (*hue.Client, error) {
 		return hue.NewClientWithHTTP(server.URL, "test-key", server.Client())
 	}, wait: func(ctx context.Context, d time.Duration) error { cancel(); return waitForOperation(ctx, d) }}
 	err := runWith(ctx, []string{"identify", opDevice}, &bytes.Buffer{}, &bytes.Buffer{}, deps)

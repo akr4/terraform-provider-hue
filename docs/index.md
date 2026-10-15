@@ -18,7 +18,8 @@ terraform {
   }
 }
 
-# Set HUE_BRIDGE_HOST and HUE_BRIDGE_APPLICATION_KEY in your environment.
+# Set HUE_BRIDGE_HOST, HUE_BRIDGE_ID and HUE_BRIDGE_APPLICATION_KEY in your
+# environment. `hue-tf init` prints all three.
 provider "hue" {}
 ```
 
@@ -28,4 +29,5 @@ provider "hue" {}
 ### Optional
 
 - `application_key` (String, Sensitive) Hue application key. Falls back to HUE_BRIDGE_APPLICATION_KEY.
+- `bridge_id` (String) Bridge ID, 16 hexadecimal digits. The provider connects only to the bridge whose certificate names this ID. `hue-tf init` and `hue-tf discover` print it. Falls back to HUE_BRIDGE_ID.
 - `host` (String) Bridge IP address or hostname, without scheme or port. Falls back to HUE_BRIDGE_HOST.

@@ -24,6 +24,8 @@ func batchRemote(id, name string) map[string]map[string]json.RawMessage {
 }
 func TestBatchManagedResourcesAreUntouched(t *testing.T) {
 	t.Chdir(t.TempDir())
+	t.Setenv("HUE_BRIDGE_HOST", "fake.local")
+	t.Setenv("HUE_BRIDGE_ID", "001788fffe000000")
 	t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
 	id := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 	src := []byte(`resource "hue_room" "room" { name = "Local" }`)
@@ -38,7 +40,7 @@ func TestBatchManagedResourcesAreUntouched(t *testing.T) {
 	b := fakebridge.New()
 	defer b.Close()
 	b.Put("room", id, hue.Group{ID: id, Type: "room", Metadata: hue.Metadata{Name: "App edit"}})
-	deps := dependencies{newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) { return batchState(id, "Old"), nil }, terraform: func(context.Context, ...string) ([]byte, error) {
+	deps := dependencies{newClient: func(string, string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) { return batchState(id, "Old"), nil }, terraform: func(context.Context, ...string) ([]byte, error) {
 		t.Fatal("unexpected Terraform command")
 		return nil, nil
 	}}

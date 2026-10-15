@@ -14,6 +14,7 @@ import (
 
 func TestSwitchCLI(t *testing.T) {
 	t.Setenv("HUE_BRIDGE_HOST", "fake.local")
+	t.Setenv("HUE_BRIDGE_ID", "001788fffe000000")
 	t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
 	b := fakebridge.New()
 	defer b.Close()
@@ -22,7 +23,7 @@ func TestSwitchCLI(t *testing.T) {
 	device := hue.Device{ID: deviceID, Type: "device", Metadata: hue.Metadata{Name: "Switch\nname"}, Services: []hue.Reference{{RID: "button", RType: "button"}}}
 	device.ProductData.ModelID = "RWL022"
 	b.Put("device", deviceID, device)
-	deps := dependencies{terraform: mockPullTerraform, newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }}
+	deps := dependencies{terraform: mockPullTerraform, newClient: func(string, string, string) (*hue.Client, error) { return b.Client(), nil }}
 	var out bytes.Buffer
 	if err := runWith(context.Background(), []string{"ls", "switch"}, &out, &bytes.Buffer{}, deps); err != nil {
 		t.Fatal(err)
@@ -54,6 +55,7 @@ func TestSwitchCLI(t *testing.T) {
 func TestPullBehaviorCLI(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("HUE_BRIDGE_HOST", "fake.local")
+	t.Setenv("HUE_BRIDGE_ID", "001788fffe000000")
 	t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
 	b := fakebridge.New()
 	defer b.Close()
@@ -61,7 +63,7 @@ func TestPullBehaviorCLI(t *testing.T) {
 	behavior := hue.BehaviorInstance{ID: id, Type: "behavior_instance", ScriptID: fakebridge.DeviceID, Metadata: hue.Metadata{Name: "Switch"}, Enabled: true, Configuration: json.RawMessage(`{"buttons":{"one":{"scene":"old"}},"keep":false}`)}
 	b.Put("behavior_instance", id, behavior)
 	imported := false
-	deps := dependencies{terraform: mockPullTerraform, newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) {
+	deps := dependencies{terraform: mockPullTerraform, newClient: func(string, string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) {
 		if !imported {
 			return []byte(`{"resources":[]}`), nil
 		}

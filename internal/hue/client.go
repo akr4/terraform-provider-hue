@@ -76,10 +76,22 @@ func ValidateHost(host string) error {
 	return nil
 }
 
-func TLSConfig(roots *x509.CertPool) *tls.Config {
+// ParseBridgeID returns a bridge ID, 16 hexadecimal digits, in lower case.
+func ParseBridgeID(id string) (string, error) {
+	id = strings.ToLower(id)
+	if len(id) != 16 || strings.Trim(id, "0123456789abcdef") != "" {
+		return "", errors.New("bridge ID must be 16 hexadecimal digits")
+	}
+	return id, nil
+}
+
+// TLSConfig accepts a certificate that chains to roots and whose common name,
+// the bridge ID in lower case, accept allows.
+func TLSConfig(roots *x509.CertPool, accept func(bridgeID string) error) *tls.Config {
 	return &tls.Config{MinVersion: tls.VersionTLS12,
-		// Go's hostname verification cannot be used for bridge certificates. The
-		// callback performs mandatory chain, validity and server-auth verification.
+		// A bridge certificate names the bridge ID, not its address, so Go's
+		// hostname verification cannot be used. The callback performs the chain,
+		// validity and server-auth checks, then matches the ID instead.
 		InsecureSkipVerify: true,
 		VerifyPeerCertificate: func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 			if len(rawCerts) == 0 {
@@ -97,23 +109,75 @@ func TLSConfig(roots *x509.CertPool) *tls.Config {
 				}
 				intermediates.AddCert(cert)
 			}
-			_, err = leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}})
-			return err
+			if _, err = leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
+				return err
+			}
+			return accept(strings.ToLower(leaf.Subject.CommonName))
 		},
 	}
 }
 
-func NewClient(host, key string) (*Client, error) {
-	if err := ValidateHost(host); err != nil {
-		return nil, err
-	}
+func bridgeRoots() (*x509.CertPool, error) {
 	roots := x509.NewCertPool()
 	if !roots.AppendCertsFromPEM(rootPEM) {
 		return nil, errors.New("invalid embedded CA")
 	}
+	return roots, nil
+}
+
+// ObserveBridgeID reads the bridge ID from the certificate that host presents.
+// The certificate must chain to the Hue root CA. It is for first contact, when
+// no bridge ID is known yet.
+func ObserveBridgeID(ctx context.Context, host string) (string, error) {
+	if err := ValidateHost(host); err != nil {
+		return "", err
+	}
+	roots, err := bridgeRoots()
+	if err != nil {
+		return "", err
+	}
+	return observeBridgeID(ctx, net.JoinHostPort(host, "443"), roots)
+}
+
+func observeBridgeID(ctx context.Context, addr string, roots *x509.CertPool) (string, error) {
+	var observed string
+	dialer := tls.Dialer{NetDialer: &net.Dialer{Timeout: 10 * time.Second}, Config: TLSConfig(roots, func(id string) error {
+		observed = id
+		return nil
+	})}
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return "", err
+	}
+	conn.Close()
+	id, err := ParseBridgeID(observed)
+	if err != nil {
+		return "", fmt.Errorf("the bridge's certificate does not name a bridge ID: %w", err)
+	}
+	return id, nil
+}
+
+// NewClient connects only to the bridge whose certificate names bridgeID.
+func NewClient(host, key, bridgeID string) (*Client, error) {
+	if err := ValidateHost(host); err != nil {
+		return nil, err
+	}
+	want, err := ParseBridgeID(bridgeID)
+	if err != nil {
+		return nil, err
+	}
+	roots, err := bridgeRoots()
+	if err != nil {
+		return nil, err
+	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil // Bridge credentials must never be sent through environment proxies.
-	transport.TLSClientConfig = TLSConfig(roots)
+	transport.TLSClientConfig = TLSConfig(roots, func(id string) error {
+		if id != want {
+			return fmt.Errorf("the bridge at %s is bridge %s, not %s", host, id, want)
+		}
+		return nil
+	})
 	transport.MaxConnsPerHost = 5
 	transport.MaxIdleConnsPerHost = 5
 	authority := host

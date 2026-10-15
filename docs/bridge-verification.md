@@ -48,6 +48,7 @@ terraform validate
 
 ```sh
 export HUE_BRIDGE_HOST='192.168.1.10' # 実際の IP またはホスト名に変更
+export HUE_BRIDGE_ID='001788fffe000000' # hue-tf discover が表示する bridge ID に変更
 read -rs 'HUE_BRIDGE_APPLICATION_KEY?Hue application key: '
 printf '\n'
 export HUE_BRIDGE_APPLICATION_KEY
@@ -61,7 +62,7 @@ export HUE_BRIDGE_APPLICATION_KEY
 ```
 
 表示された key を、上記の非表示入力で環境変数に設定します。
-`HUE_BRIDGE_HOST` が設定されていれば探索を省略します。
+`HUE_BRIDGE_HOST` が設定されていれば探索を省略します。そのとき `HUE_BRIDGE_ID` がなければ、bridge が提示した証明書から ID を読み取ります（初回接続時の信頼）。
 mDNS 探索自体も確認する場合は、`init` の実行前に `unset HUE_BRIDGE_HOST` を実行し、
 結果に表示された host を設定します。
 

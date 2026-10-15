@@ -22,7 +22,7 @@ Philips Hue の設定（room / zone / scene）を GUI ではなくコードで�
 
 - 対象は CLIP API v2（`https://<bridge>/clip/v2/resource/<type>`）のみ。v1 は使わない
 - 認証はヘッダ `hue-application-key`。キーの発行のみ v1 系エンドポイント（`POST /api`、リンクボタン押下が必要）で行う
-- bridge は HTTPS のみ。証明書は Signify のプライベート root CA で署名されている。CN は bridge ID で、ホスト名や IP とは一致しない
+- bridge は HTTPS のみ。証明書は Signify のプライベート root CA で署名されている。CN は bridge ID（実機では大文字の16桁の16進数）で、ホスト名や IP とは一致しない
 - リソース ID はすべて UUID
 - room の `children` は device、zone の `children` は light service を指す
 - scene は `group`（room または zone）に属し、`actions`（light ごとの状態）と `palette`（ダイナミックシーン用）を持つ
@@ -55,24 +55,27 @@ terraform-provider-hue/
 
 ```hcl
 provider "hue" {
-  host            = "192.168.1.10"   # HUE_BRIDGE_HOST
-  application_key = "..."            # HUE_BRIDGE_APPLICATION_KEY
+  host            = "192.168.1.10"     # HUE_BRIDGE_HOST
+  bridge_id       = "001788fffe000000" # HUE_BRIDGE_ID
+  application_key = "..."              # HUE_BRIDGE_APPLICATION_KEY
 }
 ```
 
 | 属性 | 型 | 必須 | 環境変数 | 説明 |
 |---|---|---|---|---|
 | `host` | string | yes（環境変数で代替可） | `HUE_BRIDGE_HOST` | bridge の IP アドレスまたはホスト名。スキームやポートは含めない |
+| `bridge_id` | string | yes（環境変数で代替可） | `HUE_BRIDGE_ID` | bridge ID（16桁の16進数）。証明書の CN と照合する |
 | `application_key` | string (sensitive) | yes（環境変数で代替可） | `HUE_BRIDGE_APPLICATION_KEY` | `hue-application-key` の値 |
 
-- bridge ID の設定項目は持たない
 - `insecure` などの TLS 検証を無効化する設定は持たない
 - rate limit を変更する設定は持たない
 
 ## 5. TLS
 
 - 同梱した Signify root CA でサーバー証明書のチェーンを検証する
-- 証明書の CN / SAN とホスト名の照合は行わない（`VerifyPeerCertificate` でチェーン検証のみ実装する）
+- 証明書の CN を `bridge_id` と大文字小文字を区別せずに照合する。チェーン検証だけでは、同じ LAN にある別のブリッジ（本物の Signify 署名付き）を区別できないため
+- ホスト名や IP との照合はしない。CN が bridge ID なので、Go 標準の検証は使えない（`VerifyPeerCertificate` で自前に検証する）
+- `hue-tf init` で ID が分からないとき（`HUE_BRIDGE_HOST` だけを設定した場合）は、チェーン検証を通った証明書の CN を ID として採用し、以後はそれと照合する（初回接続時の信頼）
 - 検証を無効化する手段は提供しない
 - 保証する内容は「Signify の CA で署名された本物の Hue bridge と通信していること」。どの bridge かの同定は `host` の指定に委ねる
 
@@ -279,8 +282,8 @@ action object:
 
 | コマンド | 内容 |
 |---|---|
-| `hue-tf init` | mDNS で bridge を探索し、リンクボタン押下を待って application key を発行する。結果を環境変数の形式で表示する（`export HUE_BRIDGE_HOST=…` / `export HUE_BRIDGE_APPLICATION_KEY=…`） |
-| `hue-tf discover` | mDNS で bridge を探索し、見つかったアドレスを表示する。application key は発行しない |
+| `hue-tf init` | mDNS で bridge を探索し、リンクボタン押下を待って application key を発行する。結果を環境変数の形式で表示する（`export HUE_BRIDGE_HOST=…` / `export HUE_BRIDGE_ID=…` / `export HUE_BRIDGE_APPLICATION_KEY=…`）。bridge ID は mDNS の TXT レコード（`bridgeid`）、なければ証明書の CN から得る |
+| `hue-tf discover` | mDNS で bridge を探索し、見つかったアドレスと bridge ID を表示する。application key は発行しない |
 | `hue-tf ls <type>` | room / zone / scene / light / device / behavior_instance / behavior_script / button、および switch の対応表を表形式または `--json` で一覧表示する |
 | `hue-tf raw <path>` | 任意の v2 エンドポイントに GET し、レスポンスをそのまま出力する |
 | `hue-tf version` | バージョンを表示する。リリースビルドでは `-X main.version` で埋め込む。`--help` でコマンドの一覧を表示する |
@@ -293,7 +296,7 @@ action object:
 
 ### 認証情報の受け渡し
 
-- CLI も `HUE_BRIDGE_HOST` / `HUE_BRIDGE_APPLICATION_KEY` を読む。provider と同じ
+- CLI も `HUE_BRIDGE_HOST` / `HUE_BRIDGE_ID` / `HUE_BRIDGE_APPLICATION_KEY` を読む。provider と同じ
 
 ## 11. テスト
 
@@ -332,12 +335,12 @@ action object:
 | 4 | children / actions の型 | children は Set、actions は light ID キーの Map | 順序ノイズを排除しつつ、light 単位の差分を読みやすくする |
 | 5 | data のキー | `id` のみ | name は重複しうる。生成 CLI が id を埋める前提 |
 | 6 | 色・色温度の属性 | xy と brightness を独立に指定し、色温度は kelvin / mirek を受ける。比較は xy / mirek 空間 | 色情報の保持と可視化を分離する。色見本は preview が担当し、provider は実機補正との同値判定を行う |
-| 7 | TLS | Signify CA を同梱して検証。CN 照合なし。insecure なし | Hue アプリと同等の信頼モデル。bridge ID の同定は host に委ねる |
+| 7 | TLS | Signify CA を同梱して検証し、CN を bridge ID と照合する。insecure なし | 同じ LAN にある別のブリッジへの接続を防ぐ。公開前レビューの指摘で CN 照合を追加した |
 | 8 | rate limit | GETは4並列・送信ペース自動調整、書込は直列、429リトライあり | 利用者に `-parallelism` を意識させない |
 | 9 | Hue クライアント | 自前で薄く書く | provider の都合に合わせた型にする |
 | 10 | CLI の置き場・名前 | 同一リポジトリ `cmd/hue-tf` | クライアントの共有と開発速度を優先 |
 | 11 | テスト | フェイク bridge で CI | テスト専用の実機がない |
-| 12 | provider 設定 | `host` / `application_key`、環境変数 prefix `HUE_BRIDGE_` | |
+| 12 | provider 設定 | `host` / `bridge_id` / `application_key`、環境変数 prefix `HUE_BRIDGE_` | |
 
 ## 15. 未決定・保留
 

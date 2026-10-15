@@ -4,5 +4,6 @@ terraform {
   }
 }
 
-# Set HUE_BRIDGE_HOST and HUE_BRIDGE_APPLICATION_KEY in your environment.
+# Set HUE_BRIDGE_HOST, HUE_BRIDGE_ID and HUE_BRIDGE_APPLICATION_KEY in your
+# environment. `hue-tf init` prints all three.
 provider "hue" {}

@@ -24,13 +24,14 @@ in your Terraform CLI configuration. `terraform init` is not needed.
 
 ```sh
 ./bin/hue-tf init
-# Press the bridge link button, then run the two printed export commands.
+# Press the bridge link button, then run the three printed export commands.
 ```
 
-The provider and CLI read `HUE_BRIDGE_HOST` (IP address or hostname) and
-`HUE_BRIDGE_APPLICATION_KEY`. Protect the key like a password. If the bridge's
-address changes later, `hue-tf discover` prints the current one without
-creating a new key.
+The provider and CLI read `HUE_BRIDGE_HOST` (IP address or hostname),
+`HUE_BRIDGE_ID` and `HUE_BRIDGE_APPLICATION_KEY`, and connect only to the
+bridge whose certificate carries that ID. Protect the key like a password. If
+the bridge's address changes later, `hue-tf discover` prints the current one
+and the ID without creating a new key.
 
 ## Example
 

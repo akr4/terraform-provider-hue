@@ -53,6 +53,7 @@ func startAccTerraform(t *testing.T, b *fakebridge.Bridge) (string, func(context
 	t.Setenv("TF_DATA_DIR", filepath.Join(root, ".terraform"))
 	t.Setenv("TF_WORKSPACE", "default")
 	t.Setenv("HUE_BRIDGE_HOST", "test-bridge")
+	t.Setenv("HUE_BRIDGE_ID", "001788fffe000000")
 	t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
 	t.Setenv("TF_CLI_ARGS", "")
 	t.Setenv("TF_CLI_ARGS_plan", "")
@@ -117,7 +118,7 @@ func TestAccPullRoundTrip(t *testing.T) {
 			t.Fatalf("pull invoked unexpected Terraform command: %v", args)
 		}
 		return run(ctx, args...)
-	}, newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }}
+	}, newClient: func(string, string, string) (*hue.Client, error) { return b.Client(), nil }}
 	// These calls represent the user running vanilla Terraform separately.
 	apply := func() {
 		path := filepath.Join(root, "user.tfplan")
@@ -349,7 +350,7 @@ resource "hue_zone" "this" {
 			t.Fatal(args, e)
 		}
 	}
-	deps := dependencies{terraform: run, newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }}
+	deps := dependencies{terraform: run, newClient: func(string, string, string) (*hue.Client, error) { return b.Client(), nil }}
 	state, e := stateReader(deps)(ctx)
 	if e != nil {
 		t.Fatal(e)

@@ -40,6 +40,8 @@ func TestPullNewAutomaticDestination(t *testing.T) {
 			t.Run(kind+"/"+module, func(t *testing.T) {
 				root := t.TempDir()
 				t.Chdir(root)
+				t.Setenv("HUE_BRIDGE_HOST", "fake.local")
+				t.Setenv("HUE_BRIDGE_ID", "001788fffe000000")
 				t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
 				destination := root
 				prefix := ""
@@ -73,7 +75,7 @@ func TestPullNewAutomaticDestination(t *testing.T) {
 						b.Put(other, "other", map[string]any{"id": "other", "type": other, "metadata": map[string]any{"name": "Unrelated"}})
 					}
 				}
-				deps := dependencies{newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) { return []byte(`{"resources":[]}`), nil }}
+				deps := dependencies{newClient: func(string, string, string) (*hue.Client, error) { return b.Client(), nil }, readState: func(context.Context) ([]byte, error) { return []byte(`{"resources":[]}`), nil }}
 				args := []string{"import-blocks", "--new", id}
 				if module != "" {
 					args = append(args, "--module", module)
