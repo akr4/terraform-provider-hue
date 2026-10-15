@@ -28,7 +28,9 @@ in your Terraform CLI configuration. `terraform init` is not needed.
 ```
 
 The provider and CLI read `HUE_BRIDGE_HOST` (IP address or hostname) and
-`HUE_BRIDGE_APPLICATION_KEY`. Protect the key like a password.
+`HUE_BRIDGE_APPLICATION_KEY`. Protect the key like a password. If the bridge's
+address changes later, `hue-tf discover` prints the current one without
+creating a new key.
 
 ## Example
 
@@ -75,6 +77,7 @@ full reference.
 
 | Command | Description |
 |---|---|
+| `hue-tf discover` | Find bridges on the local network and print their addresses |
 | `hue-tf ls TYPE [--json]` | List bridge resources such as `light`, `device`, `room`, `scene` and `switch` |
 | `hue-tf show SCENE_UUID` | [Inspect a scene](docs/show.md) and what references it |
 | `hue-tf raw /clip/v2/PATH` | Print the response of an API v2 GET request |
