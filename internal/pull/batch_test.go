@@ -73,4 +73,14 @@ func TestSyncProviderEnvironment(t *testing.T) {
 	if e = CheckProviderEnvironment(map[string]string{"": dir}, "bridge", "test-key"); e != nil {
 		t.Fatal(e)
 	}
+	// JSON configuration is checked as well, and a matching literal passes.
+	if e = os.WriteFile(dir+"/provider.tf.json", []byte(`{"provider":{"hue":{"host":"other-bridge"}}}`), 0600); e != nil {
+		t.Fatal(e)
+	}
+	if e = CheckProviderEnvironment(map[string]string{"": dir}, "bridge", "test-key"); e == nil || !strings.Contains(e.Error(), "provider.tf.json") {
+		t.Fatalf("%v", e)
+	}
+	if e = CheckProviderEnvironment(map[string]string{"": dir}, "other-bridge", "test-key"); e != nil {
+		t.Fatal(e)
+	}
 }

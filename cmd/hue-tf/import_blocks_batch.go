@@ -103,7 +103,7 @@ func prepareImportBlocks(state []byte, remote map[string]map[string]json.RawMess
 	if err != nil {
 		return nil, err
 	}
-	modules, err := pull.ConfigModules(".")
+	modules, unusable, err := pull.ConfigModules(".")
 	if err != nil {
 		return nil, err
 	}
@@ -111,25 +111,45 @@ func prepareImportBlocks(state []byte, remote map[string]map[string]json.RawMess
 		return nil, err
 	}
 	scope := strings.TrimSuffix(opts.module, ".")
+	if reason, ok := unusable[scope]; ok {
+		return nil, fmt.Errorf("%s cannot receive import blocks: %s", scope, reason)
+	}
 	destination, ok := modules[scope]
 	if !ok {
 		return nil, fmt.Errorf("module %s was not found", scope)
 	}
+	// Each module directory is parsed once, however many candidates it is checked for.
+	definitions := map[string]map[string]bool{}
+	defined := func(dir, kind, name string) (bool, error) {
+		if definitions[dir] == nil {
+			found, err := pull.Definitions(dir)
+			if err != nil {
+				return false, err
+			}
+			definitions[dir] = found
+		}
+		return definitions[dir]["hue_"+kind+"."+name], nil
+	}
 	plan := &importBlocksPlan{}
-	pending, e := pull.PendingImports(modules, resources)
+	pending, e := pull.PendingImports(modules[""], resources)
 	if e != nil {
 		return nil, e
 	}
 	for _, r := range pending {
-		k, n, _ := pull.ResourceAddress(r.Address)
-		exists, e := pull.HasResourceDefinition(modules[pull.ModuleAddress(r.Address)], k, n)
-		if e != nil {
-			return nil, e
-		}
-		if !exists {
-			plan.NeedsConfig = true
-			if pull.ModuleAddress(r.Address) != "" {
-				plan.ModuleImports = true
+		// Indexed targets and modules without a readable directory already
+		// need their definitions in configuration, so only the rest are checked.
+		k, n, err := pull.ResourceAddress(r.Address)
+		dir, readable := modules[pull.ModuleAddress(r.Address)]
+		if err == nil && readable {
+			exists, e := defined(dir, k, n)
+			if e != nil {
+				return nil, e
+			}
+			if !exists {
+				plan.NeedsConfig = true
+				if pull.ModuleAddress(r.Address) != "" {
+					plan.ModuleImports = true
+				}
 			}
 		}
 		resources = append(resources, r)
@@ -185,16 +205,21 @@ func prepareImportBlocks(state []byte, remote map[string]map[string]json.RawMess
 				name = n
 			}
 			addr := opts.module + "hue_" + kind + "." + name
-			exists, pathErr := pull.HasResourceDefinition(destination, kind, name)
-			if stateAddresses[addr] || reserved[addr] || exists || pathErr != nil {
+			exists, err := defined(destination, kind, name)
+			if err != nil {
+				return nil, err
+			}
+			if stateAddresses[addr] || reserved[addr] || exists {
 				// Batch import must accommodate repeated Hue scene names without
 				// silently overwriting a declaration. UUIDs make the suffix stable.
 				name += "_" + strings.ReplaceAll(id, "-", "_")
 				addr = opts.module + "hue_" + kind + "." + name
-				exists, pathErr = pull.HasResourceDefinition(destination, kind, name)
+				if exists, err = defined(destination, kind, name); err != nil {
+					return nil, err
+				}
 			}
-			if exists || pathErr != nil || stateAddresses[addr] || reserved[addr] {
-				plan.Problems = append(plan.Problems, addr+": destination is reserved or cannot be parsed")
+			if exists || stateAddresses[addr] || reserved[addr] {
+				plan.Problems = append(plan.Problems, addr+": the address is already in use")
 				continue
 			}
 			reserved[addr] = true

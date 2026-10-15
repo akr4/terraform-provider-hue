@@ -105,6 +105,61 @@ func TestBatchComplexState(t *testing.T) {
 	}
 }
 
+// Import-blocks used to stop on shared, registry and counted modules, and on
+// override and JSON files, although it only appends to the root imports_hue.tf.
+func TestBatchComplexModules(t *testing.T) {
+	t.Chdir(t.TempDir())
+	files := map[string]string{
+		"main.tf": `provider "hue" {}
+module "a" { source = "./shared" }
+module "b" { source = "./shared" }
+module "counted" {
+  source = "./shared"
+  count  = 1
+}
+module "registry" { source = "example/rooms/hue" }
+`,
+		"main_override.tf": `module "b" { source = "./shared" }`,
+		"rooms.tf.json":    `{"resource":{"hue_room":{"Room":{"name":"Room"}}}}`,
+		"shared/main.tf":   `resource "hue_scene" "evening" {}`,
+	}
+	for path, src := range files {
+		if e := os.MkdirAll(filepath.Dir(path), 0700); e != nil {
+			t.Fatal(e)
+		}
+		if e := os.WriteFile(path, []byte(src), 0600); e != nil {
+			t.Fatal(e)
+		}
+	}
+	const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	state := []byte(`{"resources":[]}`)
+	plan, e := prepareImportBlocks(state, batchRemote(id, "Room"), pullNewOptions{})
+	if e != nil || len(plan.Problems) > 0 {
+		t.Fatalf("%+v %v", plan, e)
+	}
+	// hue_room.Room is declared in the JSON file, so the import takes a UUID suffix.
+	if len(plan.Creates) != 1 || plan.Creates[0].Address != "hue_room.Room_aaaaaaaa_aaaa_4aaa_8aaa_aaaaaaaaaaaa" {
+		t.Fatalf("%+v", plan.Creates)
+	}
+	opts, e := parsePullOptions([]string{"--module", "a"}, true)
+	if e != nil {
+		t.Fatal(e)
+	}
+	plan, e = prepareImportBlocks(state, batchRemote(id, "Room"), opts)
+	if e != nil || len(plan.Creates) != 1 || plan.Creates[0].Address != "module.a.hue_room.Room" {
+		t.Fatalf("%+v %v", plan, e)
+	}
+	for module, reason := range map[string]string{"counted": "count or for_each", "registry": "not a local directory"} {
+		opts, e := parsePullOptions([]string{"--module", module}, true)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if _, e = prepareImportBlocks(state, batchRemote(id, "Room"), opts); e == nil || !strings.Contains(e.Error(), reason) {
+			t.Fatalf("%s: %v", module, e)
+		}
+	}
+}
+
 func TestBatchNewNameCollision(t *testing.T) {
 	t.Chdir(t.TempDir())
 	id := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
