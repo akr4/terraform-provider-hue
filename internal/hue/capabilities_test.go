@@ -58,21 +58,28 @@ func TestLightCapabilities(t *testing.T) {
 	if n := inventoryRequests(b); n != 2 {
 		t.Fatalf("reset did not reload: %d", n)
 	}
-	if _, err := c.Create(ctx, "room", hue.Group{Metadata: hue.Metadata{Name: "New"}, Children: []hue.Reference{}}); err != nil {
-		t.Fatal(err)
+	// No write changes a light's gamut or temperature range, so writes keep the snapshot.
+	for i := 0; i < 3; i++ {
+		id, err := c.Create(ctx, "room", hue.Group{Metadata: hue.Metadata{Name: "New"}, Children: []hue.Reference{}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := c.Update(ctx, "room", id, map[string]any{"metadata": map[string]string{"name": "Renamed"}}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.LightCapabilities(ctx, []string{fakebridge.LightID}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if _, err := c.LightCapabilities(ctx, []string{fakebridge.LightID}); err != nil {
-		t.Fatal(err)
-	}
-	if n := inventoryRequests(b); n != 3 {
-		t.Fatalf("write did not invalidate: %d", n)
+	if n := inventoryRequests(b); n != 2 {
+		t.Fatalf("writes reloaded the inventory: %d requests", n)
 	}
 	const added = "11111111-2222-4333-8444-555555555555"
 	b.Put("light", added, hue.Light{ID: added, Type: "light"})
 	if caps, err := c.LightCapabilities(ctx, []string{added}); err != nil || caps[added].ID != added {
 		t.Fatalf("new light not refreshed: %v", err)
 	}
-	if n := inventoryRequests(b); n != 4 {
+	if n := inventoryRequests(b); n != 3 {
 		t.Fatalf("missing light did not reload: %d", n)
 	}
 	canceled, cancel := context.WithCancel(ctx)

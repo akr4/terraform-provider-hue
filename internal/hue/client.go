@@ -158,9 +158,6 @@ func validPath(p string) bool {
 }
 
 func (c *Client) request(ctx context.Context, method, path string, body any) ([]byte, error) {
-	if method != http.MethodGet {
-		defer c.ResetLightCapabilities()
-	}
 	if !validPath(path) {
 		return nil, errors.New("path must be a local /clip/v2/ endpoint")
 	}

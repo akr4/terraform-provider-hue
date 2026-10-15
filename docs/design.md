@@ -268,7 +268,7 @@ action object:
 
 ### Read での色域取得
 
-- scene の Read では `actions` に含まれる light の色域・色温度の対応範囲を取得する。照明一覧は provider の Configure ごとに共有し、書き込み後と未知の light ID を参照したときは再取得する。点灯状態やシーン本体はキャッシュしない。
+- scene の Read では `actions` に含まれる light の色域・色温度の対応範囲を取得する。照明一覧は provider の Configure ごとに共有し、未知の light ID を参照したときだけ再取得する。provider のどの書き込みでも色域と色温度の範囲は変わらないため、書き込み後には再取得しない。点灯状態やシーン本体はキャッシュしない。
 - plan 時には色域を参照しない。クリップは Read 時の比較で吸収する
 
 ## 10. 補助 CLI `hue-tf`
