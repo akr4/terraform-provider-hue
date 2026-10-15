@@ -6,19 +6,20 @@ toolchain go1.27.2
 
 require (
 	github.com/grandcat/zeroconf v1.0.0
-	github.com/hashicorp/go-plugin v1.7.0
-	github.com/hashicorp/hcl/v2 v2.24.0
+	github.com/hashicorp/go-plugin v1.8.0
+	github.com/hashicorp/hcl/v2 v2.25.0
 	github.com/hashicorp/terraform-plugin-framework v1.19.0
 	github.com/hashicorp/terraform-plugin-go v0.31.0
 	github.com/hashicorp/terraform-plugin-testing v1.16.0
-	github.com/zclconf/go-cty v1.18.1
-	golang.org/x/time v0.14.0
+	github.com/zclconf/go-cty v1.19.0
+	golang.org/x/time v0.16.0
 )
 
 require (
 	github.com/ProtonMail/go-crypto v1.4.1 // indirect
 	github.com/agext/levenshtein v1.2.3 // indirect
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
+	github.com/apparentlymart/go-textseg/v17 v17.0.1 // indirect
 	github.com/cenkalti/backoff v2.2.1+incompatible // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/fatih/color v1.18.0 // indirect
