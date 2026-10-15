@@ -1,5 +1,6 @@
 version: 2
 project_name: terraform-provider-hue
+dist: dist/provider
 builds:
   - id: provider
     main: .
@@ -10,29 +11,12 @@ builds:
     goos: [linux, darwin, windows, freebsd]
     goarch: [amd64, arm64]
     binary: '{{ .ProjectName }}_v{{ .Version }}'
-  - id: cli
-    main: ./cmd/hue-tf
-    env: [CGO_ENABLED=0]
-    mod_timestamp: '{{ .CommitTimestamp }}'
-    flags: [-trimpath]
-    ldflags: ['-s -w -X main.version={{ .Version }}']
-    goos: [linux, darwin, windows]
-    goarch: [amd64, arm64]
-    binary: hue-tf
 archives:
-  - id: provider
-    ids: [provider]
-    formats: [zip]
+  - formats: [zip]
     name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
-  - id: cli
-    ids: [cli]
-    formats: [tar.gz]
-    format_overrides:
-      - goos: windows
-        formats: [zip]
-    name_template: 'hue-tf_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
-# The Registry rejects a release that has a file this SHA256SUMS does not
-# list, so it covers the hue-tf archives too.
+# The Registry rejects a release that has a file this SHA256SUMS does not list,
+# and reads every archive it lists as a provider package. hue-tf therefore has
+# its own configuration and release.
 checksum:
   extra_files:
     - glob: terraform-registry-manifest.json

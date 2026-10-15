@@ -310,7 +310,7 @@ action object:
 - GoReleaser + GPG 署名。terraform-provider-scaffolding-framework のワークフローを踏襲する
 - ドキュメントは `tfplugindocs` で schema から生成する
 - 公開先は Terraform Registry（namespace `akr4`）と OpenTofu Registry
-- CLI のバイナリは provider のリリース成果物とは分けて配布する（GoReleaser の設定を分離する）
+- CLI のバイナリは provider のリリース成果物とは分けて、同じリポジトリの `hue-tf-vX.Y.Z` リリースで配布する（GoReleaser の設定も分離する）。Registry は `vX.Y.Z` リリースのファイルをすべて provider の成果物として扱うため
 - README の冒頭に「light / device の追加は Hue アプリで行う。provider は bridge に登録済みのものを管理する」と明記する
 
 ## 13. 実装順序（v0）
