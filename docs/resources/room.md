@@ -3,12 +3,12 @@
 page_title: "hue_room Resource - hue"
 subcategory: ""
 description: |-
-  Manage a Hue room. Deleting this resource deletes the group from the bridge.
+  Manage a Hue room. Deleting this resource deletes the room from the bridge, and fails while scenes remain in it unless force_destroy is true.
 ---
 
 # hue_room (Resource)
 
-Manage a Hue room. Deleting this resource deletes the group from the bridge.
+Manage a Hue room. Deleting this resource deletes the room from the bridge, and fails while scenes remain in it unless `force_destroy` is true.
 
 ## Example Usage
 
@@ -35,6 +35,7 @@ resource "hue_room" "study" {
 ### Optional
 
 - `archetype` (String) Hue group archetype. Defaults to other.
+- `force_destroy` (Boolean) The bridge deletes a room's scenes along with it, including scenes created in the Hue app. Unless this is true, deleting the room fails while any scene or smart scene remains in it. Apply the change before deleting the room. Defaults to false.
 
 ### Read-Only
 
