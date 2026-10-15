@@ -342,14 +342,12 @@ func importBlocksOptions(ctx context.Context, opts pullNewOptions, out io.Writer
 	if !bytes.Equal(state, current) {
 		return fmt.Errorf("Terraform state changed during preview; retry")
 	}
-	return writeImportBlocks(ctx, plan, out, deps)
+	return writeImportBlocks(plan, out)
 }
 
-func writeImportBlocks(ctx context.Context, plan *importBlocksPlan, out io.Writer, deps dependencies) (err error) {
-	run := deps.terraform
-	if run == nil {
-		run = terraformCommand
-	}
+// writeImportBlocks only adds import blocks, so there is nothing to validate
+// until Terraform generates or the user writes the resource definitions.
+func writeImportBlocks(plan *importBlocksPlan, out io.Writer) (err error) {
 	if len(plan.ImportFiles) == 0 && len(plan.Changes) == 0 {
 		fmt.Fprintln(out, "No import blocks to add.")
 		return nil
@@ -433,11 +431,6 @@ func writeImportBlocks(ctx context.Context, plan *importBlocksPlan, out io.Write
 			return err
 		}
 		writtenCreates = append(writtenCreates, c)
-	}
-	if !plan.NeedsConfig {
-		if _, err = run(ctx, "validate", "-no-color"); err != nil {
-			return err
-		}
 	}
 	success = true
 	fmt.Fprintln(out, "Prepared import blocks. Neither bridge nor state was changed.")

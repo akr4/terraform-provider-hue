@@ -12,6 +12,7 @@ import (
 
 	"github.com/akr4/terraform-provider-hue/internal/fakebridge"
 	"github.com/akr4/terraform-provider-hue/internal/hue"
+	"github.com/akr4/terraform-provider-hue/internal/pull"
 )
 
 func batchState(id, name string) []byte {
@@ -183,13 +184,7 @@ func TestBatchPendingImports(t *testing.T) {
 	if e != nil || len(plan.Problems) > 0 {
 		t.Fatalf("%+v %v", plan, e)
 	}
-	deps := dependencies{terraform: func(_ context.Context, args ...string) ([]byte, error) {
-		if strings.Join(args, " ") != "validate -no-color" {
-			t.Fatalf("unexpected command: %v", args)
-		}
-		return nil, nil
-	}}
-	if e = writeImportBlocks(context.Background(), plan, &bytes.Buffer{}, deps); e != nil {
+	if e = writeImportBlocks(plan, &bytes.Buffer{}); e != nil {
 		t.Fatal(e)
 	}
 	if len(plan.ImportFiles) != 1 || !strings.Contains(string(plan.ImportFiles[0].Source), "to = hue_room.Room") {
@@ -204,7 +199,7 @@ func TestBatchPendingImports(t *testing.T) {
 	if e != nil || len(gone.Problems) > 0 || len(gone.Changes) != 0 {
 		t.Fatalf("%+v %v", gone, e)
 	}
-	if e = writeImportBlocks(context.Background(), gone, &bytes.Buffer{}, deps); e != nil {
+	if e = writeImportBlocks(gone, &bytes.Buffer{}); e != nil {
 		t.Fatal(e)
 	}
 	for _, p := range []string{plan.ImportFiles[0].Path} {
@@ -247,20 +242,34 @@ func mockPullTerraform(_ context.Context, args ...string) ([]byte, error) {
 	return nil, nil
 }
 
-func TestBatchValidateRollback(t *testing.T) {
-	t.Chdir(t.TempDir())
-	path, _ := filepath.Abs("new.tf")
-	plan := &importBlocksPlan{ImportFiles: []importCreation{{Path: path, Source: []byte("import {\n to = hue_room.new\n id = \"uuid\"\n}")}}}
-	deps := dependencies{terraform: func(_ context.Context, args ...string) ([]byte, error) {
-		if args[0] != "validate" {
-			t.Fatalf("unexpected state operation: %v", args)
-		}
-		return nil, fmt.Errorf("invalid configuration")
-	}}
-	if e := writeImportBlocks(context.Background(), plan, &bytes.Buffer{}, deps); e == nil {
-		t.Fatal("expected validation failure")
+func TestBatchWriteRollback(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("directory permissions do not stop root")
 	}
-	for _, p := range []string{path, ".hue-pull-transaction"} {
+	t.Chdir(t.TempDir())
+	existing, _ := filepath.Abs("imports_hue.tf")
+	const original = "# keep\n"
+	if e := os.WriteFile(existing, []byte(original), 0600); e != nil {
+		t.Fatal(e)
+	}
+	changes, e := pull.CombineChanges([]*pull.Change{{Path: existing, Original: []byte(original), Edits: []pull.Edit{{Start: len(original), End: len(original), After: "import {}\n", Field: "import blocks"}}}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	// The edit to the existing file succeeds; the new file cannot be created.
+	if e = os.Mkdir("locked", 0500); e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(func() { _ = os.Chmod("locked", 0700) })
+	locked, _ := filepath.Abs(filepath.Join("locked", "new.tf"))
+	plan := &importBlocksPlan{Changes: changes, ImportFiles: []importCreation{{Path: locked, Source: []byte("import {}\n")}}}
+	if e = writeImportBlocks(plan, &bytes.Buffer{}); e == nil {
+		t.Fatal("expected a write failure")
+	}
+	if content, e := os.ReadFile(existing); e != nil || string(content) != original {
+		t.Fatalf("not rolled back: %q %v", content, e)
+	}
+	for _, p := range []string{locked, ".hue-pull-transaction"} {
 		if _, e := os.Stat(p); !os.IsNotExist(e) {
 			t.Fatalf("rollback left %s", p)
 		}
@@ -351,7 +360,7 @@ func TestBatchCombinedImportFile(t *testing.T) {
 	if filepath.Base(plan.ImportFiles[0].Path) != "imports_hue.tf" || strings.Count(string(plan.ImportFiles[0].Source), "import {") != 2 {
 		t.Fatal(plan.ImportFiles)
 	}
-	if e = writeImportBlocks(context.Background(), plan, &bytes.Buffer{}, dependencies{terraform: mockPullTerraform}); e != nil {
+	if e = writeImportBlocks(plan, &bytes.Buffer{}); e != nil {
 		t.Fatal(e)
 	}
 	// Remove one pending resource and add another in the same import file.
@@ -362,7 +371,7 @@ func TestBatchCombinedImportFile(t *testing.T) {
 	if e != nil || len(next.Problems) > 0 || len(next.ImportFiles) != 0 {
 		t.Fatalf("%+v %v", next, e)
 	}
-	if e = writeImportBlocks(context.Background(), next, &bytes.Buffer{}, dependencies{terraform: mockPullTerraform}); e != nil {
+	if e = writeImportBlocks(next, &bytes.Buffer{}); e != nil {
 		t.Fatal(e)
 	}
 	content, e := os.ReadFile("imports_hue.tf")
@@ -385,10 +394,7 @@ func TestBatchImportOnlyUnsupportedNewResource(t *testing.T) {
 	if e != nil || len(plan.Problems) > 0 || len(plan.Creates) != 1 {
 		t.Fatalf("%+v %v", plan, e)
 	}
-	if e = writeImportBlocks(context.Background(), plan, &bytes.Buffer{}, dependencies{terraform: func(context.Context, ...string) ([]byte, error) {
-		t.Fatal("must defer validation until config generation")
-		return nil, nil
-	}}); e != nil {
+	if e = writeImportBlocks(plan, &bytes.Buffer{}); e != nil {
 		t.Fatal(e)
 	}
 	files, e := filepath.Glob("*.tf")

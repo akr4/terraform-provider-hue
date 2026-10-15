@@ -126,19 +126,9 @@ resource "hue_room" "counted" { count = 1 }
 
 func TestModuleState(t *testing.T) {
 	raw := []byte(`{"resources":[{"mode":"managed","module":"module.bedroom","type":"hue_room","name":"bedroom","provider":"provider[\"registry.terraform.io/akr4/hue\"]","instances":[{"attributes":{"id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}}]}]}`)
-	if _, err := State(raw, "module.bedroom.hue_room.bedroom"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := State(raw, "hue_room.bedroom"); err == nil {
-		t.Fatal("matched wrong module")
-	}
-	_, groups, err := Inventory(raw, "module.bedroom")
-	if err != nil || groups[sceneID] != "hue_room.bedroom" {
-		t.Fatal(groups, err)
-	}
-	_, groups, err = Inventory(raw)
-	if err != nil || len(groups) != 0 {
-		t.Fatal("cross-module direct reference")
+	resources, err := ManagedResources(raw)
+	if err != nil || len(resources) != 1 || resources[0].Address != "module.bedroom.hue_room.bedroom" {
+		t.Fatal(resources, err)
 	}
 	addresses, err := StateAddresses(raw)
 	if err != nil || !addresses["module.bedroom.hue_room.bedroom"] || addresses["hue_room.bedroom"] {

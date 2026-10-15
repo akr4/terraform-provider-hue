@@ -37,6 +37,7 @@ func pullNew(ctx context.Context, args []string, out io.Writer, deps dependencie
 	if key == "" {
 		return fmt.Errorf("HUE_BRIDGE_APPLICATION_KEY is required")
 	}
+	// Without a UUID, list the unmanaged resources.
 	readState := deps.readState
 	if readState == nil {
 		readState = func(ctx context.Context) ([]byte, error) {
@@ -47,57 +48,58 @@ func pullNew(ctx context.Context, args []string, out io.Writer, deps dependencie
 	if err != nil {
 		return fmt.Errorf("cannot read Terraform state; use the existing Terraform directory and workspace")
 	}
-	managed, _, err := pull.Inventory(data, scope)
+	resources, err := pull.ManagedResources(data)
 	if err != nil {
 		return err
+	}
+	managed := map[string]bool{}
+	for _, r := range resources {
+		managed[r.ID] = true
 	}
 	client, err := deps.newClient(os.Getenv("HUE_BRIDGE_HOST"), key)
 	if err != nil {
 		return err
 	}
-	if opts.id == "" {
-		count := 0
-		for _, resourceKind := range []string{"room", "zone", "scene", "smart_scene", "behavior_instance"} {
-			var items []json.RawMessage
-			if err = client.Get(ctx, "/clip/v2/resource/"+resourceKind, &items); err != nil {
+	count := 0
+	for _, resourceKind := range []string{"room", "zone", "scene", "smart_scene", "behavior_instance"} {
+		var items []json.RawMessage
+		if err = client.Get(ctx, "/clip/v2/resource/"+resourceKind, &items); err != nil {
+			return err
+		}
+		var unmanaged []json.RawMessage
+		for _, raw := range items {
+			var item hue.Group
+			if err = json.Unmarshal(raw, &item); err != nil {
 				return err
 			}
-			var unmanaged []json.RawMessage
-			for _, raw := range items {
-				var item hue.Group
-				if err = json.Unmarshal(raw, &item); err != nil {
-					return err
-				}
-				if !managed[item.ID] {
-					unmanaged = append(unmanaged, raw)
-				}
-			}
-			if len(unmanaged) == 0 {
-				continue
-			}
-			count += len(unmanaged)
-			fmt.Fprintf(out, "%s:\n", resourceKind)
-			if resourceKind == "scene" || resourceKind == "smart_scene" {
-				if err = printScenes(ctx, client, unmanaged, out); err != nil {
-					return err
-				}
-			} else {
-				fmt.Fprintln(out, "ID\tNAME")
-				for _, raw := range unmanaged {
-					var g hue.Group
-					if err = json.Unmarshal(raw, &g); err != nil {
-						return err
-					}
-					fmt.Fprintf(out, "%s\t%s\n", tableText(g.ID), tableText(g.Metadata.Name))
-				}
+			if !managed[item.ID] {
+				unmanaged = append(unmanaged, raw)
 			}
 		}
-		if count == 0 {
-			fmt.Fprintln(out, "No unmanaged resources.")
+		if len(unmanaged) == 0 {
+			continue
+		}
+		count += len(unmanaged)
+		fmt.Fprintf(out, "%s:\n", resourceKind)
+		if resourceKind == "scene" || resourceKind == "smart_scene" {
+			if err = printScenes(ctx, client, unmanaged, out); err != nil {
+				return err
+			}
 		} else {
-			fmt.Fprintln(out, "Prepare import blocks: hue-tf import-blocks --new RESOURCE_UUID [--module MODULE]")
+			fmt.Fprintln(out, "ID\tNAME")
+			for _, raw := range unmanaged {
+				var g hue.Group
+				if err = json.Unmarshal(raw, &g); err != nil {
+					return err
+				}
+				fmt.Fprintf(out, "%s\t%s\n", tableText(g.ID), tableText(g.Metadata.Name))
+			}
 		}
-		return nil
+	}
+	if count == 0 {
+		fmt.Fprintln(out, "No unmanaged resources.")
+	} else {
+		fmt.Fprintln(out, "Prepare import blocks: hue-tf import-blocks --new RESOURCE_UUID [--module MODULE]")
 	}
 	return nil
 }

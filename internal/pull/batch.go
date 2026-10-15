@@ -100,8 +100,6 @@ func StateAddresses(data []byte) (map[string]bool, error) {
 	return result, nil
 }
 
-// RemoteDefinition projects supported writable attributes, excluding runtime fields.
-
 func ResourceName(name string) string {
 	name = strings.Map(func(r rune) rune {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsMark(r) || r == '_' || r == '-' {
