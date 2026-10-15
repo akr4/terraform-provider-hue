@@ -304,11 +304,17 @@ func sortedBridges(found map[string]string) []bridge {
 
 // versionString falls back to the module version for go install builds.
 func versionString() string {
+	info, _ := debug.ReadBuildInfo()
+	return buildVersion(version, info)
+}
+
+// buildVersion drops the module version's v, as release builds print 0.1.0.
+func buildVersion(version string, info *debug.BuildInfo) string {
 	if version != "dev" {
 		return version
 	}
-	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
-		return info.Main.Version
+	if info != nil && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return strings.TrimPrefix(info.Main.Version, "v")
 	}
 	return version
 }
