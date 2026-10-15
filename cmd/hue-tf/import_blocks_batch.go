@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -36,7 +37,14 @@ func terraformCommand(ctx context.Context, args ...string) ([]byte, error) {
 	cmd.Stderr = &stderr
 	data, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("terraform %s failed: %s", strings.Join(args, " "), stderr.String())
+		command := "terraform " + strings.Join(args, " ")
+		if errors.Is(err, exec.ErrNotFound) {
+			return nil, fmt.Errorf("%s failed: %w; install Terraform or add it to PATH", command, err)
+		}
+		if detail := strings.TrimSpace(stderr.String()); detail != "" {
+			return nil, fmt.Errorf("%s failed (%w): %s", command, err, detail)
+		}
+		return nil, fmt.Errorf("%s failed: %w", command, err)
 	}
 	return data, nil
 }
@@ -58,15 +66,18 @@ func stateReader(deps dependencies) func(context.Context) ([]byte, error) {
 		if len(bytes.TrimSpace(s)) > 0 {
 			return s, nil
 		}
-		shown, e := run(ctx, "show", "-json")
-		if e != nil {
-			return nil, e
+		shown, err := run(ctx, "show", "-json")
+		if err != nil {
+			return nil, err
 		}
 		var v map[string]json.RawMessage
-		if json.Unmarshal(shown, &v) == nil && v["values"] == nil {
-			return []byte(`{"resources":[]}`), nil
+		if err := json.Unmarshal(shown, &v); err != nil {
+			return nil, fmt.Errorf("cannot read Terraform state: terraform show -json returned invalid JSON: %w", err)
 		}
-		return nil, fmt.Errorf("cannot read Terraform state: %v", err)
+		if v["values"] != nil {
+			return nil, fmt.Errorf("cannot read Terraform state: terraform state pull returned nothing, but terraform show -json lists resources")
+		}
+		return []byte(`{"resources":[]}`), nil
 	}
 }
 func fetchPullResources(ctx context.Context, client *hue.Client) (map[string]map[string]json.RawMessage, error) {
@@ -99,7 +110,11 @@ func prepareImportBlocks(state []byte, remote map[string]map[string]json.RawMess
 	if err != nil {
 		return nil, err
 	}
-	modules, err := pull.ConfigModules(".")
+	stateAddresses, err := pull.StateAddresses(state)
+	if err != nil {
+		return nil, err
+	}
+	modules, unusable, err := pull.ConfigModules(".")
 	if err != nil {
 		return nil, err
 	}
@@ -107,25 +122,45 @@ func prepareImportBlocks(state []byte, remote map[string]map[string]json.RawMess
 		return nil, err
 	}
 	scope := strings.TrimSuffix(opts.module, ".")
+	if reason, ok := unusable[scope]; ok {
+		return nil, fmt.Errorf("%s cannot receive import blocks: %s", scope, reason)
+	}
 	destination, ok := modules[scope]
 	if !ok {
 		return nil, fmt.Errorf("module %s was not found", scope)
 	}
+	// Each module directory is parsed once, however many candidates it is checked for.
+	definitions := map[string]map[string]bool{}
+	defined := func(dir, kind, name string) (bool, error) {
+		if definitions[dir] == nil {
+			found, err := pull.Definitions(dir)
+			if err != nil {
+				return false, err
+			}
+			definitions[dir] = found
+		}
+		return definitions[dir]["hue_"+kind+"."+name], nil
+	}
 	plan := &importBlocksPlan{}
-	pending, e := pull.PendingImports(modules, resources)
+	pending, e := pull.PendingImports(modules[""], resources)
 	if e != nil {
 		return nil, e
 	}
 	for _, r := range pending {
-		k, n, _ := pull.ResourceAddress(r.Address)
-		exists, e := pull.HasResourceDefinition(modules[pull.ModuleAddress(r.Address)], k, n)
-		if e != nil {
-			return nil, e
-		}
-		if !exists {
-			plan.NeedsConfig = true
-			if pull.ModuleAddress(r.Address) != "" {
-				plan.ModuleImports = true
+		// Indexed targets and modules without a readable directory already
+		// need their definitions in configuration, so only the rest are checked.
+		k, n, err := pull.ResourceAddress(r.Address)
+		dir, readable := modules[pull.ModuleAddress(r.Address)]
+		if err == nil && readable {
+			exists, e := defined(dir, k, n)
+			if e != nil {
+				return nil, e
+			}
+			if !exists {
+				plan.NeedsConfig = true
+				if pull.ModuleAddress(r.Address) != "" {
+					plan.ModuleImports = true
+				}
 			}
 		}
 		resources = append(resources, r)
@@ -181,16 +216,21 @@ func prepareImportBlocks(state []byte, remote map[string]map[string]json.RawMess
 				name = n
 			}
 			addr := opts.module + "hue_" + kind + "." + name
-			exists, pathErr := pull.HasResourceDefinition(destination, kind, name)
-			if pull.AddressReserved(state, kind, name, scope) || reserved[addr] || exists || pathErr != nil {
+			exists, err := defined(destination, kind, name)
+			if err != nil {
+				return nil, err
+			}
+			if stateAddresses[addr] || reserved[addr] || exists {
 				// Batch import must accommodate repeated Hue scene names without
 				// silently overwriting a declaration. UUIDs make the suffix stable.
 				name += "_" + strings.ReplaceAll(id, "-", "_")
 				addr = opts.module + "hue_" + kind + "." + name
-				exists, pathErr = pull.HasResourceDefinition(destination, kind, name)
+				if exists, err = defined(destination, kind, name); err != nil {
+					return nil, err
+				}
 			}
-			if exists || pathErr != nil || pull.AddressReserved(state, kind, name, scope) || reserved[addr] {
-				plan.Problems = append(plan.Problems, addr+": destination is reserved or cannot be parsed")
+			if exists || stateAddresses[addr] || reserved[addr] {
+				plan.Problems = append(plan.Problems, addr+": the address is already in use")
 				continue
 			}
 			reserved[addr] = true
@@ -313,14 +353,12 @@ func importBlocksOptions(ctx context.Context, opts pullNewOptions, out io.Writer
 	if !bytes.Equal(state, current) {
 		return fmt.Errorf("Terraform state changed during preview; retry")
 	}
-	return writeImportBlocks(ctx, plan, out, deps)
+	return writeImportBlocks(plan, out)
 }
 
-func writeImportBlocks(ctx context.Context, plan *importBlocksPlan, out io.Writer, deps dependencies) (err error) {
-	run := deps.terraform
-	if run == nil {
-		run = terraformCommand
-	}
+// writeImportBlocks only adds import blocks, so there is nothing to validate
+// until Terraform generates or the user writes the resource definitions.
+func writeImportBlocks(plan *importBlocksPlan, out io.Writer) (err error) {
 	if len(plan.ImportFiles) == 0 && len(plan.Changes) == 0 {
 		fmt.Fprintln(out, "No import blocks to add.")
 		return nil
@@ -394,7 +432,7 @@ func writeImportBlocks(ctx context.Context, plan *importBlocksPlan, out io.Write
 		return err
 	}
 	for _, c := range plan.Changes {
-		if _, err = c.Write(); err != nil {
+		if err = c.Write(); err != nil {
 			return err
 		}
 		writtenChanges = append(writtenChanges, c)
@@ -404,11 +442,6 @@ func writeImportBlocks(ctx context.Context, plan *importBlocksPlan, out io.Write
 			return err
 		}
 		writtenCreates = append(writtenCreates, c)
-	}
-	if !plan.NeedsConfig {
-		if _, err = run(ctx, "validate", "-no-color"); err != nil {
-			return err
-		}
 	}
 	success = true
 	fmt.Fprintln(out, "Prepared import blocks. Neither bridge nor state was changed.")

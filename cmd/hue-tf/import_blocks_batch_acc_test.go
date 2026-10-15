@@ -8,12 +8,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/akr4/terraform-provider-hue/internal/fakebridge"
 	"github.com/akr4/terraform-provider-hue/internal/hue"
 	hueprovider "github.com/akr4/terraform-provider-hue/internal/provider"
+	"github.com/akr4/terraform-provider-hue/internal/pull"
 	"github.com/hashicorp/go-plugin"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
@@ -31,9 +33,10 @@ func (p *pullTestProvider) Configure(_ context.Context, _ provider.ConfigureRequ
 	resp.DataSourceData = p.client
 }
 
-// TestAccPullRoundTrip exercises file preparation followed by explicit Terraform plan/apply;
-// a test provider transports every API request to an in-memory HTTPS bridge.
-func TestAccPullRoundTrip(t *testing.T) {
+// startAccTerraform serves the provider in-process against b and returns a
+// runner for the real terraform binary in a new temporary working directory.
+func startAccTerraform(t *testing.T, b *fakebridge.Bridge) (string, func(context.Context, ...string) ([]byte, error)) {
+	t.Helper()
 	if os.Getenv("TF_ACC") == "" {
 		t.Skip("set TF_ACC=1 for Terraform integration")
 	}
@@ -54,10 +57,7 @@ func TestAccPullRoundTrip(t *testing.T) {
 	t.Setenv("TF_CLI_ARGS", "")
 	t.Setenv("TF_CLI_ARGS_plan", "")
 	t.Setenv("TF_CLI_ARGS_apply", "")
-	b := fakebridge.New()
-	defer b.Close()
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	config := make(chan *plugin.ReattachConfig)
 	closed := make(chan struct{})
 	go func() {
@@ -65,6 +65,14 @@ func TestAccPullRoundTrip(t *testing.T) {
 			return providerserver.NewProtocol6(&pullTestProvider{Provider: hueprovider.New("test")(), client: b.Client()})()
 		}, tf6server.WithDebug(ctx, config, closed))
 	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-closed:
+		case <-time.After(10 * time.Second):
+			t.Error("provider shutdown timeout")
+		}
+	})
 	var reattach *plugin.ReattachConfig
 	select {
 	case reattach = <-config:
@@ -81,10 +89,7 @@ func TestAccPullRoundTrip(t *testing.T) {
 		t.Fatal(e)
 	}
 	t.Setenv("TF_CLI_CONFIG_FILE", configPath)
-	if e = os.WriteFile("main.tf", []byte("terraform {\n required_providers {\n hue = { source = \"akr4/hue\" }\n }\n}\nprovider \"hue\" {}\n"), 0600); e != nil {
-		t.Fatal(e)
-	}
-	run := func(ctx context.Context, args ...string) ([]byte, error) {
+	return root, func(ctx context.Context, args ...string) ([]byte, error) {
 		cmd := exec.CommandContext(ctx, tf, args...)
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
@@ -94,8 +99,21 @@ func TestAccPullRoundTrip(t *testing.T) {
 		}
 		return out, e
 	}
+}
+
+// TestAccPullRoundTrip exercises file preparation followed by explicit Terraform plan/apply;
+// a test provider transports every API request to an in-memory HTTPS bridge.
+func TestAccPullRoundTrip(t *testing.T) {
+	b := fakebridge.New()
+	defer b.Close()
+	root, run := startAccTerraform(t, b)
+	ctx := context.Background()
+	var e error
+	if e = os.WriteFile("main.tf", []byte("terraform {\n required_providers {\n hue = { source = \"akr4/hue\" }\n }\n}\nprovider \"hue\" {}\n"), 0600); e != nil {
+		t.Fatal(e)
+	}
 	deps := dependencies{terraform: func(ctx context.Context, args ...string) ([]byte, error) {
-		if !(args[0] == "validate" || (len(args) == 2 && args[0] == "state" && args[1] == "pull") || (len(args) == 2 && args[0] == "show" && args[1] == "-json")) {
+		if !((len(args) == 2 && args[0] == "state" && args[1] == "pull") || (len(args) == 2 && args[0] == "show" && args[1] == "-json")) {
 			t.Fatalf("pull invoked unexpected Terraform command: %v", args)
 		}
 		return run(ctx, args...)
@@ -261,10 +279,105 @@ func TestAccPullRoundTrip(t *testing.T) {
 			t.Fatalf("bridge mutation: %s %s", r.Method, r.Path)
 		}
 	}
-	cancel()
-	select {
-	case <-closed:
-	case <-time.After(10 * time.Second):
-		t.Error("provider shutdown timeout")
+}
+
+// TestAccImportBlocksComplexConfiguration reads a state that Terraform itself
+// wrote for count, for_each, a provider alias, a hue_device, and modules that
+// share a source or use count. import-blocks used to stop on each of them.
+func TestAccImportBlocksComplexConfiguration(t *testing.T) {
+	b := fakebridge.New()
+	defer b.Close()
+	_, run := startAccTerraform(t, b)
+	ctx := context.Background()
+	required := "terraform {\n required_providers {\n hue = { source = \"akr4/hue\" }\n }\n}\n"
+	files := map[string]string{
+		"main.tf": required + `provider "hue" {}
+provider "hue" {
+  alias = "second"
+}
+resource "hue_device" "lamp" {
+  device_id = "` + fakebridge.DeviceID + `"
+}
+resource "hue_zone" "counted" {
+  count    = 1
+  name     = "Counted"
+  children = ["` + fakebridge.LightID + `"]
+}
+resource "hue_zone" "each" {
+  for_each = toset(["day"])
+  name     = "Each ${each.key}"
+  children = ["` + fakebridge.LightID + `"]
+}
+resource "hue_zone" "aliased" {
+  provider = hue.second
+  name     = "Aliased"
+  children = ["` + fakebridge.LightID + `"]
+}
+module "a" {
+  source = "./zone"
+  name   = "Module A"
+}
+module "b" {
+  source = "./zone"
+  name   = "Module B"
+}
+module "counted" {
+  source = "./zone"
+  count  = 1
+  name   = "Module counted"
+}
+`,
+		"zone/main.tf": required + `variable "name" {
+  type = string
+}
+resource "hue_zone" "this" {
+  name     = var.name
+  children = ["` + fakebridge.LightID + `"]
+}
+`,
+	}
+	for path, src := range files {
+		if e := os.MkdirAll(filepath.Dir(path), 0700); e != nil {
+			t.Fatal(e)
+		}
+		if e := os.WriteFile(path, []byte(src), 0600); e != nil {
+			t.Fatal(e)
+		}
+	}
+	for _, args := range [][]string{{"get"}, {"apply", "-input=false", "-auto-approve"}} {
+		if _, e := run(ctx, args...); e != nil {
+			t.Fatal(args, e)
+		}
+	}
+	deps := dependencies{terraform: run, newClient: func(string, string) (*hue.Client, error) { return b.Client(), nil }}
+	state, e := stateReader(deps)(ctx)
+	if e != nil {
+		t.Fatal(e)
+	}
+	managed, e := pull.ManagedResources(state)
+	if e != nil {
+		t.Fatal(e)
+	}
+	var addresses []string
+	for _, r := range managed {
+		addresses = append(addresses, r.Address)
+	}
+	want := `hue_zone.aliased hue_zone.counted[0] hue_zone.each["day"] module.a.hue_zone.this module.b.hue_zone.this module.counted[0].hue_zone.this`
+	if strings.Join(addresses, " ") != want {
+		t.Fatalf("got %v", addresses)
+	}
+	const newID = "90000000-0000-4000-8000-000000000000"
+	b.Put("zone", newID, hue.Group{ID: newID, Type: "zone", Metadata: hue.Metadata{Name: "Unmanaged"}, Children: []hue.Reference{}})
+	var out bytes.Buffer
+	if e = importBlocks(ctx, nil, &out, deps); e != nil {
+		t.Fatal(e, out.String())
+	}
+	if !strings.Contains(out.String(), "Prepare import hue_zone.Unmanaged ["+newID+"]") {
+		t.Fatal(out.String())
+	}
+	for _, r := range managed {
+		if strings.Contains(out.String(), r.ID) {
+			t.Fatalf("proposed managed %s: %s", r.Address, out.String())
+		}
 	}
 }

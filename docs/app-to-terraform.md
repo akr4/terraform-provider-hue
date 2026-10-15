@@ -31,7 +31,8 @@ state にある UUID と、既存の import ブロックにある UUID は対象
 
 新規 import ブロックは、配置先が module の場合もルートの `imports_hue.tf` 一つにまとめます。
 既存ファイルには追記し、既存ブロックは編集・削除しません。取り込み前の再実行でも重複生成しません。
-扱える Hue の import ブロックは、添字・for_each・provider 指定のないアドレスとリテラルの ID に限ります。
+既存の Hue の import ブロックは、ルートの `.tf` と `.tf.json` から読み取ります。ID はリテラルの文字列にしてください。
+`for_each` を使った Hue の import ブロックは ID を読み取れないため、取り込みを終えるまで停止します。
 
 ## 配置と名前
 
@@ -39,9 +40,13 @@ state にある UUID と、既存の import ブロックにある UUID は対象
 **`--module` は Hue の部屋による検索条件ではありません。** UUID 指定なしの場合、候補は Bridge 全体の未管理リソースです。
 部屋と Terraform module の対応は推測しません。
 
-対象は root 配下のローカル source、単一インスタンス、標準 provider の継承です。
-共有 source、リモート source、root 外の source、`count`・`for_each`・provider の明示的な差し替え、JSON/override 設定には対応しません。
-構成全体がこの条件を満たす必要があります。
+state と設定は読み取るだけなので、構成の書き方は問いません。
+`count`・`for_each` のインスタンス、置き換え中（deposed）のオブジェクト、provider の別名、`hue_device`、
+共有 source・リモート source・root 外の source の module、override ファイル、`.tf.json` を含んでいても動作します。
+リモート source の module の中身は読み取りません。
+
+`--module` で指定できる配置先だけは、ローカル source の module に限ります。
+その module か上位の module が `count`・`for_each` を使っている場合は、import 先にインスタンスのキーが必要になるため、理由を表示して停止します。
 
 生成名には metadata.name を使用し、日本語・英数字・`_`・`-` を保持します。
 その他は `_` に変換し、数字で始まる名前には `resource_` を付けます。
@@ -50,10 +55,11 @@ state にある UUID と、既存の import ブロックにある UUID は対象
 ## 書き込みと中断
 
 プレビューではファイルを変更しません。`--write` は全対象の検査後に import ブロックを書き込みます。
-内部で実行する Terraform コマンドは state の読み取りと `validate` のみです。
-定義生成待ちの場合は未定義の import 先があるため validate は行いません。
+内部で実行する Terraform コマンドは、state を読み取る `terraform state pull` と `terraform show -json` のみです。`terraform` を PATH に置いてください。
+import 先の resource 定義はまだないため、`validate` は行いません。
 
 書き込み前に `.hue-pull-transaction` にファイルの復旧情報を保存します。この名前は旧コマンドの中断検出との互換性のため維持しています。
+成功時は復旧情報を削除し、ほかのファイルも残しません。
 失敗時は同時編集がない限りファイルを元に戻します。復旧できなかった場合は復旧情報を残し、再実行を停止します。
 中断時は `manifest.json` とバックアップを確認してファイルを修復し、transaction ディレクトリを退避してから再実行してください。
 `.hue-pull-*` は Git の除外対象にしてください。

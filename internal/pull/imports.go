@@ -1,103 +1,92 @@
 package pull
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/zclconf/go-cty/cty"
 )
 
-// PendingImports prevents another pull before apply from duplicating definitions.
+// PendingImports prevents another run before apply from duplicating imports.
+// Terraform allows import blocks only in the root module, so only root is read.
 // Literal import blocks remain ordinary Terraform configuration, not private state.
-func PendingImports(modules map[string]string, managed []ManagedResource) ([]ManagedResource, error) {
+func PendingImports(root string, managed []ManagedResource) ([]ManagedResource, error) {
 	byID, byAddress := map[string]string{}, map[string]string{}
 	for _, r := range managed {
 		byID[r.ID] = r.Address
 		byAddress[r.Address] = r.ID
 	}
+	blocks, paths, err := configBlocks(root, hcl.BlockHeaderSchema{Type: "import"})
+	if err != nil {
+		return nil, err
+	}
 	result := []ManagedResource{}
-	for scope, dir := range modules {
-		files, err := filepath.Glob(filepath.Join(dir, "*.tf"))
+	for i, b := range blocks {
+		path := paths[i]
+		attrs, err := blockAttributes(b, "to", "id", "for_each", "provider")
 		if err != nil {
 			return nil, err
 		}
-		for _, path := range files {
-			src, err := os.ReadFile(path)
-			if err != nil {
-				return nil, err
-			}
-			f, d := hclsyntax.ParseConfig(src, path, hcl.InitialPos)
-			if d.HasErrors() {
-				return nil, fmt.Errorf("cannot parse %s", path)
-			}
-			for _, b := range f.Body.(*hclsyntax.Body).Blocks {
-				if b.Type != "import" {
-					continue
-				}
-				to := b.Body.Attributes["to"]
-				if to == nil {
-					return nil, fmt.Errorf("import target missing in %s", path)
-				}
-				traversal, d := hcl.AbsTraversalForExpr(to.Expr)
-				if d.HasErrors() {
-					return nil, fmt.Errorf("import target must be an unindexed literal address in %s", path)
-				}
-				parts := []string{traversal.RootName()}
-				indexed := false
-				for _, step := range traversal[1:] {
-					a, ok := step.(hcl.TraverseAttr)
-					if !ok {
-						indexed = true
-						continue
-					}
-					parts = append(parts, a.Name)
-				}
-				address := strings.Join(parts, ".")
-				if scope != "" {
-					address = scope + "." + address
-				}
-				kind, _, err := ResourceAddress(address)
-				if err != nil {
-					continue
-				} // another provider's import
-				if indexed {
-					return nil, fmt.Errorf("indexed imports are not supported by pull: %s", path)
-				}
-				idAttr := b.Body.Attributes["id"]
-				if idAttr == nil || b.Body.Attributes["for_each"] != nil || b.Body.Attributes["provider"] != nil {
-					return nil, fmt.Errorf("pull requires literal Hue import blocks without for_each/provider: %s", path)
-				}
-				idValue, err := stringLiteral(idAttr.Expr)
-				if err != nil {
-					return nil, fmt.Errorf("import ID must be literal for pull: %s", path)
-				}
-				id := idValue.AsString()
-				if old, ok := byAddress[address]; ok {
-					if old != id {
-						return nil, fmt.Errorf("import address %s already maps to another ID", address)
-					}
-					continue
-				}
-				if old, ok := byID[id]; ok {
-					return nil, fmt.Errorf("import UUID %s already maps to %s", id, old)
-				}
-				byAddress[address], byID[id] = id, address
-				result = append(result, ManagedResource{Address: address, ID: id, Kind: kind, Attributes: map[string]json.RawMessage{}})
+		to := attrs["to"]
+		if to == nil {
+			return nil, fmt.Errorf("import target missing in %s", path)
+		}
+		traversal, d := hcl.AbsTraversalForExpr(to.Expr)
+		if d.HasErrors() {
+			return nil, fmt.Errorf("import target must be a literal address in %s", path)
+		}
+		// The type comes from the address without instance keys; the keys stay
+		// in the recorded address, so for_each and count targets are pending too.
+		parts := []string{traversal.RootName()}
+		var address strings.Builder
+		address.WriteString(traversal.RootName())
+		for _, step := range traversal[1:] {
+			switch s := step.(type) {
+			case hcl.TraverseAttr:
+				parts = append(parts, s.Name)
+				address.WriteString("." + s.Name)
+			case hcl.TraverseIndex:
+				address.WriteString(indexKey(s.Key))
 			}
 		}
+		kind, _, err := ResourceAddress(strings.Join(parts, "."))
+		if err != nil {
+			continue
+		} // another provider's import, or a Hue type that import-blocks does not discover
+		if attrs["for_each"] != nil {
+			return nil, fmt.Errorf("cannot read the UUIDs of a Hue import block with for_each in %s", path)
+		}
+		var id string
+		if a := attrs["id"]; a != nil {
+			id, _ = literalString(a.Expr)
+		}
+		if id == "" {
+			return nil, fmt.Errorf("import ID must be a literal string in %s", path)
+		}
+		target := address.String()
+		if old, ok := byAddress[target]; ok {
+			if old != id {
+				return nil, fmt.Errorf("import address %s already maps to another ID", target)
+			}
+			continue
+		}
+		if old, ok := byID[id]; ok {
+			return nil, fmt.Errorf("import UUID %s already maps to %s", id, old)
+		}
+		byAddress[target], byID[id] = id, target
+		result = append(result, ManagedResource{Address: target, ID: id, Kind: kind})
 	}
 	return result, nil
 }
 
-func HasResourceDefinition(dir, kind, name string) (bool, error) {
-	_, _, err := findResource(dir, kind, name)
-	if errors.Is(err, ErrResourceDefinitionNotFound) {
-		return false, nil
+// indexKey formats an instance key the way Terraform prints addresses.
+func indexKey(key cty.Value) string {
+	switch {
+	case key.Type() == cty.Number && key.IsKnown() && !key.IsNull():
+		return "[" + key.AsBigFloat().Text('f', -1) + "]"
+	case key.Type() == cty.String && key.IsKnown() && !key.IsNull():
+		return fmt.Sprintf("[%q]", key.AsString())
 	}
-	return err == nil, err
+	return "[?]"
 }

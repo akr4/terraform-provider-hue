@@ -351,6 +351,9 @@ action object:
 
 - 引数なしは Bridge 全体の未管理リソースを対象にする。複数 UUID で限定できる。
 - state と既存 import ブロックの UUID を照合し、重複生成を防ぐ。
+- state と設定は読み取るだけなので、構成の書き方を制限しない。count・for_each のインスタンス、deposed、provider の別名、対象外の hue_device、共有・リモート source の module、override、`.tf.json` を含んでも動作する。state は1回だけデコードし、module ツリーは1回だけたどる。
+- 既存の import ブロックは、Terraform が許す root module からのみ読み取る。
+- `--module` の配置先は、ローカル source で、自身と上位に count・for_each のない module に限る。
 - `--module NAME[.NAME...]` は import 先を指定する。Hue の部屋と module の対応は推測しない。
 - import ブロックは root の `imports_hue.tf` にまとめる。既存ブロックは編集・削除しない。
 - 既存 resource 定義の更新・削除同期は行わない。比較用 baseline も保持しない。
