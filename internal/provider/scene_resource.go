@@ -510,39 +510,43 @@ func (r *sceneResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 		}
 	}
 	if known(config.Actions) && known(planned.Actions) {
-		for _, value := range config.Actions.Elements() {
-			if !known(value) {
-				return
-			}
-		}
-		for _, value := range planned.Actions.Elements() {
-			if !known(value) {
-				return
-			}
-		}
-		configured, d := actionsFrom(ctx, config.Actions)
-		resp.Diagnostics.Append(d...)
-		actions, d := actionsFrom(ctx, planned.Actions)
-		resp.Diagnostics.Append(d...)
 		oldActions := map[string]actionModel{}
 		if !req.State.Raw.IsNull() {
+			var d diag.Diagnostics
 			oldActions, d = actionsFrom(ctx, prior.Actions)
 			resp.Diagnostics.Append(d...)
 		}
-		if resp.Diagnostics.HasError() {
-			return
-		}
-		for id, a := range actions {
-			c := configured[id]
+		configured := config.Actions.Elements()
+		elements := map[string]attr.Value{}
+		for id, value := range planned.Actions.Elements() {
+			elements[id] = value
+			// An action that is unknown until apply keeps Terraform's plan; the
+			// other actions, speed and palette are still planned.
+			c, cok := configured[id].(types.Object)
+			p, pok := value.(types.Object)
+			if !cok || !pok || !known(c) || !known(p) {
+				continue
+			}
+			var conf, plan actionModel
+			resp.Diagnostics.Append(c.As(ctx, &conf, basetypes.ObjectAsOptions{})...)
+			resp.Diagnostics.Append(p.As(ctx, &plan, basetypes.ObjectAsOptions{})...)
+			if resp.Diagnostics.HasError() {
+				return
+			}
 			old, ok := oldActions[id]
 			if !ok {
 				old = emptyAction()
 			}
-			a = planAction(c, a, old)
-			actions[id] = a
+			action, d := types.ObjectValueFrom(ctx, actionTypes, planAction(conf, plan, old))
+			resp.Diagnostics.Append(d...)
+			elements[id] = action
 		}
-		planned.Actions, d = types.MapValueFrom(ctx, actionType, actions)
+		actions, d := types.MapValue(actionType, elements)
 		resp.Diagnostics.Append(d...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		planned.Actions = actions
 	}
 	resp.Diagnostics.Append(resp.Plan.Set(ctx, &planned)...)
 }
