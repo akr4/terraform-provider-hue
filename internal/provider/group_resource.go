@@ -157,12 +157,14 @@ func (r *groupResource) Update(ctx context.Context, req resource.UpdateRequest, 
 // A physical bridge deletes a room's or zone's scenes with it, which the plan
 // cannot show. Scenes that reference the group in Terraform are deleted first,
 // so anything left here is unmanaged; refuse like an S3 bucket's force_destroy.
+// A scene with a hard-coded group UUID has no such order and may be deleted
+// in the same run, in which case running the command again succeeds.
 const scenesRemainDetail = `The bridge deletes a %[1]s's scenes along with it, including scenes created in the Hue app. These remain in this %[1]s:
   - %[2]s
 
 Delete them first, or set force_destroy = true and apply that change before deleting the %[1]s. Deletion uses the value saved in state, so changing the configuration alone is not enough.
 
-Terraform deletes the scenes it manages before the %[1]s only when they reference its id, for example group = hue_%[1]s.<name>.id.`
+If Terraform is also deleting these scenes, run the same command again.`
 
 func (r *groupResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var m groupModel

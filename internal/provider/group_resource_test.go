@@ -46,7 +46,7 @@ func TestAccGroupForceDestroy(t *testing.T) {
 	var before int
 	resource.Test(t, resource.TestCase{ProtoV6ProviderFactories: factories(b), CheckDestroy: destroyed(b), Steps: []resource.TestStep{
 		{Config: groupConfig("zone", fakebridge.LightID, ""), Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr(addr, "force_destroy", "false"), captureID(addr, &zoneID))},
-		{PreConfig: func() { putAppScenes(b, hue.Reference{RID: zoneID, RType: "zone"}, true) }, Config: accProvider, ExpectError: regexp.MustCompile(`(?s)Zone still contains scenes.*"App scene".*"Natural light" \(smart scene\).*force_destroy = true`)},
+		{PreConfig: func() { putAppScenes(b, hue.Reference{RID: zoneID, RType: "zone"}, true) }, Config: accProvider, ExpectError: regexp.MustCompile(`(?s)Zone still contains scenes.*"App scene".*"Natural light" \(smart scene\).*force_destroy = true.*run the same command again`)},
 		{PreConfig: func() {
 			if _, err := hue.GetOne[hue.Group](t.Context(), b.Client(), "zone", zoneID); err != nil {
 				t.Fatalf("refused deletion removed the zone: %v", err)
