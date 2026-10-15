@@ -345,7 +345,10 @@ resource "hue_zone" "this" {
 			t.Fatal(e)
 		}
 	}
-	for _, args := range [][]string{{"get"}, {"apply", "-input=false", "-auto-approve"}} {
+	// Both provider instances share the in-process server, whose
+	// ConfigureProvider is not safe to call concurrently. Configure them one at
+	// a time.
+	for _, args := range [][]string{{"get"}, {"apply", "-input=false", "-auto-approve", "-parallelism=1"}} {
 		if _, e := run(ctx, args...); e != nil {
 			t.Fatal(args, e)
 		}
