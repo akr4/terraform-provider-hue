@@ -335,8 +335,8 @@ func (b *Bridge) serve(w http.ResponseWriter, r *http.Request) {
 		delete(items, id)
 		if kind == "room" || kind == "zone" {
 			// Verified on a physical bridge: deleting a room or zone also deletes its
-			// scenes, including ones created in the Hue app. Smart scenes are assumed
-			// to follow the same rule.
+			// scenes, including ones created in the Hue app, and its smart scenes,
+			// which can take a moment longer.
 			for _, child := range []string{"scene", "smart_scene"} {
 				for childID, raw := range b.resources[child] {
 					var item struct {
