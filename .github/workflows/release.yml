@@ -1,8 +1,10 @@
 # Terraform Provider release workflow.
 name: Release
 
-# This GitHub action creates a release when a tag that matches the pattern
-# "v*" (e.g. v0.1.0) is created.
+# This GitHub action drafts two releases when a tag that matches the pattern
+# "v*" (e.g. v0.1.0) is created: v0.1.0 with the provider, which the Terraform
+# Registry reads, and hue-tf-v0.1.0 with hue-tf. Publish v0.1.0 first, then
+# hue-tf-v0.1.0 as the latest release, which the README links to.
 on:
   push:
     tags:
@@ -16,6 +18,9 @@ permissions:
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
+    env:
+      # A hue-tf-v* tag points at the same commit.
+      GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -34,8 +39,31 @@ jobs:
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
-          args: release --clean
+          args: release --clean --config .goreleaser.yml
         env:
           # GitHub sets the GITHUB_TOKEN secret automatically.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
+      - name: Build CLI archives
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          args: release --clean --config .goreleaser-cli.yml
+      - name: Check release files
+        run: sh scripts/check-release-files.sh
+      - name: Draft CLI release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: hue-tf-${{ github.ref_name }}
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          set -- dist/cli/hue-tf_*.tar.gz dist/cli/hue-tf_*.zip dist/cli/hue-tf_*_SHA256SUMS
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            # A rerun uploads to the same draft.
+            gh release upload "$TAG" --clobber "$@"
+          else
+            gh release create "$TAG" --draft --target "$(git rev-parse HEAD)" \
+              --title "hue-tf $version" \
+              --notes "hue-tf $version, the companion CLI for terraform-provider-hue, built from the same commit as $GITHUB_REF_NAME." \
+              "$@"
+          fi
