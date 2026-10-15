@@ -333,6 +333,21 @@ func (b *Bridge) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		delete(items, id)
+		if kind == "room" || kind == "zone" {
+			// Verified on a physical bridge: deleting a room or zone also deletes its
+			// scenes, including ones created in the Hue app. Smart scenes are assumed
+			// to follow the same rule.
+			for _, child := range []string{"scene", "smart_scene"} {
+				for childID, raw := range b.resources[child] {
+					var item struct {
+						Group hue.Reference `json:"group"`
+					}
+					if json.Unmarshal(raw, &item) == nil && item.Group.RID == id {
+						delete(b.resources[child], childID)
+					}
+				}
+			}
+		}
 		success(w, []hue.Reference{{RID: id, RType: kind}})
 	default:
 		failure(w, 405, "method not allowed")

@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"sort"
+	"strings"
 
 	"github.com/akr4/terraform-provider-hue/internal/hue"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -24,21 +27,23 @@ type groupResource struct {
 	client          *hue.Client
 }
 type groupModel struct {
-	ID        types.String `tfsdk:"id"`
-	Name      types.String `tfsdk:"name"`
-	Archetype types.String `tfsdk:"archetype"`
-	Children  types.Set    `tfsdk:"children"`
+	ID           types.String `tfsdk:"id"`
+	Name         types.String `tfsdk:"name"`
+	Archetype    types.String `tfsdk:"archetype"`
+	Children     types.Set    `tfsdk:"children"`
+	ForceDestroy types.Bool   `tfsdk:"force_destroy"`
 }
 
 func (r *groupResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_" + r.kind
 }
 func (r *groupResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
-	resp.Schema = schema.Schema{Description: "Manage a Hue " + r.kind + ". Deleting this resource deletes the group from the bridge.", Attributes: map[string]schema.Attribute{
-		"id":        schema.StringAttribute{Computed: true, Description: "Bridge resource UUID.", PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
-		"name":      schema.StringAttribute{Required: true, Description: "Group name."},
-		"archetype": schema.StringAttribute{Optional: true, Computed: true, Default: stringdefault.StaticString("other"), Description: "Hue group archetype. Defaults to other."},
-		"children":  schema.SetAttribute{Required: true, ElementType: types.StringType, Description: "Set of " + r.childKind + " UUIDs."},
+	resp.Schema = schema.Schema{Description: "Manage a Hue " + r.kind + ". Deleting this resource deletes the " + r.kind + " from the bridge, and fails while scenes remain in it unless `force_destroy` is true.", Attributes: map[string]schema.Attribute{
+		"id":            schema.StringAttribute{Computed: true, Description: "Bridge resource UUID.", PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+		"name":          schema.StringAttribute{Required: true, Description: "Group name."},
+		"archetype":     schema.StringAttribute{Optional: true, Computed: true, Default: stringdefault.StaticString("other"), Description: "Hue group archetype. Defaults to other."},
+		"children":      schema.SetAttribute{Required: true, ElementType: types.StringType, Description: "Set of " + r.childKind + " UUIDs."},
+		"force_destroy": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), Description: "The bridge deletes a " + r.kind + "'s scenes along with it, including scenes created in the Hue app. Unless this is true, deleting the " + r.kind + " fails while any scene or smart scene remains in it. Apply the change before deleting the " + r.kind + ". Defaults to false."},
 	}}
 }
 func (r *groupResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -122,36 +127,95 @@ func (r *groupResource) Read(ctx context.Context, req resource.ReadRequest, resp
 	value, d := types.SetValueFrom(ctx, types.StringType, children)
 	resp.Diagnostics.Append(d...)
 	m.Children = value
+	// force_destroy exists only in Terraform; keep it, and default it after import.
+	if m.ForceDestroy.IsNull() {
+		m.ForceDestroy = types.BoolValue(false)
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &m)...)
 }
 func (r *groupResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var m groupModel
+	var m, prior groupModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &m)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &prior)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	body, err := r.body(ctx, m)
-	if err == nil {
-		err = r.client.Update(ctx, r.kind, m.ID.ValueString(), body)
-	}
-	if err != nil {
-		resp.Diagnostics.AddError("Update group failed", err.Error())
-		return
+	// A force_destroy change alone has nothing to send to the bridge.
+	if !m.Name.Equal(prior.Name) || !m.Archetype.Equal(prior.Archetype) || !m.Children.Equal(prior.Children) {
+		body, err := r.body(ctx, m)
+		if err == nil {
+			err = r.client.Update(ctx, r.kind, m.ID.ValueString(), body)
+		}
+		if err != nil {
+			resp.Diagnostics.AddError("Update group failed", err.Error())
+			return
+		}
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &m)...)
 }
+
+// A physical bridge deletes a room's or zone's scenes with it, which the plan
+// cannot show. Scenes that reference the group in Terraform are deleted first,
+// so anything left here is unmanaged; refuse like an S3 bucket's force_destroy.
+const scenesRemainDetail = `The bridge deletes a %[1]s's scenes along with it, including scenes created in the Hue app. These remain in this %[1]s:
+  - %[2]s
+
+Delete them first, or set force_destroy = true and apply that change before deleting the %[1]s. Deletion uses the value saved in state, so changing the configuration alone is not enough.
+
+Terraform deletes the scenes it manages before the %[1]s only when they reference its id, for example group = hue_%[1]s.<name>.id.`
+
 func (r *groupResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var m groupModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &m)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	if !m.ForceDestroy.ValueBool() {
+		scenes, err := r.scenesIn(ctx, m.ID.ValueString())
+		if err != nil {
+			resp.Diagnostics.AddError("Delete group failed", "Could not check for scenes in the "+r.kind+": "+err.Error())
+			return
+		}
+		if len(scenes) > 0 {
+			resp.Diagnostics.AddError(strings.ToUpper(r.kind[:1])+r.kind[1:]+" still contains scenes", fmt.Sprintf(scenesRemainDetail, r.kind, strings.Join(scenes, "\n  - ")))
+			return
+		}
+	}
 	if err := r.client.Delete(ctx, r.kind, m.ID.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Delete group failed", err.Error())
 	}
 }
+
+// scenesIn returns the sorted names of the scenes and smart scenes in a group.
+func (r *groupResource) scenesIn(ctx context.Context, id string) ([]string, error) {
+	var names []string
+	for _, kind := range []string{"scene", "smart_scene"} {
+		var items []struct {
+			Metadata hue.Metadata  `json:"metadata"`
+			Group    hue.Reference `json:"group"`
+		}
+		if err := r.client.Get(ctx, "/clip/v2/resource/"+kind, &items); err != nil {
+			return nil, err
+		}
+		for _, item := range items {
+			if item.Group.RID != id {
+				continue
+			}
+			name := fmt.Sprintf("%q", item.Metadata.Name)
+			if kind == "smart_scene" {
+				name += " (smart scene)"
+			}
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names, nil
+}
 func (r *groupResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	importID(ctx, req, resp)
+	if !resp.Diagnostics.HasError() {
+		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("force_destroy"), false)...)
+	}
 }
 func importID(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	if !validUUID(req.ID) {

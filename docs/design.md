@@ -130,7 +130,7 @@ data "hue_device" "ceiling" {
 
 - ID は bridge の UUID をそのまま使う
 - `import` に対応する（`terraform import hue_room.x <uuid>` および `import` ブロック）
-- Delete は bridge 上のリソースを削除する。ただしhue_deviceは管理の解除のみで、機器と設定を残す
+- Delete は bridge 上のリソースを削除する。ただしhue_deviceは管理の解除のみで、機器と設定を残す。hue_room / hue_zone は、中に scene が残っていると削除しない（`force_destroy`）
 - 読み取り専用属性（`id_v1` など）は Computed にし、必要なもの以外は schema に載せない
 
 ### `hue_device`（resource）
@@ -167,9 +167,24 @@ resource "hue_room" "study" {
 | `name` | Required | `metadata.name` |
 | `archetype` | Optional | `metadata.archetype`。未指定なら `other` |
 | `children` | Required, Set of string | device の UUID の集合 |
+| `force_destroy` | Optional | 既定 `false`。`true` のときだけ、scene が残っていても削除する。Terraform 側だけの値 |
 
 - `children` は Set。順序の差は差分にならない
 - ForceNew の属性はない
+
+実機での確認（2026-10-15、write-check キット）:
+
+- room や zone を削除すると、bridge はそこに属する scene も一緒に削除する。Hue アプリで作った scene も含む。plan に出るのは room / zone の削除だけで、apply もエラーにならない
+- ほかの room に属する device を `children` に入れて room を作ると、bridge は device を移す。移動元の room の scene からはその light の action が消え、`last_actions_update.source` が `autogrow` になる
+- room を削除すると、その device はどの room にも属さなくなり、`bridge_home` の `children` に入る
+- smart_scene が一緒に削除されるかは、実機では確認していない。同じ扱いと想定する
+
+削除時の保護:
+
+- `force_destroy` が `false` の間、Delete は scene と smart_scene の一覧を取得する。`group` がこの room / zone を指すものが残っていれば、名前を並べたエラーを返して削除しない。S3 バケットの `force_destroy` と同じ考え方
+- Terraform で管理する scene は、`group` でこの room / zone の `id` を参照していれば依存関係で先に削除される。判定の時点で残っているのは管理外の scene になる。UUID を直接書いた scene は削除順が保証されないため、エラーになることがある。その場合はもう一度 apply すればよい
+- Delete は state の値を使う。`force_destroy = true` は削除の前に apply しておく
+- `force_destroy` だけの変更では bridge に書き込まない。import 直後と、この属性がない古い state では `false` として扱う
 
 ### `hue_zone`
 

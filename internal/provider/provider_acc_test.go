@@ -54,7 +54,7 @@ resource "hue_%s" "test" {
 			}
 			addr := "hue_" + kind + ".test"
 			resource.Test(t, resource.TestCase{ProtoV6ProviderFactories: factories(b), CheckDestroy: destroyed(b), Steps: []resource.TestStep{
-				{Config: config("Study", fmt.Sprintf("[%q]", id)), Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr(addr, "name", "Study"), resource.TestCheckResourceAttr(addr, "archetype", "other"), resource.TestCheckResourceAttr(addr, "children.#", "1"))},
+				{Config: config("Study", fmt.Sprintf("[%q]", id)), Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr(addr, "name", "Study"), resource.TestCheckResourceAttr(addr, "archetype", "other"), resource.TestCheckResourceAttr(addr, "children.#", "1"), resource.TestCheckResourceAttr(addr, "force_destroy", "false"))},
 				{ResourceName: addr, ImportState: true, ImportStateVerify: true},
 				{Config: config("Changed", "[]"), Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr(addr, "name", "Changed"), resource.TestCheckResourceAttr(addr, "children.#", "0"))},
 				{Config: config("Changed", "[]"), PlanOnly: true},

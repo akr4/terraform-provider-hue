@@ -3,12 +3,12 @@
 page_title: "hue_zone Resource - hue"
 subcategory: ""
 description: |-
-  Manage a Hue zone. Deleting this resource deletes the group from the bridge.
+  Manage a Hue zone. Deleting this resource deletes the zone from the bridge, and fails while scenes remain in it unless force_destroy is true.
 ---
 
 # hue_zone (Resource)
 
-Manage a Hue zone. Deleting this resource deletes the group from the bridge.
+Manage a Hue zone. Deleting this resource deletes the zone from the bridge, and fails while scenes remain in it unless `force_destroy` is true.
 
 ## Example Usage
 
@@ -34,6 +34,7 @@ resource "hue_zone" "work" {
 ### Optional
 
 - `archetype` (String) Hue group archetype. Defaults to other.
+- `force_destroy` (Boolean) The bridge deletes a zone's scenes along with it, including scenes created in the Hue app. Unless this is true, deleting the zone fails while any scene or smart scene remains in it. Apply the change before deleting the zone. Defaults to false.
 
 ### Read-Only
 
