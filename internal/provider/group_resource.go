@@ -38,11 +38,17 @@ func (r *groupResource) Metadata(_ context.Context, req resource.MetadataRequest
 	resp.TypeName = req.ProviderTypeName + "_" + r.kind
 }
 func (r *groupResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	children := "Set of " + r.childKind + " UUIDs."
+	if r.kind == "room" {
+		// Verified on a bridge: the device leaves its old room, and that room's
+		// scenes drop the actions for its lights.
+		children += " A device belongs to one room, so adding a device that is in another room moves it here and removes its lights from that room's scenes."
+	}
 	resp.Schema = schema.Schema{Description: "Manage a Hue " + r.kind + ". Deleting this resource deletes the " + r.kind + " from the bridge, and fails while scenes remain in it unless `force_destroy` is true.", Attributes: map[string]schema.Attribute{
 		"id":            schema.StringAttribute{Computed: true, Description: "Bridge resource UUID.", PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
 		"name":          schema.StringAttribute{Required: true, Description: "Group name."},
 		"archetype":     schema.StringAttribute{Optional: true, Computed: true, Default: stringdefault.StaticString("other"), Description: "Hue group archetype. Defaults to other."},
-		"children":      schema.SetAttribute{Required: true, ElementType: types.StringType, Description: "Set of " + r.childKind + " UUIDs."},
+		"children":      schema.SetAttribute{Required: true, ElementType: types.StringType, Description: children},
 		"force_destroy": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), Description: "The bridge deletes a " + r.kind + "'s scenes along with it, including scenes created in the Hue app. Unless this is true, deleting the " + r.kind + " fails while any scene or smart scene remains in it. Apply the change before deleting the " + r.kind + ". Defaults to false."},
 	}}
 }
