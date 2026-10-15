@@ -14,6 +14,7 @@ import (
 )
 
 func TestSwitchCLI(t *testing.T) {
+	t.Setenv("HUE_BRIDGE_HOST", "fake.local")
 	t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
 	b := fakebridge.New()
 	defer b.Close()
@@ -53,6 +54,7 @@ func TestSwitchCLI(t *testing.T) {
 }
 func TestPullBehaviorCLI(t *testing.T) {
 	t.Chdir(t.TempDir())
+	t.Setenv("HUE_BRIDGE_HOST", "fake.local")
 	t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
 	b := fakebridge.New()
 	defer b.Close()

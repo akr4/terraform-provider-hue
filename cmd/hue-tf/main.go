@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -17,6 +18,31 @@ import (
 	"github.com/akr4/terraform-provider-hue/internal/hue"
 	"github.com/grandcat/zeroconf"
 )
+
+// version is set at release time with -ldflags "-X main.version=...".
+var version = "dev"
+
+const usageText = `Usage: hue-tf COMMAND [ARGUMENTS]
+
+Commands:
+  init                     Create an application key; press the bridge's link button
+  discover                 Find bridges on the local network and print their addresses
+  ls TYPE [--json]         List room, zone, scene, smart_scene, light, device, switch,
+                           behavior_instance, behavior_script or button resources
+  show SCENE_UUID          Show a scene and what references it
+  recall SCENE_UUID [--action ACTION]
+                           Activate a scene
+  identify UUID [--count N]
+                           Make a device or light signal
+  raw /clip/v2/PATH        Print the response of an API v2 GET request
+  preview [PLAN_JSON|-] [--html] [--all] [--output FILE]
+                           Render scene colors from a Terraform plan
+  import-blocks [UUID | RESOURCE_ADDRESS ...] [--module NAME[.NAME...]] [--write]
+                           Generate import blocks for unmanaged resources
+  version                  Print the version
+
+Commands that contact the bridge read HUE_BRIDGE_HOST and HUE_BRIDGE_APPLICATION_KEY.
+`
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -34,6 +60,8 @@ type dependencies struct {
 	readState func(context.Context) ([]byte, error)
 	newClient func(string, string) (*hue.Client, error)
 	discover  func(context.Context) ([]string, error)
+	// linkTimeout bounds how long init waits for the link button; zero means 60 seconds.
+	linkTimeout time.Duration
 }
 
 func run(ctx context.Context, args []string, out, errout io.Writer) error {
@@ -41,7 +69,15 @@ func run(ctx context.Context, args []string, out, errout io.Writer) error {
 }
 func runWith(ctx context.Context, args []string, out, errout io.Writer, deps dependencies) error {
 	if len(args) == 0 {
-		return errors.New("usage: hue-tf init | discover | ls <room|zone|scene|smart_scene|light|device|switch|behavior_instance|behavior_script|button> [--json] | show SCENE_UUID | recall SCENE_UUID [--action ACTION] | identify DEVICE_UUID_OR_LIGHT_UUID [--count N] | raw /clip/v2/<path> | preview [PLAN_JSON|-] [--html] [--all] [--output FILE] | import-blocks [UUID | RESOURCE_ADDRESS ...] [--module NAME[.NAME...]] [--write]")
+		return errors.New(strings.TrimSpace(usageText))
+	}
+	switch args[0] {
+	case "help", "-h", "--help":
+		_, err := fmt.Fprint(out, usageText)
+		return err
+	case "version", "--version":
+		_, err := fmt.Fprintln(out, "hue-tf", versionString())
+		return err
 	}
 	if args[0] == "preview" {
 		return previewCommand(args[1:], deps.stdin, out)
@@ -79,7 +115,7 @@ func runWith(ctx context.Context, args []string, out, errout io.Writer, deps dep
 		return err
 	}
 	if args[0] != "raw" && args[0] != "ls" {
-		return fmt.Errorf("unknown command %q", args[0])
+		return fmt.Errorf("unknown command %q; run hue-tf --help", args[0])
 	}
 	if len(args) < 2 || len(args) > 3 {
 		return errors.New("expected a resource type or v2 path")
@@ -97,11 +133,7 @@ func runWith(ctx context.Context, args []string, out, errout io.Writer, deps dep
 			return errors.New("unknown flag")
 		}
 	}
-	host, key := os.Getenv("HUE_BRIDGE_HOST"), os.Getenv("HUE_BRIDGE_APPLICATION_KEY")
-	if key == "" {
-		return errors.New("HUE_BRIDGE_APPLICATION_KEY is required; run hue-tf init")
-	}
-	client, err := deps.newClient(host, key)
+	client, err := clientFromEnv(deps)
 	if err != nil {
 		return err
 	}
@@ -249,6 +281,29 @@ func sortedHosts(hosts map[string]bool) []string {
 	sort.Strings(result)
 	return result
 }
+
+// versionString falls back to the module version for go install builds.
+func versionString() string {
+	if version != "dev" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return version
+}
+
+// clientFromEnv connects to the bridge named by the environment.
+func clientFromEnv(deps dependencies) (*hue.Client, error) {
+	host, key := os.Getenv("HUE_BRIDGE_HOST"), os.Getenv("HUE_BRIDGE_APPLICATION_KEY")
+	if key == "" {
+		return nil, errors.New("HUE_BRIDGE_APPLICATION_KEY is not set; run hue-tf init")
+	}
+	if host == "" {
+		return nil, errors.New("HUE_BRIDGE_HOST is not set; run hue-tf discover to find the bridge's address")
+	}
+	return deps.newClient(host, key)
+}
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
 func initialize(ctx context.Context, out, errout io.Writer, deps dependencies) error {
 	host := os.Getenv("HUE_BRIDGE_HOST")
@@ -269,14 +324,29 @@ func initialize(ctx context.Context, out, errout io.Writer, deps dependencies) e
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(errout, "Press the link button on bridge %s within 60 seconds.\n", host)
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	timeout := deps.linkTimeout
+	if timeout == 0 {
+		timeout = 60 * time.Second
+	}
+	fmt.Fprintf(errout, "Press the link button on bridge %s within %v.\n", host, timeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	reached := false
+	expired := func(err error) error {
+		if !errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		if reached {
+			return fmt.Errorf("the link button on bridge %s was not pressed within %v; run hue-tf init again", host, timeout)
+		}
+		return fmt.Errorf("could not reach bridge %s within %v: %w", host, timeout, err)
+	}
 	for {
 		key, pending, err := client.Register(ctx)
 		if err != nil {
-			return err
+			return expired(err)
 		}
+		reached = true
 		if !pending {
 			_, err = fmt.Fprintf(out, "export HUE_BRIDGE_HOST=%s\nexport HUE_BRIDGE_APPLICATION_KEY=%s\n", shellQuote(host), shellQuote(key))
 			return err
@@ -285,7 +355,7 @@ func initialize(ctx context.Context, out, errout io.Writer, deps dependencies) e
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return ctx.Err()
+			return expired(ctx.Err())
 		case <-timer.C:
 		}
 	}

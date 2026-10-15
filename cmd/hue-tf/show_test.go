@@ -54,6 +54,21 @@ func TestShowSceneDetails(t *testing.T) {
 	}
 }
 
+// show reports color temperature in kelvin rounded the same way as the provider.
+func TestShowKelvinMatchesProvider(t *testing.T) {
+	data := []json.RawMessage{
+		json.RawMessage(`{"id":"scene","type":"scene","metadata":{"name":"Warm"},"group":{"rid":"zone","rtype":"zone"},"actions":[{"target":{"rid":"light","rtype":"light"},"action":{"color_temperature":{"mirek":370}}}]}`),
+		json.RawMessage(`{"id":"zone","type":"zone","metadata":{"name":"Home"}}`),
+	}
+	var out bytes.Buffer
+	if err := printSceneDetails(data, "scene", &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "2703 K (370 mirek)") {
+		t.Fatal(out.String())
+	}
+}
+
 func TestShowCLI(t *testing.T) {
 	for _, args := range [][]string{{"show"}, {"show", "bad"}, {"show", "00000000-0000-0000-0000-000000000000", "--write"}} {
 		if err := runWith(context.Background(), args, &bytes.Buffer{}, &bytes.Buffer{}, dependencies{}); err == nil {
@@ -69,6 +84,7 @@ func TestShowCLI(t *testing.T) {
 		w.Write([]byte(`{"data":[{"id":"00000000-0000-0000-0000-000000000000","type":"scene","metadata":{"name":"Test scene"},"actions":[]}],"errors":[]}`))
 	}))
 	defer server.Close()
+	t.Setenv("HUE_BRIDGE_HOST", "fake.local")
 	t.Setenv("HUE_BRIDGE_APPLICATION_KEY", "test-key")
 	deps := dependencies{newClient: func(string, string) (*hue.Client, error) {
 		return hue.NewClientWithHTTP(server.URL, "test-key", server.Client())

@@ -283,6 +283,7 @@ action object:
 | `hue-tf discover` | mDNS で bridge を探索し、見つかったアドレスを表示する。application key は発行しない |
 | `hue-tf ls <type>` | room / zone / scene / light / device / behavior_instance / behavior_script / button、および switch の対応表を表形式または `--json` で一覧表示する |
 | `hue-tf raw <path>` | 任意の v2 エンドポイントに GET し、レスポンスをそのまま出力する |
+| `hue-tf version` | バージョンを表示する。リリースビルドでは `-X main.version` で埋め込む。`--help` でコマンドの一覧を表示する |
 
 ### v1 以降の候補
 
