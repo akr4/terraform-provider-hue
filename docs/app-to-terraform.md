@@ -1,69 +1,95 @@
-# Import ブロックの生成
+# Generate import blocks
 
-`hue-tf import-blocks` は Bridge 上の未管理リソースを発見し、Terraform の `import` ブロックを生成します。
-room・zone・scene・smart_scene・behavior_instance が対象です。
-resource 定義の生成、既存定義の更新・削除、state の更新、実機への書き込みは行いません。
+`hue-tf import-blocks` finds resources on the bridge that Terraform does not
+manage yet and generates Terraform `import` blocks for them. It covers rooms,
+zones, scenes, smart scenes and behavior instances. It does not generate
+resource definitions, change or remove existing definitions, update state, or
+write to the bridge. Let Terraform generate the definitions with
+`terraform plan -generate-config-out=generated.tf`, or write them yourself.
 
-## 操作
+## Usage
 
-Terraform のルートディレクトリから実行します。既存の backend と workspace の state を読み取ります。
-`HUE_BRIDGE_HOST`、`HUE_BRIDGE_ID`、`HUE_BRIDGE_APPLICATION_KEY` は Terraform が使う Bridge と一致させてください。
-provider に host / application_key を直接設定する場合は環境変数と同じリテラル値にしてください。変数などの式で指定されている場合は照合できないため停止します。
+Run it from your Terraform root directory. It reads the state of the current
+backend and workspace. `HUE_BRIDGE_HOST`, `HUE_BRIDGE_ID` and
+`HUE_BRIDGE_APPLICATION_KEY` must point to the bridge that Terraform uses. If
+the provider block sets `host`, `bridge_id` or `application_key` directly, use
+the same literal values as the environment variables. An expression such as a
+variable cannot be compared, so the command stops.
 
 ```sh
-# 未管理リソースの import ブロックをプレビュー
+# Preview import blocks for unmanaged resources
 hue-tf import-blocks
 
-# ルートの imports_hue.tf に生成・追記
+# Write them to imports_hue.tf in the root module
 hue-tf import-blocks --write
 
-# UUID を指定して対象を限定（複数指定可）
+# Limit the run to one or more UUIDs
 hue-tf import-blocks UUID_A UUID_B --write
 
-# import 先の module を指定
+# Choose the module to import into
 hue-tf import-blocks UUID_A --module downstairs.washroom --write
 ```
 
-state にある UUID と、既存の import ブロックにある UUID は対象から除外します。
-既存リソースは実機で変更・削除されていても、定義や参照を書き換えません。
-管理済みの UUID または完全なリソースアドレスを明示指定した場合は、スキップしたことを表示します。
-同じ UUID を複数回指定しても生成は一度だけです。指定対象が見つからない場合は、全体の書き込みを停止します。
+UUIDs that are already in state or in an existing import block are skipped.
+Existing resources are never rewritten, even if they were changed or deleted
+on the bridge. When you name a managed UUID or a full resource address, the
+command reports that it skipped it. A UUID named twice produces one block. If a
+named target is not found, nothing is written.
 
-新規 import ブロックは、配置先が module の場合もルートの `imports_hue.tf` 一つにまとめます。
-既存ファイルには追記し、既存ブロックは編集・削除しません。取り込み前の再実行でも重複生成しません。
-既存の Hue の import ブロックは、ルートの `.tf` と `.tf.json` から読み取ります。ID はリテラルの文字列にしてください。
-`for_each` を使った Hue の import ブロックは ID を読み取れないため、取り込みを終えるまで停止します。
+New import blocks all go into one `imports_hue.tf` in the root module, even
+when they target a module. The command appends to the file and never edits or
+removes existing blocks, so running it again before you import does not
+duplicate them. Existing Hue import blocks are read from the root module's `.tf`
+and `.tf.json` files, and their IDs must be literal strings. A Hue import block
+that uses `for_each` stops the command until the import is done, because its
+IDs cannot be read.
 
-## 配置と名前
+## Destination and names
 
-配置先は既定で root です。`--module downstairs.washroom` は `module.downstairs.module.washroom` を指し、module ブロックの `source` を順にたどります。
-**`--module` は Hue の部屋による検索条件ではありません。** UUID 指定なしの場合、候補は Bridge 全体の未管理リソースです。
-部屋と Terraform module の対応は推測しません。
+Blocks target the root module by default. `--module downstairs.washroom` means
+`module.downstairs.module.washroom`, following each module block's `source`.
+**`--module` does not filter by Hue room.** Without UUIDs, the candidates are
+all unmanaged resources on the bridge. The command does not guess which room
+belongs to which Terraform module.
 
-state と設定は読み取るだけなので、構成の書き方は問いません。
-`count`・`for_each` のインスタンス、置き換え中（deposed）のオブジェクト、provider の別名、`hue_device`、
-共有 source・リモート source・root 外の source の module、override ファイル、`.tf.json` を含んでいても動作します。
-リモート source の module の中身は読み取りません。
+State and configuration are only read, so any layout works. That includes
+count and for_each instances, deposed objects, provider aliases, `hue_device`,
+modules with shared, remote or out-of-tree sources, override files and
+`.tf.json`. The contents of remote modules are not read.
 
-`--module` で指定できる配置先だけは、ローカル source の module に限ります。
-その module か上位の module が `count`・`for_each` を使っている場合は、import 先にインスタンスのキーが必要になるため、理由を表示して停止します。
+Only `--module` has a restriction: it must name a module with a local source.
+If that module or a parent uses `count` or `for_each`, the import address would
+need an instance key, so the command stops and says why.
 
-生成名には metadata.name を使用し、日本語・英数字・`_`・`-` を保持します。
-その他は `_` に変換し、数字で始まる名前には `resource_` を付けます。
-アドレスが既存定義や別の import 先と重複する場合、UUID を接尾辞に付けて衝突を避けます。
+Names come from `metadata.name`. Letters in any script, digits, `_` and `-` are
+kept, and anything else becomes `_`. A name that starts with a digit gets a
+`resource_` prefix. If an address collides with an existing definition or
+another import, the UUID is appended to keep it unique.
 
-## 書き込みと中断
+## Writing and recovery
 
-プレビューではファイルを変更しません。`--write` は全対象の検査後に import ブロックを書き込みます。
-内部で実行する Terraform コマンドは、state を読み取る `terraform state pull` と `terraform show -json` のみです。`terraform` を PATH に置いてください。
-import 先の resource 定義はまだないため、`validate` は行いません。
+The preview changes no files. `--write` checks every target before it writes
+anything. The only Terraform commands it runs are `terraform state pull` and
+`terraform show -json`, which read state, so `terraform` must be on your
+`PATH`. The resource definitions for the imports do not exist yet, so it does
+not run `validate`.
 
-書き込み前に `.hue-pull-transaction` にファイルの復旧情報を保存します。この名前は旧コマンドの中断検出との互換性のため維持しています。
-成功時は復旧情報を削除し、ほかのファイルも残しません。
-失敗時は同時編集がない限りファイルを元に戻します。復旧できなかった場合は復旧情報を残し、再実行を停止します。
-中断時は `manifest.json` とバックアップを確認してファイルを修復し、transaction ディレクトリを退避してから再実行してください。
-`.hue-pull-*` は Git の除外対象にしてください。
+Before writing, it saves recovery information in `.hue-pull-transaction`. The
+name is kept for compatibility with the old command's check for an
+interrupted run.
 
-旧 `pull` の比較基準 `.hue-pull-baseline.json` は使用・更新しません。
-旧 `pull` コマンドは移行案内を表示して終了します。`import-blocks` は既存リソースの同期を行いません。
-`--new UUID ADDRESS` は明示アドレス指定の互換構文として残していますが、通常の一括生成に `--new` は不要です。
+- On success, it removes the recovery information and leaves no other files
+  behind.
+- On failure, it restores the files, unless someone else edited them in the
+  meantime. If it cannot restore them, it keeps the recovery information and
+  refuses to run again.
+- After an interruption, check `manifest.json` and the backups and repair the
+  files. Then move the transaction directory aside and run the command again.
+
+Add `.hue-pull-*` to `.gitignore`.
+
+The old `pull` command's baseline, `.hue-pull-baseline.json`, is neither used
+nor updated. The old `pull` command prints a migration message and exits, and
+`import-blocks` does not synchronize existing resources. `--new UUID ADDRESS`
+remains as a compatibility syntax for an explicit address, but a normal run
+does not need `--new`.
