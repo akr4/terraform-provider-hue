@@ -7,6 +7,8 @@ behaviors, and device names and icons.
 **Add lights and devices using the Hue app. This provider manages resources that
 are already registered on a Hue bridge.**
 
+<img src="docs/images/plan.png" width="720" alt="terraform plan output for a Hue scene: one light becomes warmer and dimmer, and another changes from white to orange">
+
 ## Getting started
 
 ### 1. Install
@@ -124,6 +126,13 @@ full reference.
 | `hue-tf preview` | [Render scene colors](docs/preview.md) from a Terraform plan |
 | `hue-tf recall SCENE_UUID` | [Activate a scene](docs/runtime-commands.md) |
 | `hue-tf identify UUID` | [Make a device signal](docs/runtime-commands.md) so you can find it |
+
+`hue-tf preview` shows each light's color in a scene before and after a plan,
+in the terminal or as an HTML page:
+
+<img src="docs/images/preview-terminal.png" width="720" alt="hue-tf preview in a terminal, showing the colors of the five lights in a scene before and after a plan">
+
+<img src="docs/images/preview-html.png" width="720" alt="The HTML page that hue-tf preview writes for the same scene">
 
 ## Development
 
