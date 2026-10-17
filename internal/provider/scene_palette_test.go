@@ -20,6 +20,9 @@ func TestPaletteReconciliation(t *testing.T) {
 	if !palettesEqual([]byte(a), []byte(b)) {
 		t.Fatal("bridge normalization differs")
 	}
+	if !palettesEqual([]byte(a), []byte(strings.Replace(b, `"dimming":[]`, `"dimming":null`, 1))) {
+		t.Fatal("a null category differs")
+	}
 	got, err := reconcilePalette(types.StringValue(a), []byte(b))
 	if err != nil || got.ValueString() != a {
 		t.Fatal(got, err)

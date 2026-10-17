@@ -20,7 +20,8 @@ func palettesEqual(a, b []byte) bool {
 	}
 	for _, m := range []map[string]any{x, y} {
 		for _, k := range []string{"color", "color_temperature", "dimming", "effects", "effects_v2"} {
-			if v, ok := m[k].([]any); ok && len(v) == 0 {
+			// A category that is null has no entries either.
+			if v, ok := m[k].([]any); m[k] == nil || (ok && len(v) == 0) {
 				delete(m, k)
 			}
 		}

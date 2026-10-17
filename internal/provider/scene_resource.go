@@ -63,9 +63,21 @@ func readXY(v types.Object) (hue.XY, bool) {
 	y, yok := v.Attributes()["y"].(types.Float64)
 	return hue.XY{X: x.ValueFloat64(), Y: y.ValueFloat64()}, xok && yok && known(x) && known(y)
 }
+
+// The API's value ranges, which scene actions and dynamic_palette share, and
+// the messages for values outside them.
 func validXY(p hue.XY) bool {
 	return p.X >= 0 && p.Y >= 0 && p.X <= 1 && p.Y <= 1 && p.X+p.Y <= 1+1e-12 && !math.IsNaN(p.X) && !math.IsNaN(p.Y)
 }
+func validBrightness(v float64) bool { return v >= 0 && v <= 100 }
+func validMirek(v int64) bool        { return v >= colors.MinMirek && v <= colors.MaxMirek }
+
+var (
+	xyRange         = "color_xy must have x >= 0, y >= 0 and x + y <= 1."
+	brightnessRange = "brightness must be between 0 and 100."
+	mirekRange      = fmt.Sprintf("mirek must be between %d and %d.", colors.MinMirek, colors.MaxMirek)
+)
+
 func xyAttributes() map[string]schema.Attribute {
 	return map[string]schema.Attribute{"x": schema.Float64Attribute{Required: true}, "y": schema.Float64Attribute{Required: true}}
 }
@@ -190,17 +202,17 @@ func validateAction(a actionModel) []string {
 	if !a.XY.IsNull() && (!a.Mirek.IsNull() || !a.Kelvin.IsNull()) {
 		errs = append(errs, "color_xy cannot be combined with mirek or kelvin. A light shows either a color or a color temperature.")
 	}
-	if known(a.Mirek) && (a.Mirek.ValueInt64() < colors.MinMirek || a.Mirek.ValueInt64() > colors.MaxMirek) {
-		errs = append(errs, "mirek must be between 50 and 1000.")
+	if known(a.Mirek) && !validMirek(a.Mirek.ValueInt64()) {
+		errs = append(errs, mirekRange)
 	}
 	if known(a.Kelvin) && a.Kelvin.ValueInt64() <= 0 {
 		errs = append(errs, "kelvin must be positive.")
 	}
-	if known(a.Brightness) && (a.Brightness.ValueFloat64() < 0 || a.Brightness.ValueFloat64() > 100) {
-		errs = append(errs, "brightness must be between 0 and 100.")
+	if known(a.Brightness) && !validBrightness(a.Brightness.ValueFloat64()) {
+		errs = append(errs, brightnessRange)
 	}
 	if p, ok := readXY(a.XY); ok && !validXY(p) {
-		errs = append(errs, "color_xy must have x >= 0, y >= 0 and x + y <= 1.")
+		errs = append(errs, xyRange)
 	}
 	return errs
 }

@@ -236,8 +236,8 @@ func effectAction(ctx context.Context, e effectModel) (apiEffectAction, error) {
 }
 
 // dynamicPaletteFromJSON reads a palette from the bridge, or from a palette
-// JSON attribute. Empty lists are left out, and a palette with no entries is
-// null, so that generated configuration stays short.
+// JSON attribute. Empty lists and empty effect parameters are left out, and a
+// palette with no entries is null, so that generated configuration stays short.
 func dynamicPaletteFromJSON(raw []byte) (types.Object, error) {
 	null := types.ObjectNull(dynamicPaletteTypes)
 	if len(raw) == 0 || string(raw) == "null" {
@@ -278,7 +278,7 @@ func dynamicPaletteFromJSON(raw []byte) (types.Object, error) {
 }
 func effectValue(a apiEffectAction) types.Object {
 	parameters := types.ObjectNull(effectParameterTypes)
-	if p := a.Parameters; p != nil {
+	if p := a.Parameters; p != nil && *p != (apiEffectParameters{}) {
 		xy, mirek, speed := types.ObjectNull(xyTypes), types.Int64Null(), types.Float64Null()
 		if p.Color != nil {
 			xy = xyValue(p.Color.XY)
@@ -343,18 +343,18 @@ func validateDynamicPalette(ctx context.Context, palette types.Object) diag.Diag
 		}
 	}
 	brightness := func(p path.Path, v types.Float64) {
-		if known(v) && (v.ValueFloat64() < 0 || v.ValueFloat64() > 100) {
-			invalid(p, "brightness must be between 0 and 100.")
+		if known(v) && !validBrightness(v.ValueFloat64()) {
+			invalid(p, brightnessRange)
 		}
 	}
 	mirek := func(p path.Path, v types.Int64) {
-		if known(v) && (v.ValueInt64() < colors.MinMirek || v.ValueInt64() > colors.MaxMirek) {
-			invalid(p, "mirek must be between 50 and 1000.")
+		if known(v) && !validMirek(v.ValueInt64()) {
+			invalid(p, mirekRange)
 		}
 	}
 	xy := func(p path.Path, v types.Object) {
 		if c, ok := readXY(v); ok && !validXY(c) {
-			invalid(p, "color_xy must have x >= 0, y >= 0 and x + y <= 1.")
+			invalid(p, xyRange)
 		}
 	}
 	for i, c := range knownElements[paletteColorModel](ctx, m.Color) {

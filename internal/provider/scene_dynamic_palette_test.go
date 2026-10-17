@@ -48,6 +48,10 @@ func TestDynamicPaletteJSON(t *testing.T) {
 	if !dynamicPaletteEqual(ctx, palette, []byte(strings.Replace(raw, `"effects":[]`, `"effects":[{"effect":"sparkle"}]`, 1))) {
 		t.Fatal("the deprecated effects list makes a difference")
 	}
+	// A category that comes back as null is empty.
+	if !dynamicPaletteEqual(ctx, palette, []byte(strings.Replace(raw, `"dimming":[]`, `"dimming":null`, 1))) {
+		t.Fatal("a null category makes a difference")
+	}
 	if dynamicPaletteEqual(ctx, palette, []byte(strings.Replace(raw, `"speed":0.4`, `"speed":0.5`, 1))) {
 		t.Fatal("a different effect speed makes no difference")
 	}
@@ -60,18 +64,27 @@ func TestDynamicPaletteJSON(t *testing.T) {
 			t.Errorf("%q read as %v, %v", empty, p, err)
 		}
 	}
-	// Empty effect parameters are left out, and either form read back equals
-	// them.
-	emptyParameters, err := dynamicPaletteFromJSON([]byte(`{"effects_v2":[{"action":{"effect":"fire","parameters":{}}}]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	// parameters = {} is not sent, and equals both forms that the bridge may
+	// store. Both read back without parameters.
+	fire := types.ObjectValueMust(effectTypes, map[string]attr.Value{"effect": types.StringValue("fire"), "parameters": types.ObjectValueMust(effectParameterTypes, map[string]attr.Value{"color_xy": types.ObjectNull(xyTypes), "mirek": types.Int64Null(), "speed": types.Float64Null()})})
+	emptyParameters := types.ObjectValueMust(dynamicPaletteTypes, map[string]attr.Value{
+		"color": nullList(paletteColorTypes), "color_temperature": nullList(paletteTemperatureTypes), "dimming": nullList(paletteDimmingTypes),
+		"effects": types.ListValueMust(types.ObjectType{AttrTypes: effectTypes}, []attr.Value{fire}),
+	})
 	if sent, _ := dynamicPaletteJSON(ctx, emptyParameters); strings.Contains(string(sent), "parameters") {
 		t.Errorf("sent %s", sent)
 	}
 	for _, stored := range []string{`{"effects_v2":[{"action":{"effect":"fire"}}]}`, `{"effects_v2":[{"action":{"effect":"fire","parameters":{}}}]}`} {
 		if !dynamicPaletteEqual(ctx, emptyParameters, []byte(stored)) {
 			t.Errorf("parameters = {} differs from %s", stored)
+		}
+		read, err := dynamicPaletteFromJSON([]byte(stored))
+		if err != nil {
+			t.Fatal(err)
+		}
+		effects, err := listOf[effectModel](ctx, read.Attributes()["effects"].(types.List))
+		if err != nil || len(effects) != 1 || !effects[0].Parameters.IsNull() {
+			t.Errorf("%s read as %v, %v", stored, read, err)
 		}
 	}
 	// A scene that the bridge returns without a palette has an empty one.
