@@ -384,20 +384,21 @@ func (r *sceneResource) refresh(ctx context.Context, m *sceneModel) error {
 	if scene.AutoDynamic != nil {
 		m.AutoDynamic = types.BoolValue(*scene.AutoDynamic)
 	}
-	// dynamic_palette prefers the numbers of the prior palette JSON, so read it first.
-	dynamic, err := reconcileDynamicPalette(ctx, m.DynamicPalette, m.Palette, scene.Palette)
-	if err != nil {
-		return err
-	}
-	m.DynamicPalette = dynamic
-	// palette is deprecated. Import and new scenes leave it null, so that
-	// generated configuration has only dynamic_palette.
-	if !m.Palette.IsNull() {
+	// The state holds the palette in the form that the configuration uses.
+	// palette is deprecated, so import and new scenes use dynamic_palette.
+	if m.Palette.IsNull() {
+		dynamic, err := reconcileDynamicPalette(ctx, m.DynamicPalette, scene.Palette)
+		if err != nil {
+			return err
+		}
+		m.DynamicPalette = dynamic
+	} else {
 		palette, err := reconcilePalette(m.Palette, scene.Palette)
 		if err != nil {
 			return err
 		}
 		m.Palette = palette
+		m.DynamicPalette = types.ObjectNull(dynamicPaletteTypes)
 	}
 	m.Actions, d = types.MapValueFrom(ctx, actionType, actions)
 	if d.HasError() {
@@ -510,15 +511,14 @@ func (r *sceneResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	dropPaletteOnChange := false
 	if !req.State.Raw.IsNull() && known(config.Group) && config.Group.Equal(prior.Group) {
 		if config.Speed.IsNull() {
 			planned.Speed = prior.Speed
 		}
-		dropPaletteOnChange = planPalettes(config, &planned, prior)
-	} else if config.Palette.IsNull() {
-		// A new scene does not fill the deprecated palette.
-		planned.Palette = types.StringNull()
+		planPalettes(config, &planned, &prior)
+	} else {
+		// A new scene, or one that replaces the prior scene.
+		planPalettes(config, &planned, nil)
 	}
 	if known(config.Actions) && known(planned.Actions) {
 		oldActions := map[string]actionModel{}
@@ -560,11 +560,6 @@ func (r *sceneResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 		planned.Actions = actions
 	}
 	resp.Diagnostics.Append(resp.Plan.Set(ctx, &planned)...)
-	// A scene that moved to dynamic_palette leaves the deprecated palette out
-	// of its state with its next update.
-	if dropPaletteOnChange && !resp.Diagnostics.HasError() && !planUnchanged(resp.Plan.Raw, req.State.Raw) {
-		resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("palette"), types.StringNull())...)
-	}
 }
 func planAction(config, planned, prior actionModel) actionModel {
 	if config.XY.IsNull() {

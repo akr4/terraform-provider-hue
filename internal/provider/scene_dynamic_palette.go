@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"iter"
-	"math/big"
 	"slices"
 	"strings"
 
@@ -17,7 +16,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
-	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
 // dynamic_palette is the typed form of the API's scene palette. It follows the
@@ -311,15 +309,10 @@ func dynamicPaletteEqual(ctx context.Context, palette types.Object, raw []byte) 
 }
 
 // reconcileDynamicPalette keeps the configured dynamic_palette while the bridge
-// stores it. Otherwise it reads the bridge's palette, preferring the numbers of
-// a palette JSON attribute that the bridge stores, so that rewriting palette as
-// dynamic_palette with the same numbers plans no changes.
-func reconcileDynamicPalette(ctx context.Context, prior types.Object, priorJSON types.String, raw []byte) (types.Object, error) {
+// stores it, and reads the bridge's palette otherwise.
+func reconcileDynamicPalette(ctx context.Context, prior types.Object, raw []byte) (types.Object, error) {
 	if dynamicPaletteEqual(ctx, prior, raw) {
 		return prior, nil
-	}
-	if known(priorJSON) && len(raw) > 0 && palettesEqual([]byte(priorJSON.ValueString()), raw) {
-		return dynamicPaletteFromJSON([]byte(priorJSON.ValueString()))
 	}
 	return dynamicPaletteFromJSON(raw)
 }
@@ -423,65 +416,21 @@ func knownElements[T any](ctx context.Context, list types.List) iter.Seq2[int, T
 	}
 }
 
-// planPalettes plans palette and dynamic_palette for an existing scene. The one
-// that is configured is planned as written. The other keeps its prior value
-// when refresh would read the same value back, and is unknown otherwise. With
-// neither configured, both keep the palette on the bridge.
-//
-// When dynamic_palette is configured, palette keeps its prior value, so that
-// rewriting palette as dynamic_palette plans no changes. planPalettes then
-// reports that the caller should leave palette out of the plan if the scene
-// changes anyway, because refresh would read it back from the bridge.
-func planPalettes(config sceneModel, planned *sceneModel, prior sceneModel) (dropPaletteOnChange bool) {
+// planPalettes plans palette and dynamic_palette. The state holds the palette
+// in the form that the configuration uses: palette while it is configured, and
+// dynamic_palette otherwise. With neither configured, an existing scene keeps
+// its form and the palette on the bridge. prior is nil for a new scene.
+func planPalettes(config sceneModel, planned *sceneModel, prior *sceneModel) {
 	switch {
-	case !config.DynamicPalette.IsNull():
-		planned.Palette = prior.Palette
-		return !prior.Palette.IsNull()
 	case !config.Palette.IsNull():
-		planned.DynamicPalette = types.ObjectUnknown(dynamicPaletteTypes)
-		if config.Palette.Equal(prior.Palette) && followsPalette(prior) {
-			planned.DynamicPalette = prior.DynamicPalette
-		}
-	default:
+		planned.DynamicPalette = types.ObjectNull(dynamicPaletteTypes)
+	case !config.DynamicPalette.IsNull() || prior == nil:
+		planned.Palette = types.StringNull()
+	case !prior.Palette.IsNull():
 		planned.Palette = prior.Palette
+		planned.DynamicPalette = types.ObjectNull(dynamicPaletteTypes)
+	default:
+		planned.Palette = types.StringNull()
 		planned.DynamicPalette = prior.DynamicPalette
-		if !followsPalette(prior) {
-			planned.DynamicPalette = types.ObjectUnknown(dynamicPaletteTypes)
-		}
 	}
-	return false
-}
-
-// followsPalette reports whether refresh reads the dynamic_palette in state back
-// from the palette in state. It does unless the state was saved before
-// dynamic_palette existed and has not been refreshed since.
-func followsPalette(prior sceneModel) bool {
-	if !prior.DynamicPalette.IsNull() || !known(prior.Palette) {
-		return true
-	}
-	next, err := dynamicPaletteFromJSON([]byte(prior.Palette.ValueString()))
-	return err == nil && next.IsNull()
-}
-
-// planUnchanged reports whether Terraform plans no changes from prior to
-// planned. Like Terraform, it compares numbers by their shortest decimal form:
-// a number that the provider read as a float64 equals the same number read
-// from configuration or state. Everything else must be exactly equal. So it
-// never reports no changes where Terraform plans an update; at worst, palette
-// leaves the state in an update of its own.
-func planUnchanged(planned, prior tftypes.Value) bool {
-	diffs, err := planned.Diff(prior)
-	if err != nil {
-		return false
-	}
-	for _, d := range diffs {
-		if d.Value1 == nil || d.Value2 == nil || !d.Value1.Type().Is(tftypes.Number) || !d.Value1.IsKnown() || !d.Value2.IsKnown() || d.Value1.IsNull() || d.Value2.IsNull() {
-			return false
-		}
-		var x, y *big.Float
-		if d.Value1.As(&x) != nil || d.Value2.As(&y) != nil || x.Text('f', -1) != y.Text('f', -1) {
-			return false
-		}
-	}
-	return true
 }

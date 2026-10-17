@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math/big"
 	"regexp"
 	"strings"
 	"testing"
@@ -15,10 +14,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-go/tftypes"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/knownvalue"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
+	"github.com/hashicorp/terraform-plugin-testing/statecheck"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
 	"github.com/hashicorp/terraform-plugin-testing/tfversion"
@@ -159,49 +158,24 @@ func TestPlanPalettes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	none := types.ObjectNull(dynamicPaletteTypes)
 	unknown := types.ObjectUnknown(dynamicPaletteTypes)
+	usesPalette := sceneModel{Palette: types.StringValue(raw), DynamicPalette: none}
+	usesDynamic := sceneModel{Palette: types.StringNull(), DynamicPalette: dynamic}
+	neither := sceneModel{Palette: types.StringNull(), DynamicPalette: none}
 	for name, c := range map[string]struct {
-		config, prior  sceneModel
+		config         sceneModel
+		prior          *sceneModel
 		palette        types.String
 		dynamicPalette types.Object
-		dropOnChange   bool
 	}{
-		"moved to dynamic_palette": {
-			config:  sceneModel{DynamicPalette: dynamic},
-			prior:   sceneModel{Palette: types.StringValue(raw), DynamicPalette: dynamic},
-			palette: types.StringValue(raw), dynamicPalette: dynamic, dropOnChange: true,
-		},
-		"dynamic_palette only": {
-			config:  sceneModel{DynamicPalette: dynamic},
-			prior:   sceneModel{Palette: types.StringNull(), DynamicPalette: dynamic},
-			palette: types.StringNull(), dynamicPalette: dynamic,
-		},
-		"same palette": {
-			config:  sceneModel{Palette: types.StringValue(raw), DynamicPalette: types.ObjectNull(dynamicPaletteTypes)},
-			prior:   sceneModel{Palette: types.StringValue(raw), DynamicPalette: dynamic},
-			palette: types.StringValue(raw), dynamicPalette: dynamic,
-		},
-		"changed palette": {
-			config:  sceneModel{Palette: types.StringValue(`{"dimming":[{"brightness":60}]}`), DynamicPalette: types.ObjectNull(dynamicPaletteTypes)},
-			prior:   sceneModel{Palette: types.StringValue(raw), DynamicPalette: dynamic},
-			palette: types.StringValue(`{"dimming":[{"brightness":60}]}`), dynamicPalette: unknown,
-		},
-		"neither": {
-			config:  sceneModel{Palette: types.StringNull(), DynamicPalette: types.ObjectNull(dynamicPaletteTypes)},
-			prior:   sceneModel{Palette: types.StringValue(raw), DynamicPalette: dynamic},
-			palette: types.StringValue(raw), dynamicPalette: dynamic,
-		},
-		// A state saved before dynamic_palette existed and not refreshed since.
-		"old state": {
-			config:  sceneModel{Palette: types.StringNull(), DynamicPalette: types.ObjectNull(dynamicPaletteTypes)},
-			prior:   sceneModel{Palette: types.StringValue(raw), DynamicPalette: types.ObjectNull(dynamicPaletteTypes)},
-			palette: types.StringValue(raw), dynamicPalette: unknown,
-		},
-		"old state with an empty palette": {
-			config:  sceneModel{Palette: types.StringNull(), DynamicPalette: types.ObjectNull(dynamicPaletteTypes)},
-			prior:   sceneModel{Palette: types.StringValue(`{"color":[],"dimming":[]}`), DynamicPalette: types.ObjectNull(dynamicPaletteTypes)},
-			palette: types.StringValue(`{"color":[],"dimming":[]}`), dynamicPalette: types.ObjectNull(dynamicPaletteTypes),
-		},
+		"moved to dynamic_palette":      {config: usesDynamic, prior: &usesPalette, palette: types.StringNull(), dynamicPalette: dynamic},
+		"moved to palette":              {config: usesPalette, prior: &usesDynamic, palette: types.StringValue(raw), dynamicPalette: none},
+		"neither, with palette":         {config: neither, prior: &usesPalette, palette: types.StringValue(raw), dynamicPalette: none},
+		"neither, with dynamic_palette": {config: neither, prior: &usesDynamic, palette: types.StringNull(), dynamicPalette: dynamic},
+		"new, with palette":             {config: usesPalette, palette: types.StringValue(raw), dynamicPalette: none},
+		"new, with dynamic_palette":     {config: usesDynamic, palette: types.StringNull(), dynamicPalette: dynamic},
+		"new, with neither":             {config: neither, palette: types.StringNull(), dynamicPalette: unknown},
 	} {
 		// Terraform plans configured values as written and the others as unknown.
 		planned := sceneModel{Palette: c.config.Palette, DynamicPalette: c.config.DynamicPalette}
@@ -211,33 +185,9 @@ func TestPlanPalettes(t *testing.T) {
 		if planned.DynamicPalette.IsNull() {
 			planned.DynamicPalette = unknown
 		}
-		drop := planPalettes(c.config, &planned, c.prior)
-		if !planned.Palette.Equal(c.palette) || !planned.DynamicPalette.Equal(c.dynamicPalette) || drop != c.dropOnChange {
-			t.Errorf("%s: planned palette %v, dynamic_palette %v, drop on change %v", name, planned.Palette, planned.DynamicPalette, drop)
-		}
-	}
-}
-
-func TestPlanUnchanged(t *testing.T) {
-	typ := tftypes.Object{AttributeTypes: map[string]tftypes.Type{"n": tftypes.Number}}
-	object := func(n any) tftypes.Value {
-		return tftypes.NewValue(typ, map[string]tftypes.Value{"n": tftypes.NewValue(tftypes.Number, n)})
-	}
-	// 33.333333 read from a float64, and from configuration or state.
-	read := big.NewFloat(33.333333)
-	parsed, _, err := big.ParseFloat("33.333333", 10, 512, big.ToNearestEven)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if read.Cmp(parsed) == 0 {
-		t.Fatal("the two forms of 33.333333 are exactly equal, so this test checks nothing")
-	}
-	if !planUnchanged(object(read), object(parsed)) {
-		t.Error("33.333333 changed")
-	}
-	for name, n := range map[string]any{"another number": big.NewFloat(33.33), "unknown": tftypes.UnknownValue, "null": nil} {
-		if planUnchanged(object(n), object(parsed)) {
-			t.Errorf("%s unchanged", name)
+		planPalettes(c.config, &planned, c.prior)
+		if !planned.Palette.Equal(c.palette) || !planned.DynamicPalette.Equal(c.dynamicPalette) {
+			t.Errorf("%s: planned palette %v, dynamic_palette %v", name, planned.Palette, planned.DynamicPalette)
 		}
 	}
 }
@@ -317,26 +267,49 @@ func TestAccSceneDynamicPalette(t *testing.T) {
 	}})
 }
 
-// Rewriting palette as dynamic_palette with the same numbers plans no changes.
-// The next update of the scene leaves palette out of the state.
+// The state holds the palette in the form that the configuration uses.
+// Rewriting palette as dynamic_palette plans palette out and dynamic_palette
+// in, and the bridge keeps the same palette.
 func TestAccScenePaletteToDynamicPalette(t *testing.T) {
 	b := fakebridge.New()
 	defer b.Close()
-	// palette sends x as written, and dynamic_palette rounds it to 0.6.
-	before := dynamicPaletteSceneConfig(`palette = jsonencode({ color = [{ color = { xy = { x = 0.60001, y = 0.35 } }, dimming = { brightness = 33.333333 } }], color_temperature = [{ color_temperature = { mirek = 370 }, dimming = { brightness = 40 } }], dimming = [] })`)
-	after := dynamicPaletteSceneConfig(`dynamic_palette = { color = [{ color_xy = { x = 0.60001, y = 0.35 }, brightness = 33.333333 }], color_temperature = [{ mirek = 370, brightness = 40 }] }`)
-	renamed := strings.Replace(after, `name = "Palette"`, `name = "Renamed"`, 1)
-	resource.Test(t, resource.TestCase{ProtoV6ProviderFactories: factories(b), CheckDestroy: destroyed(b), Steps: []resource.TestStep{
-		{Config: before, Check: resource.TestCheckResourceAttr("hue_scene.test", "dynamic_palette.color.0.brightness", "33.333333")},
-		{Config: after, PlanOnly: true},
-		{Config: after, Check: resource.TestCheckResourceAttrSet("hue_scene.test", "palette")},
-		{Config: renamed, ConfigPlanChecks: resource.ConfigPlanChecks{PreApply: []plancheck.PlanCheck{
+	const want = `{"color":[{"color":{"xy":{"x":0.6,"y":0.35}},"dimming":{"brightness":33.33}}],"color_temperature":[{"color_temperature":{"mirek":370},"dimming":{"brightness":40}}]}`
+	stored := func(s *terraform.State) error {
+		scene, err := b.ReadScene(context.Background(), s.RootModule().Resources["hue_scene.test"].Primary.ID)
+		if err != nil {
+			return err
+		}
+		if !palettesEqual(scene.Palette, []byte(want)) {
+			return fmt.Errorf("palette stored as %s, want %s", scene.Palette, want)
+		}
+		return nil
+	}
+	// swapped checks a plan that replaces one form of the palette with the other.
+	swapped := func(in, out string) resource.ConfigPlanChecks {
+		return resource.ConfigPlanChecks{PreApply: []plancheck.PlanCheck{
 			plancheck.ExpectResourceAction("hue_scene.test", plancheck.ResourceActionUpdate),
-			plancheck.ExpectKnownValue("hue_scene.test", tfjsonpath.New("palette"), knownvalue.Null()),
-		}}, Check: resource.ComposeAggregateTestCheckFunc(
-			resource.TestCheckNoResourceAttr("hue_scene.test", "palette"),
-			resource.TestCheckResourceAttr("hue_scene.test", "dynamic_palette.color.0.color_xy.x", "0.60001"),
-		)},
-		{Config: renamed, PlanOnly: true},
+			plancheck.ExpectKnownValue("hue_scene.test", tfjsonpath.New(in), knownvalue.NotNull()),
+			plancheck.ExpectKnownValue("hue_scene.test", tfjsonpath.New(out), knownvalue.Null()),
+		}}
+	}
+	only := func(name string) []statecheck.StateCheck {
+		other := map[string]string{"palette": "dynamic_palette", "dynamic_palette": "palette"}[name]
+		return []statecheck.StateCheck{
+			statecheck.ExpectKnownValue("hue_scene.test", tfjsonpath.New(name), knownvalue.NotNull()),
+			statecheck.ExpectKnownValue("hue_scene.test", tfjsonpath.New(other), knownvalue.Null()),
+		}
+	}
+	before := dynamicPaletteSceneConfig(`palette = jsonencode({ color = [{ color = { xy = { x = 0.6, y = 0.35 } }, dimming = { brightness = 33.333333 } }], color_temperature = [{ color_temperature = { mirek = 370 }, dimming = { brightness = 40 } }], dimming = [] })`)
+	after := dynamicPaletteSceneConfig(`dynamic_palette = { color = [{ color_xy = { x = 0.6, y = 0.35 }, brightness = 33.333333 }], color_temperature = [{ mirek = 370, brightness = 40 }] }`)
+	resource.Test(t, resource.TestCase{ProtoV6ProviderFactories: factories(b), CheckDestroy: destroyed(b), Steps: []resource.TestStep{
+		{Config: before, Check: stored, ConfigStateChecks: only("palette")},
+		{Config: after, ConfigPlanChecks: swapped("dynamic_palette", "palette"), Check: resource.ComposeAggregateTestCheckFunc(
+			stored,
+			resource.TestCheckResourceAttr("hue_scene.test", "dynamic_palette.color.0.brightness", "33.333333"),
+		), ConfigStateChecks: only("dynamic_palette")},
+		{Config: after, PlanOnly: true},
+		// And back again.
+		{Config: before, ConfigPlanChecks: swapped("palette", "dynamic_palette"), Check: stored, ConfigStateChecks: only("palette")},
+		{Config: before, PlanOnly: true},
 	}})
 }
