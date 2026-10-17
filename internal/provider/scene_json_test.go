@@ -20,7 +20,7 @@ func TestSceneJSONActionModel(t *testing.T) {
 	old.EffectsV2 = types.StringValue(`{"action":{"effect":"prism","parameters":{"speed":0.4}}}`)
 	old.Dynamics = types.StringValue(`{"duration":800}`)
 	actual := hue.Action{Gradient: json.RawMessage(`{"mode":"interpolated_palette","points":[]}`), Effects: json.RawMessage(`{"effect":"candle"}`)}
-	next := reconcileAction(old, actual, hue.Light{})
+	next := reconcileAction(old, actual)
 	if !next.Gradient.Equal(old.Gradient) || next.Effects.ValueString() != `{"effect":"candle"}` {
 		t.Fatal(next)
 	}
@@ -106,13 +106,13 @@ func TestSceneNewJSONFields(t *testing.T) {
 	prior.EffectsV2 = types.StringValue(`{ "action": {"effect":"fire"} }`)
 	prior.Dynamics = types.StringValue(`{ "duration": 0 }`)
 	actual := hue.Action{EffectsV2: json.RawMessage(`{"action":{"effect":"fire"}}`), Dynamics: json.RawMessage(`{"duration":0}`)}
-	next := reconcileAction(prior, actual, hue.Light{})
+	next := reconcileAction(prior, actual)
 	if !next.EffectsV2.Equal(prior.EffectsV2) || !next.Dynamics.Equal(prior.Dynamics) {
 		t.Fatal("equivalent JSON changed representation")
 	}
 	actual.Dynamics = json.RawMessage(`{"duration":1200}`)
 	actual.EffectsV2 = json.RawMessage(`{"action":{"effect":"candle"}}`)
-	next = reconcileAction(prior, actual, hue.Light{})
+	next = reconcileAction(prior, actual)
 	if next.Dynamics.Equal(prior.Dynamics) || next.EffectsV2.Equal(prior.EffectsV2) {
 		t.Fatal("remote drift not read")
 	}

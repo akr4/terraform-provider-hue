@@ -5,11 +5,14 @@ import (
 	"math"
 	"reflect"
 
+	colors "github.com/akr4/terraform-provider-hue/internal/color"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-// Hue adds empty palette categories and rounds floating point values.
-// Retain configured JSON formatting when these changes are semantically equal.
+// Hue adds empty palette categories and rounds floating point values. It rounds
+// scene brightness to two decimal places, so palette brightness is compared the
+// same way. Retain configured JSON formatting when these changes are
+// semantically equal.
 func palettesEqual(a, b []byte) bool {
 	var x, y map[string]any
 	if json.Unmarshal(a, &x) != nil || json.Unmarshal(b, &y) != nil || x == nil || y == nil {
@@ -22,12 +25,15 @@ func palettesEqual(a, b []byte) bool {
 			}
 		}
 	}
-	return paletteValueEqual(x, y)
+	return paletteValueEqual("", x, y)
 }
-func paletteValueEqual(a, b any) bool {
+func paletteValueEqual(key string, a, b any) bool {
 	switch x := a.(type) {
 	case float64:
 		y, ok := b.(float64)
+		if ok && key == "brightness" {
+			return colors.EqualBrightness(x, y)
+		}
 		return ok && math.Abs(x-y) <= 1e-6
 	case map[string]any:
 		y, ok := b.(map[string]any)
@@ -36,7 +42,7 @@ func paletteValueEqual(a, b any) bool {
 		}
 		for k, v := range x {
 			w, ok := y[k]
-			if !ok || !paletteValueEqual(v, w) {
+			if !ok || !paletteValueEqual(k, v, w) {
 				return false
 			}
 		}
@@ -47,7 +53,7 @@ func paletteValueEqual(a, b any) bool {
 			return false
 		}
 		for i, v := range x {
-			if !paletteValueEqual(v, y[i]) {
+			if !paletteValueEqual(key, v, y[i]) {
 				return false
 			}
 		}

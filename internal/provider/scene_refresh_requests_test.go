@@ -4,86 +4,35 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/akr4/terraform-provider-hue/internal/fakebridge"
 	"github.com/akr4/terraform-provider-hue/internal/hue"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-func TestSceneRefreshCapabilityRequests(t *testing.T) {
-	const count = 10
-	for _, shared := range []bool{false, true} {
-		t.Run(fmt.Sprintf("shared=%t", shared), func(t *testing.T) {
-			b := fakebridge.New()
-			defer b.Close()
-			r := sceneResource{client: b.Client()}
-			for i := 0; i < count; i++ {
-				id := fmt.Sprintf("aaaaaaaa-aaaa-4aaa-8aaa-%012d", i)
-				b.Put("scene", id, hue.Scene{ID: id, Type: "scene", Metadata: hue.Metadata{Name: "Read"}, Group: hue.Reference{RID: "room", RType: "room"}, Actions: []hue.SceneAction{{Target: hue.Reference{RID: fakebridge.LightID, RType: "light"}, Action: hue.Action{On: &hue.On{On: true}}}}})
-			}
-			start := time.Now()
-			for i := 0; i < count; i++ {
-				if !shared {
-					r.client.ResetLightCapabilities()
-				}
-				m := sceneModel{ID: types.StringValue(fmt.Sprintf("aaaaaaaa-aaaa-4aaa-8aaa-%012d", i)), Actions: types.MapNull(actionType)}
-				if err := r.refresh(context.Background(), &m); err != nil {
-					t.Fatal(err)
-				}
-			}
-			lights, scenes := 0, 0
-			for _, req := range b.Requests() {
-				if req.Path == "/clip/v2/resource/light" {
-					lights++
-				} else {
-					scenes++
-				}
-			}
-			want := count
-			if shared {
-				want = 1
-			}
-			if lights != want || scenes != count {
-				t.Fatalf("lights=%d scenes=%d", lights, scenes)
-			}
-			t.Logf("%d scenes: %d GETs in %s", count, lights+scenes, time.Since(start).Round(time.Millisecond))
-		})
-	}
-}
-
-// Applying many scenes writes and then refreshes each one. The writes must not
-// make every refresh reload the light inventory.
-func TestSceneWritesShareCapabilities(t *testing.T) {
+// The bridge stores scene values as sent, so a refresh compares them without
+// the lights' gamut or temperature range and reads only the scene.
+func TestSceneRefreshReadsOnlyTheScene(t *testing.T) {
 	const count = 10
 	b := fakebridge.New()
 	defer b.Close()
 	r := sceneResource{client: b.Client()}
-	ctx := context.Background()
-	zone, err := r.client.Create(ctx, "zone", hue.Group{Metadata: hue.Metadata{Name: "Zone"}, Children: []hue.Reference{{RID: fakebridge.LightID, RType: "light"}}})
-	if err != nil {
-		t.Fatal(err)
+	for i := 0; i < count; i++ {
+		id := fmt.Sprintf("aaaaaaaa-aaaa-4aaa-8aaa-%012d", i)
+		b.Put("scene", id, hue.Scene{ID: id, Type: "scene", Metadata: hue.Metadata{Name: "Read"}, Group: hue.Reference{RID: "room", RType: "room"}, Actions: []hue.SceneAction{{Target: hue.Reference{RID: fakebridge.LightID, RType: "light"}, Action: hue.Action{On: &hue.On{On: true}}}}})
 	}
 	for i := 0; i < count; i++ {
-		id, err := r.client.Create(ctx, "scene", hue.Scene{Type: "scene", Metadata: hue.Metadata{Name: "Write"}, Group: hue.Reference{RID: zone, RType: "zone"}, Actions: []hue.SceneAction{{Target: hue.Reference{RID: fakebridge.LightID, RType: "light"}, Action: hue.Action{On: &hue.On{On: true}}}}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := r.client.Update(ctx, "scene", id, map[string]any{"metadata": hue.Metadata{Name: "Updated"}}); err != nil {
-			t.Fatal(err)
-		}
-		m := sceneModel{ID: types.StringValue(id), Actions: types.MapNull(actionType)}
-		if err := r.refresh(ctx, &m); err != nil {
+		m := sceneModel{ID: types.StringValue(fmt.Sprintf("aaaaaaaa-aaaa-4aaa-8aaa-%012d", i)), Actions: types.MapNull(actionType)}
+		if err := r.refresh(context.Background(), &m); err != nil {
 			t.Fatal(err)
 		}
 	}
-	lights := 0
 	for _, req := range b.Requests() {
-		if req.Method == "GET" && req.Path == "/clip/v2/resource/light" {
-			lights++
+		if req.Method != "GET" || req.Path == "/clip/v2/resource/light" {
+			t.Errorf("unexpected request %s %s", req.Method, req.Path)
 		}
 	}
-	if lights != 1 {
-		t.Fatalf("%d scene writes made %d light inventory requests, want 1", count, lights)
+	if n := len(b.Requests()); n != count {
+		t.Fatalf("%d refreshes made %d requests", count, n)
 	}
 }

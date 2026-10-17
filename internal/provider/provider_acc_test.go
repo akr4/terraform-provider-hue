@@ -123,7 +123,7 @@ func TestAccScene(t *testing.T) {
 		{Config: sceneConfig("on = true\nbrightness = 40\ncolor_xy = { x = 0.6915, y = 0.3083 }", "Evening", "room"), Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr(addr, "actions."+fakebridge.LightID+".color_xy.x", "0.6915"), func(s *terraform.State) error { sceneID = s.RootModule().Resources[addr].Primary.ID; return nil })},
 		{Config: sceneConfig("on = true\nbrightness = 40\ncolor_xy = { x = 0.6915, y = 0.3083 }", "Evening", "room"), PlanOnly: true},
 		{ResourceName: addr, ImportState: true, ImportStateVerify: true},
-		{Config: sceneConfig("on = false\nbrightness = 20\nkelvin = 1000", "Warm", "room"), Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr(addr, "actions."+fakebridge.LightID+".kelvin", "1000"), resource.TestCheckResourceAttr(addr, "actions."+fakebridge.LightID+".mirek", "450"), resource.TestCheckNoResourceAttr(addr, "actions."+fakebridge.LightID+".color_xy"))},
+		{Config: sceneConfig("on = false\nbrightness = 20\nkelvin = 1000", "Warm", "room"), Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr(addr, "actions."+fakebridge.LightID+".kelvin", "1000"), resource.TestCheckResourceAttr(addr, "actions."+fakebridge.LightID+".mirek", "1000"), resource.TestCheckNoResourceAttr(addr, "actions."+fakebridge.LightID+".color_xy"))},
 		{Config: sceneConfig("on = false\nbrightness = 20\nkelvin = 1000", "Warm", "room"), PlanOnly: true},
 		{Config: sceneConfig("mirek = 200", "Cool", "room"), Check: resource.TestCheckResourceAttr(addr, "actions."+fakebridge.LightID+".kelvin", "5000")},
 		{PreConfig: func() {
