@@ -15,7 +15,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -30,15 +29,13 @@ const maxRetries = 3
 const maxBody = 16 << 20
 
 type Client struct {
-	base           string
-	key            string
-	http           *http.Client
-	limiter        *rate.Limiter
-	sem            chan struct{}
-	readSem        chan struct{}
-	reads          *readPacer
-	capabilitiesMu sync.Mutex
-	capabilities   map[string]Light
+	base    string
+	key     string
+	http    *http.Client
+	limiter *rate.Limiter
+	sem     chan struct{}
+	readSem chan struct{}
+	reads   *readPacer
 }
 type APIError struct {
 	Status       int

@@ -260,7 +260,7 @@ action object:
 ### kelvin ↔ mirek
 
 - `mirek = round(1_000_000 / kelvin)`、`kelvin = round(1_000_000 / mirek)`
-- light の対応範囲（`mirek_min` / `mirek_max`）外の値を指定した場合、bridge が範囲内に丸めて保存する。Read 時の比較では設定値を同じ範囲にクリップしてから比較する（xy の色域クリップと同じ扱い）
+- kelvin から変換した mirek は、API の範囲 50〜1000 に収めて送る
 
 ### provider 定義関数
 
@@ -268,17 +268,21 @@ action object:
 - 関数名は `<返すもの>_from_<入力>` とし、引数の単位を名前に含める
 - 関数の結果は mirek の数値なので、state・比較・import は `mirek` を直接書いた場合と同じになる
 
+### bridge が保存する値
+
+- bridge はシーンの xy と mirek を、light の色域や対応範囲（`mirek_min` / `mirek_max`）の外でも送ったとおりに保存する。明るさは小数 2 桁に丸めて保存する（2026-10-17 に実機で確認。#25・#28）
+- provider は xy を小数 4 桁、明るさを小数 2 桁に丸めて送る。palette の明るさも同じく小数 2 桁に丸めて送る（bridge が palette の明るさをどう保存するかは未確認だが、丸めて送れば保存値と比べ方がそろう）
+- light がその値をどう表示するかは確認していない
+
 ### semantic equality
 
-- `color_xy`: 設定値の xy と bridge の値の差が x, y ともに 0.001 以内なら等しいとみなす
-- `mirek`: 設定値（kelvin から変換した値、または直接指定）と bridge の値の差が ±1 以内なら等しいとみなす
-- 等しい場合、state には設定側の表現（ユーザーが書いた xy / kelvin）をそのまま保持する
-- 等しくない場合（drift）、state の xy / mirek を実機の値へ更新する。色温度の kelvin も再計算する
-
-### Read での色域取得
-
-- scene の Read では `actions` に含まれる light の色域・色温度の対応範囲を取得する。照明一覧は provider の Configure ごとに共有し、未知の light ID を参照したときだけ再取得する。provider のどの書き込みでも色域と色温度の範囲は変わらないため、書き込み後には再取得しない。点灯状態やシーン本体はキャッシュしない。
-- plan 時には色域を参照しない。クリップは Read 時の比較で吸収する
+- 設定値に送るときと同じ変換をした値と、bridge の値を比べる。light の色域や対応範囲は使わない
+- `color_xy`: 小数 4 桁に丸めた設定値と bridge の値の差が x, y ともに 0.001 以内なら等しいとみなす
+- `mirek`: 設定値（kelvin から変換して API の範囲に収めた値、または直接指定）と bridge の値の差が ±1 以内なら等しいとみなす
+- `brightness`: 小数 2 桁に丸めた設定値と bridge の値が同じなら等しいとみなす
+- 等しい場合、state には設定側の表現（ユーザーが書いた xy / kelvin / brightness）をそのまま保持する
+- 等しくない場合（drift）、state の値を実機の値へ更新する。色温度の kelvin も再計算する
+- scene の Read はシーンだけを読む。light の一覧は取得しない
 
 ## 10. 補助 CLI `hue-tf`
 
@@ -308,7 +312,7 @@ action object:
 
 - unit test: 色変換、semantic equality、クライアントの rate limit / リトライは純粋関数または httptest で検証する
 - acceptance test: `internal/fakebridge` に v2 の `/clip/v2/resource/*` を模したフェイクサーバーを実装し、`TF_ACC=1` のテストを CI（GitHub Actions）でフェイクに対して実行する
-- フェイクのレスポンスは、実機から取得した JSON を fixture として持ち、可能な限り実機の挙動（xy の丸め、404 / 429 の形式）に合わせる
+- フェイクのレスポンスは、実機から取得した JSON を fixture として持ち、可能な限り実機の挙動（シーンの値をそのまま保存し明るさだけ小数 2 桁に丸めること、404 / 429 の形式）に合わせる
 - テスト専用の実機 bridge は持たない。作者の自宅 bridge に対する確認は手動で行い、自動テストの対象にしない
 
 ## 12. リリースと公開
@@ -411,4 +415,4 @@ JSON objectであることを検証し、機種固有の内部制約はBridgeで
 
 有効な `effects_v2.action.effect` と、同じアクション直下の `color_xy` / `mirek` / `kelvin` / `gradient` の併用を検証で拒否する。エフェクト内の色指定は `action.parameters` に置く。`no_effect` の併用可否は未検証のため、この事前検証の対象外とする。
 
-色温度の入力検証とKelvin変換の制限にはAPI範囲50〜1000 mirekを使う。個別照明の範囲補正との等価比較は `mirek_schema` に従う。能力範囲が欠落・不正な場合はAPI範囲を使い、旧来の153〜500を仮定して差分を隠さない。
+色温度の入力検証とKelvin変換の制限にはAPI範囲50〜1000 mirekを使う。bridge は light の範囲の外の値もそのまま保存するため、等価比較に `mirek_schema` は使わない。

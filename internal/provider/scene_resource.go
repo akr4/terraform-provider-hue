@@ -89,10 +89,10 @@ func (r *sceneResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 			"effects_v2": schema.StringAttribute{Optional: true, Computed: true, Description: "Effect v2 action and parameters as a JSON object; use jsonencode. Preserved from the bridge when omitted. Use action.effect = no_effect to stop an effect."},
 			"dynamics":   schema.StringAttribute{Optional: true, Computed: true, Description: "Light transition settings as a JSON object; use jsonencode({ duration = 800 }) for milliseconds. Preserved from the bridge when omitted."},
 			"on":         schema.BoolAttribute{Optional: true, Description: "On/off state."},
-			"brightness": schema.Float64Attribute{Optional: true, Description: "Brightness from 0 to 100."},
+			"brightness": schema.Float64Attribute{Optional: true, Description: "Brightness from 0 to 100, rounded to two decimal places."},
 			"mirek":      schema.Int64Attribute{Optional: true, Computed: true, Description: "Color temperature, 50–1000 mirek. Individual lights may support a narrower range. Conflicts with kelvin; may omit both."},
 			"kelvin":     schema.Int64Attribute{Optional: true, Computed: true, Description: "Positive color temperature in kelvin. Converted to mirek and bounded to the API range 50–1000; individual lights may further limit it. Conflicts with mirek. Use mirek with provider::hue::mirek_from_kelvin instead.", DeprecationMessage: "Use mirek = provider::hue::mirek_from_kelvin(KELVIN) instead. kelvin will be removed in a future version."},
-			"color_xy":   schema.SingleNestedAttribute{Optional: true, Computed: true, Description: "CIE xy chromaticity. Brightness is configured separately.", Attributes: map[string]schema.Attribute{"x": schema.Float64Attribute{Required: true}, "y": schema.Float64Attribute{Required: true}}},
+			"color_xy":   schema.SingleNestedAttribute{Optional: true, Computed: true, Description: "CIE xy chromaticity, rounded to four decimal places. Brightness is configured separately.", Attributes: map[string]schema.Attribute{"x": schema.Float64Attribute{Required: true}, "y": schema.Float64Attribute{Required: true}}},
 		}}},
 	}}
 }
@@ -214,7 +214,11 @@ func (r *sceneResource) body(ctx context.Context, m sceneModel, config sceneMode
 		if err := hue.ValidateConfiguration([]byte(m.Palette.ValueString())); err != nil {
 			return scene, fmt.Errorf("invalid palette: %w", err)
 		}
-		scene.Palette = json.RawMessage(m.Palette.ValueString())
+		palette, err := roundPaletteBrightness([]byte(m.Palette.ValueString()))
+		if err != nil {
+			return scene, fmt.Errorf("invalid palette: %w", err)
+		}
+		scene.Palette = palette
 	}
 	actions, d := actionsFrom(ctx, m.Actions)
 	if d.HasError() {
@@ -259,14 +263,14 @@ func (r *sceneResource) body(ctx context.Context, m sceneModel, config sceneMode
 			action.On = &hue.On{On: a.On.ValueBool()}
 		}
 		if known(a.Brightness) {
-			action.Dimming = &hue.Dimming{Brightness: a.Brightness.ValueFloat64()}
+			action.Dimming = &hue.Dimming{Brightness: colors.RoundBrightness(a.Brightness.ValueFloat64())}
 		}
 		// Only configured color representations select writes. Computed counterparts
 		// from prior state must never override a newly configured value or removal.
 		if known(c.Mirek) {
 			action.ColorTemperature = &hue.Temperature{Mirek: c.Mirek.ValueInt64()}
 		} else if known(c.Kelvin) {
-			action.ColorTemperature = &hue.Temperature{Mirek: colors.ClampMirek(colors.KelvinToMirek(c.Kelvin.ValueInt64()), colors.MinMirek, colors.MaxMirek)}
+			action.ColorTemperature = &hue.Temperature{Mirek: colors.MirekForKelvin(c.Kelvin.ValueInt64())}
 		}
 		if p, ok := readXY(c.XY); ok {
 			action.Color = &hue.ActionColor{XY: colors.Round(p)}
@@ -276,9 +280,10 @@ func (r *sceneResource) body(ctx context.Context, m sceneModel, config sceneMode
 	return scene, nil
 }
 
-// reconcileAction keeps the user's exact representation when the bridge value
-// is equivalent in xy/mirek space, including clipping to hardware capabilities.
-func reconcileAction(prior actionModel, actual hue.Action, light hue.Light) actionModel {
+// reconcileAction keeps the user's exact representation when the bridge stored
+// what the provider sent for it. The bridge stores xy and mirek as sent, even
+// outside the light's gamut or range, and rounds brightness to two decimal places.
+func reconcileAction(prior actionModel, actual hue.Action) actionModel {
 	next := emptyAction()
 	next.Gradient = sceneJSONValue(prior.Gradient, actual.Gradient)
 	next.Effects = sceneJSONValue(prior.Effects, actual.Effects)
@@ -289,21 +294,14 @@ func reconcileAction(prior actionModel, actual hue.Action, light hue.Light) acti
 	}
 	if actual.Dimming != nil {
 		next.Brightness = types.Float64Value(actual.Dimming.Brightness)
+		if known(prior.Brightness) && colors.EqualBrightness(prior.Brightness.ValueFloat64(), actual.Dimming.Brightness) {
+			next.Brightness = prior.Brightness
+		}
 	}
 	if actual.Color != nil {
-		gamut := (*hue.Gamut)(nil)
-		if light.Color != nil {
-			gamut = colors.Gamut(light.Color.GamutType)
-			if gamut == nil {
-				gamut = light.Color.Gamut
-			}
-		}
 		next.XY = xyValue(actual.Color.XY)
-		expected, ok := readXY(prior.XY)
-		if ok && colors.EqualXY(expected, actual.Color.XY, gamut) {
-			if known(prior.XY) {
-				next.XY = prior.XY
-			}
+		if expected, ok := readXY(prior.XY); ok && colors.EqualXY(expected, actual.Color.XY) {
+			next.XY = prior.XY
 		}
 	}
 	if actual.ColorTemperature != nil {
@@ -317,14 +315,10 @@ func reconcileAction(prior actionModel, actual hue.Action, light hue.Light) acti
 		}
 		expected, ok := prior.Mirek.ValueInt64(), known(prior.Mirek)
 		if !ok && known(prior.Kelvin) {
-			expected = colors.KelvinToMirek(prior.Kelvin.ValueInt64())
+			expected = colors.MirekForKelvin(prior.Kelvin.ValueInt64())
 			ok = true
 		}
-		min, max := colors.MinMirek, colors.MaxMirek
-		if light.ColorTemperature != nil {
-			min, max = light.ColorTemperature.MirekSchema.Min, light.ColorTemperature.MirekSchema.Max
-		}
-		if ok && colors.EqualMirek(expected, m, min, max) {
+		if ok && colors.EqualMirek(expected, m) {
 			if known(prior.Mirek) {
 				next.Mirek = prior.Mirek
 			}
@@ -339,17 +333,6 @@ func (r *sceneResource) refresh(ctx context.Context, m *sceneModel) error {
 	scene, err := hue.GetOne[hue.Scene](ctx, r.client, "scene", m.ID.ValueString())
 	if err != nil {
 		return err
-	}
-	byID := map[string]hue.Light{}
-	if len(scene.Actions) > 0 {
-		ids := make([]string, 0, len(scene.Actions))
-		for _, item := range scene.Actions {
-			ids = append(ids, item.Target.RID)
-		}
-		byID, err = r.client.LightCapabilities(ctx, ids)
-		if err != nil {
-			return fmt.Errorf("read light capabilities: %w", err)
-		}
 	}
 	prior, d := actionsFrom(ctx, m.Actions)
 	if d.HasError() {
@@ -367,11 +350,7 @@ func (r *sceneResource) refresh(ctx context.Context, m *sceneModel) error {
 		if _, duplicate := actions[item.Target.RID]; duplicate {
 			return fmt.Errorf("duplicate scene action for light %s", item.Target.RID)
 		}
-		light, ok := byID[item.Target.RID]
-		if !ok {
-			return fmt.Errorf("scene references missing light %s", item.Target.RID)
-		}
-		actions[item.Target.RID] = reconcileAction(old, item.Action, light)
+		actions[item.Target.RID] = reconcileAction(old, item.Action)
 	}
 	m.Name = types.StringValue(scene.Metadata.Name)
 	m.Group = types.StringValue(scene.Group.RID)

@@ -16,32 +16,11 @@ func TestXYDisplay(t *testing.T) {
 		t.Fatal(got)
 	}
 }
-func TestGamutClipping(t *testing.T) {
-	for _, kind := range []string{"A", "B", "C"} {
-		t.Run(kind, func(t *testing.T) {
-			g := Gamut(kind)
-			inside := hue.XY{X: (g.Red.X + g.Green.X + g.Blue.X) / 3, Y: (g.Red.Y + g.Green.Y + g.Blue.Y) / 3}
-			if Clip(inside, g) != inside {
-				t.Fatal("inside moved")
-			}
-			p := Clip(hue.XY{X: 1, Y: 0}, g)
-			if !EqualXY(hue.XY{X: 1, Y: 0}, p, g) {
-				t.Fatal("clipping not equivalent")
-			}
-			if distance(Clip(p, g), p) > 1e-12 {
-				t.Fatal("clip not idempotent")
-			}
-		})
-	}
-	if Gamut("other") != nil {
-		t.Fatal("unknown gamut")
-	}
-}
 func TestSemanticTolerance(t *testing.T) {
-	if !EqualXY(hue.XY{X: .3, Y: .3}, hue.XY{X: .301, Y: .299}, nil) {
+	if !EqualXY(hue.XY{X: .3, Y: .3}, hue.XY{X: .301, Y: .299}) {
 		t.Fatal("boundary should match")
 	}
-	if EqualXY(hue.XY{X: .3, Y: .3}, hue.XY{X: .3011, Y: .3}, nil) {
+	if EqualXY(hue.XY{X: .3, Y: .3}, hue.XY{X: .3011, Y: .3}) {
 		t.Fatal("drift should differ")
 	}
 	for _, tc := range []struct{ k, m int64 }{{2700, 370}, {2000, 500}, {6500, 154}} {
@@ -52,7 +31,26 @@ func TestSemanticTolerance(t *testing.T) {
 	if MirekToKelvin(370) != 2703 {
 		t.Fatal("inverse rounding")
 	}
-	if !EqualMirek(500, 450, 200, 450) || !EqualMirek(370, 371, 153, 500) || EqualMirek(370, 372, 153, 500) {
-		t.Fatal("mirek tolerance/clipping")
+	if !EqualMirek(370, 371) || EqualMirek(370, 372) || EqualMirek(500, 450) {
+		t.Fatal("mirek tolerance")
+	}
+}
+
+// The bridge stores xy as sent, even outside a light's gamut, and rounds
+// brightness to two decimal places.
+func TestStoredValues(t *testing.T) {
+	if !EqualXY(hue.XY{X: 0.72345, Y: 0.26}, hue.XY{X: 0.7235, Y: 0.26}) {
+		t.Fatal("xy outside the gamut is stored as sent")
+	}
+	for _, tc := range []struct{ config, stored float64 }{{49.80392156862745, 49.8}, {49.8039, 49.8}, {33.33333333333333, 33.33}, {49.8, 49.8}, {40, 40}} {
+		if got := RoundBrightness(tc.config); got != tc.stored {
+			t.Errorf("RoundBrightness(%v) = %v", tc.config, got)
+		}
+		if !EqualBrightness(tc.config, tc.stored) {
+			t.Errorf("brightness %v stored as %v", tc.config, tc.stored)
+		}
+	}
+	if EqualBrightness(33.33, 33.34) {
+		t.Fatal("brightness drift should differ")
 	}
 }

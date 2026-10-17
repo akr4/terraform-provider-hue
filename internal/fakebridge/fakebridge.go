@@ -304,19 +304,18 @@ func (b *Bridge) serve(w http.ResponseWriter, r *http.Request) {
 					failure(w, 400, "unknown light")
 					return
 				}
-				if item.Action.Color != nil {
-					if light.Color == nil {
-						failure(w, 400, "light does not support color")
-						return
-					}
-					scene.Actions[i].Action.Color.XY = colors.Round(colors.Clip(item.Action.Color.XY, colors.Gamut(light.Color.GamutType)))
+				if item.Action.Color != nil && light.Color == nil {
+					failure(w, 400, "light does not support color")
+					return
 				}
-				if item.Action.ColorTemperature != nil {
-					if light.ColorTemperature == nil {
-						failure(w, 400, "light does not support color temperature")
-						return
-					}
-					scene.Actions[i].Action.ColorTemperature.Mirek = colors.ClampMirek(item.Action.ColorTemperature.Mirek, light.ColorTemperature.MirekSchema.Min, light.ColorTemperature.MirekSchema.Max)
+				if item.Action.ColorTemperature != nil && light.ColorTemperature == nil {
+					failure(w, 400, "light does not support color temperature")
+					return
+				}
+				// Like a real bridge, keep xy and mirek as sent, even outside the
+				// light's gamut or range, and round brightness to two decimal places.
+				if item.Action.Dimming != nil {
+					scene.Actions[i].Action.Dimming.Brightness = colors.RoundBrightness(item.Action.Dimming.Brightness)
 				}
 			}
 			raw, _ = json.Marshal(scene)
