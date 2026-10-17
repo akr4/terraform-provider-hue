@@ -89,7 +89,8 @@ func TestValidateDynamicPalette(t *testing.T) {
 			t.Errorf("%s accepted", name)
 		}
 	}
-	if errs := validateDynamicPalette(ctx, read(`{"color":[`+color+`],"effects_v2":[{"action":{"effect":"candle"}}]}`)); len(errs) > 0 {
+	// The bridge accepts an effect with both a color and a color temperature.
+	if errs := validateDynamicPalette(ctx, read(`{"color":[`+color+`],"effects_v2":[{"action":{"effect":"candle"}},{"action":{"effect":"sparkle","parameters":{"color":{"xy":{"x":0.3,"y":0.13}},"color_temperature":{"mirek":250}}}}]}`)); len(errs) > 0 {
 		t.Fatal(errs)
 	}
 }
@@ -223,8 +224,8 @@ func TestAccSceneDynamicPalette(t *testing.T) {
 			resource.TestCheckResourceAttr("hue_scene.test", "dynamic_palette.color.1.brightness", "33.333333"),
 		)},
 		{Config: written, PlanOnly: true},
-		// The deprecated effects list, which the bridge may fill in from
-		// effects_v2, makes no difference.
+		// The deprecated effects list, which other apps may still write, makes
+		// no difference.
 		{PreConfig: func() {
 			s, err := b.ReadScene(context.Background(), id)
 			if err != nil {

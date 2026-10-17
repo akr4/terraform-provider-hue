@@ -240,7 +240,7 @@ action object:
 - `mirek` / `kelvin` は ExactlyOneOf ではなく「両方省略可、両方指定は不可」。片方を指定すると他方は provider が計算して埋める。`kelvin` は非推奨で、指定すると validate と plan で警告を出す
 - ライトは色か色温度のどちらか一方で光るため、同じアクションに `color_xy` と `mirek` / `kelvin` は書けない（検査で止める）。実機のシーン 1,516 アクションに、両方を持つものはなかった
 - 色は `color_xy` と独立した `brightness` で指定する。`color_hex` は廃止し、state schema version 1 で旧属性だけを除去して xy を保持する。
-- `dynamic_palette` は Optional + Computed の型のある属性。API の palette に合わせ、中身が 1 つの入れ物は actions と同じく平らにする（`color_xy`・`mirek`・`brightness`）。`color` は 9 個まで、`color_temperature` と `dimming` は 1 個まで、`effects` は 3 個までを plan 時に検査する。明示時は書いたリストを送り、書かなかったリストは空にする。未指定時は実機の値を維持する。actions とは独立して管理し、相互の自動生成は行わない。エフェクトは `effects_v2` の形で送り、非推奨の `effects` は扱わない。bridge が `effects_v2` から `effects` を埋めても差分にしない
+- `dynamic_palette` は Optional + Computed の型のある属性。API の palette に合わせ、中身が 1 つの入れ物は actions と同じく平らにする（`color_xy`・`mirek`・`brightness`）。`color` は 9 個まで、`color_temperature` と `dimming` は 1 個まで、`effects` は 3 個までを plan 時に検査する。明示時は書いたリストを送り、書かなかったリストは空にする。未指定時は実機の値を維持する。actions とは独立して管理し、相互の自動生成は行わない。エフェクトは `effects_v2` の形で送り、非推奨の `effects` は扱わない。ほかのアプリが `effects` を書いても差分にしない
 - `palette`（JSON 文字列）は非推奨。`dynamic_palette` と同時には書けない。非推奨の期間は state に両方の形を持たせ、`palette` を同じ数値の `dynamic_palette` に書き換えたときは差分が出ない。書き換えたシーンは、次の更新で state から `palette` を外す（残すと、更新後に読み直した値が plan と食い違うことがある）。import と新しいシーンでは `palette` を埋めず、生成される設定は `dynamic_palette` だけになる
 - `actions` は Map なので、要素の追加・削除・変更は light ごとに独立した差分として表示される
 
@@ -278,6 +278,7 @@ action object:
 
 - bridge はシーンの xy と mirek を、light の色域や対応範囲（`mirek_min` / `mirek_max`）の外でも送ったとおりに保存する。明るさは小数 2 桁に丸めて保存する（2026-10-17 に実機で確認。#25・#28）
 - provider は xy を小数 4 桁、明るさを小数 2 桁に丸めて送る。palette の明るさも同じく小数 2 桁に丸めて送る（bridge が palette の明るさをどう保存するかは未確認だが、丸めて送れば保存値と比べ方がそろう）
+- palette の `effects_v2` は送ったとおりに保存する。parameters に色と色温度を一緒に書いても受け付け、書かなかった parameters は埋めない。非推奨の `effects` は空のまま（2026-10-17 に実機で確認）
 - light がその値をどう表示するかは確認していない
 
 ### semantic equality

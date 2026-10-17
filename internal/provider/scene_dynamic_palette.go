@@ -101,7 +101,7 @@ func emptyPalette() apiPalette {
 
 // modeledPalette keeps the parts of a palette from the bridge that
 // dynamic_palette models. It leaves out the deprecated effects list, which the
-// bridge may fill in from effects_v2.
+// bridge leaves empty but other apps may still write.
 func modeledPalette(raw []byte) ([]byte, error) {
 	p := emptyPalette()
 	if err := json.Unmarshal(raw, &p); err != nil {
