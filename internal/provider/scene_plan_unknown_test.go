@@ -66,7 +66,7 @@ resource "terraform_data" "action" {
 			plancheck.ExpectResourceAction(addr, plancheck.ResourceActionUpdate),
 			plancheck.ExpectUnknownValue(addr, tfjsonpath.New("actions").AtMapKey(fakebridge.WhiteLightID).AtMapKey("on")),
 			plancheck.ExpectKnownValue(addr, tfjsonpath.New("speed"), knownvalue.Float64Exact(0.4)),
-			plancheck.ExpectKnownValue(addr, tfjsonpath.New("palette"), knownvalue.NotNull()),
+			plancheck.ExpectKnownValue(addr, tfjsonpath.New("dynamic_palette").AtMapKey("dimming").AtSliceIndex(0).AtMapKey("brightness"), knownvalue.Float64Exact(42)),
 			plancheck.ExpectKnownValue(addr, color.AtMapKey("mirek"), knownvalue.Int64Exact(370)),
 			plancheck.ExpectKnownValue(addr, color.AtMapKey("dynamics"), knownvalue.StringExact(`{"duration":800}`)),
 			plancheck.ExpectKnownValue(addr, color.AtMapKey("gradient"), knownvalue.Null()),

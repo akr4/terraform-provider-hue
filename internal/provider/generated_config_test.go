@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -118,6 +119,14 @@ func TestAccGeneratedConfig(t *testing.T) {
 		return out
 	}
 	run("plan", "-input=false", "-no-color", "-generate-config-out=generated.tf", "-out=import.tfplan")
+	// The deprecated palette is not generated, only dynamic_palette.
+	generated, err := os.ReadFile(filepath.Join(dir, "generated.tf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(generated), "dynamic_palette = {") || regexp.MustCompile(`(?m)^\s*palette\s*=`).Match(generated) {
+		t.Fatalf("generated configuration should use dynamic_palette only:\n%s", generated)
+	}
 	var plan struct {
 		ResourceChanges []struct {
 			Address string

@@ -86,8 +86,9 @@ func TestAccScenePalette(t *testing.T) {
 		}, Config: config("first", first), PlanOnly: true},
 		{Config: config("second", second), Check: check(second)},
 		{ResourceName: "hue_scene.test", ImportState: true, ImportStateCheck: func(states []*terraform.InstanceState) error {
-			if len(states) != 1 || !palettesEqual([]byte(states[0].Attributes["palette"]), []byte(second)) {
-				return fmt.Errorf("palette lost on import")
+			// Import reads the palette into dynamic_palette only.
+			if len(states) != 1 || states[0].Attributes["dynamic_palette.color.0.color_xy.x"] != "0.45" || states[0].Attributes["dynamic_palette.color.0.brightness"] != "20" || states[0].Attributes["palette"] != "" {
+				return fmt.Errorf("palette lost on import: %v", states[0].Attributes)
 			}
 			return nil
 		}},
