@@ -14,7 +14,7 @@ resource "hue_scene" "evening" {
     (data.hue_light.desk.id) = {
       on         = true
       brightness = 40
-      kelvin     = 2700
+      mirek      = provider::hue::mirek_from_kelvin(2700)
     }
   }
   speed        = 0.6

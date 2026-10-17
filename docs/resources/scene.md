@@ -29,7 +29,7 @@ resource "hue_scene" "evening" {
     (data.hue_light.desk.id) = {
       on         = true
       brightness = 40
-      kelvin     = 2700
+      mirek      = provider::hue::mirek_from_kelvin(2700)
     }
   }
   speed        = 0.6
@@ -67,7 +67,7 @@ Optional:
 - `effects` (String) Effect action as a JSON object; use jsonencode. Preserved from the bridge when omitted.
 - `effects_v2` (String) Effect v2 action and parameters as a JSON object; use jsonencode. Preserved from the bridge when omitted. Use action.effect = no_effect to stop an effect.
 - `gradient` (String) Gradient action as a JSON object; use jsonencode. Preserved from the bridge when omitted.
-- `kelvin` (Number) Positive color temperature in kelvin. Converted to mirek and bounded to the API range 50–1000; individual lights may further limit it. Conflicts with mirek.
+- `kelvin` (Number, Deprecated) Positive color temperature in kelvin. Converted to mirek and bounded to the API range 50–1000; individual lights may further limit it. Conflicts with mirek. Use mirek with provider::hue::mirek_from_kelvin instead.
 - `mirek` (Number) Color temperature, 50–1000 mirek. Individual lights may support a narrower range. Conflicts with kelvin; may omit both.
 - `on` (Boolean) On/off state.
 

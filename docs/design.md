@@ -204,7 +204,7 @@ resource "hue_scene" "evening" {
     (data.hue_light.desk.id) = {
       on          = true
       brightness  = 40
-      kelvin      = 2700
+      mirek       = provider::hue::mirek_from_kelvin(2700)
     }
     (data.hue_light.floor.id) = {
       on         = true
@@ -234,10 +234,10 @@ action object:
 | `on` | Optional | 点灯状態 |
 | `brightness` | Optional | 0.0〜100.0 |
 | `mirek` | Optional, Computed | 色温度（50〜1000 mirek、API全体の範囲） |
-| `kelvin` | Optional, Computed | 色温度（ケルビン）。`mirek` と排他 |
+| `kelvin` | Optional, Computed, **非推奨** | 色温度（ケルビン）。`mirek` と排他。代わりに `mirek` と `provider::hue::mirek_from_kelvin` を使う |
 | `color_xy` | Optional, Computed, object `{x, y}` | CIE xy |
 
-- `mirek` / `kelvin` は ExactlyOneOf ではなく「両方省略可、両方指定は不可」。片方を指定すると他方は provider が計算して埋める
+- `mirek` / `kelvin` は ExactlyOneOf ではなく「両方省略可、両方指定は不可」。片方を指定すると他方は provider が計算して埋める。`kelvin` は非推奨で、指定すると validate と plan で警告を出す
 - 色は `color_xy` と独立した `brightness` で指定する。`color_hex` は廃止し、state schema version 1 で旧属性だけを除去して xy を保持する。
 - `palette` は Optional + Computed の JSON 文字列。明示時は書き込み、未指定時は実機の値を維持する。actions とは独立して管理し、相互の自動生成は行わない。
 - `actions` は Map なので、要素の追加・削除・変更は light ごとに独立した差分として表示される
@@ -246,7 +246,7 @@ action object:
 
 ### 方針
 
-- bridge 側の正の値は xy と mirek。HCL の色は xy、色温度は mirek または kelvin で書く
+- bridge 側の正の値は xy と mirek。HCL の色は xy、色温度は mirek で書く。ケルビンは provider 定義関数 `provider::hue::mirek_from_kelvin` で mirek に変換する
 - 比較（差分判定）は必ず xy 空間・mirek 空間で行う。kelvin 同士を比較しない
 - 変換は `internal/color` パッケージに純粋関数として実装し、table-driven test で検証する
 
@@ -261,6 +261,12 @@ action object:
 
 - `mirek = round(1_000_000 / kelvin)`、`kelvin = round(1_000_000 / mirek)`
 - light の対応範囲（`mirek_min` / `mirek_max`）外の値を指定した場合、bridge が範囲内に丸めて保存する。Read 時の比較では設定値を同じ範囲にクリップしてから比較する（xy の色域クリップと同じ扱い）
+
+### provider 定義関数
+
+- `provider::hue::mirek_from_kelvin(kelvin)` は `round(1_000_000 / kelvin)` を返す。結果が API の範囲 50〜1000 の外ならエラーにする。Terraform 1.8 以降で使える
+- 関数名は `<返すもの>_from_<入力>` とし、引数の単位を名前に含める
+- 関数の結果は mirek の数値なので、state・比較・import は `mirek` を直接書いた場合と同じになる
 
 ### semantic equality
 
@@ -341,6 +347,7 @@ action object:
 | 10 | CLI の置き場・名前 | 同一リポジトリ `cmd/hue-tf` | クライアントの共有と開発速度を優先 |
 | 11 | テスト | フェイク bridge で CI | テスト専用の実機がない |
 | 12 | provider 設定 | `host` / `bridge_id` / `application_key`、環境変数 prefix `HUE_BRIDGE_` | |
+| 13 | 色温度の入力 | `kelvin` 属性を非推奨にし、`mirek` と `provider::hue::mirek_from_kelvin` で書く | 色温度の書き方を場所によらずそろえる。palette などの JSON の中では mirek しか書けない |
 
 ## 15. 未決定・保留
 
