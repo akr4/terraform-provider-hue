@@ -91,7 +91,7 @@ func (r *sceneResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 			"on":         schema.BoolAttribute{Optional: true, Description: "On/off state."},
 			"brightness": schema.Float64Attribute{Optional: true, Description: "Brightness from 0 to 100."},
 			"mirek":      schema.Int64Attribute{Optional: true, Computed: true, Description: "Color temperature, 50–1000 mirek. Individual lights may support a narrower range. Conflicts with kelvin; may omit both."},
-			"kelvin":     schema.Int64Attribute{Optional: true, Computed: true, Description: "Positive color temperature in kelvin. Converted to mirek and bounded to the API range 50–1000; individual lights may further limit it. Conflicts with mirek."},
+			"kelvin":     schema.Int64Attribute{Optional: true, Computed: true, Description: "Positive color temperature in kelvin. Converted to mirek and bounded to the API range 50–1000; individual lights may further limit it. Conflicts with mirek. Use mirek with provider::hue::mirek_from_kelvin instead.", DeprecationMessage: "Use mirek = provider::hue::mirek_from_kelvin(KELVIN) instead. kelvin will be removed in a future version."},
 			"color_xy":   schema.SingleNestedAttribute{Optional: true, Computed: true, Description: "CIE xy chromaticity. Brightness is configured separately.", Attributes: map[string]schema.Attribute{"x": schema.Float64Attribute{Required: true}, "y": schema.Float64Attribute{Required: true}}},
 		}}},
 	}}

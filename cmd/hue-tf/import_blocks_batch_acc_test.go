@@ -17,6 +17,7 @@ import (
 	hueprovider "github.com/akr4/terraform-provider-hue/internal/provider"
 	"github.com/akr4/terraform-provider-hue/internal/pull"
 	"github.com/hashicorp/go-plugin"
+	"github.com/hashicorp/terraform-plugin-framework/function"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
@@ -31,6 +32,12 @@ type pullTestProvider struct {
 func (p *pullTestProvider) Configure(_ context.Context, _ provider.ConfigureRequest, resp *provider.ConfigureResponse) {
 	resp.ResourceData = p.client
 	resp.DataSourceData = p.client
+}
+
+// Functions forwards the provider's functions. The embedded provider.Provider
+// interface does not promote them.
+func (p *pullTestProvider) Functions(ctx context.Context) []func() function.Function {
+	return p.Provider.(provider.ProviderWithFunctions).Functions(ctx)
 }
 
 // startAccTerraform serves the provider in-process against b and returns a

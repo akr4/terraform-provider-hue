@@ -80,7 +80,7 @@ func TestAccGettingStarted(t *testing.T) {
 // TestAccDocExamples validates every example that the reference docs render.
 func TestAccDocExamples(t *testing.T) {
 	var files []string
-	for _, pattern := range []string{"provider/provider*.tf", "resources/*/resource*.tf", "data-sources/*/data-source*.tf"} {
+	for _, pattern := range []string{"provider/provider*.tf", "resources/*/resource*.tf", "data-sources/*/data-source*.tf", "functions/*/function*.tf"} {
 		matches, err := filepath.Glob(filepath.Join("..", "..", "examples", pattern))
 		if err != nil {
 			t.Fatal(err)

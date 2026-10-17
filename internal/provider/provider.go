@@ -6,6 +6,7 @@ import (
 
 	"github.com/akr4/terraform-provider-hue/internal/hue"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/function"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -80,4 +81,7 @@ func (p *hueProvider) Resources(context.Context) []func() resource.Resource {
 }
 func (p *hueProvider) DataSources(context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{func() datasource.DataSource { return &lookupDataSource{kind: "light"} }, func() datasource.DataSource { return &lookupDataSource{kind: "device"} }}
+}
+func (p *hueProvider) Functions(context.Context) []func() function.Function {
+	return []func() function.Function{func() function.Function { return &mirekFromKelvinFunction{} }}
 }

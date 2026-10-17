@@ -15,6 +15,7 @@ are already registered on a Hue bridge.**
 
 `terraform init` installs the provider from the
 [Terraform Registry](https://registry.terraform.io/providers/akr4/hue/latest).
+The examples use provider functions, which need Terraform 1.8 or later.
 
 Download `hue-tf` for your platform from the
 [latest release](https://github.com/akr4/terraform-provider-hue/releases/latest).
@@ -66,7 +67,7 @@ resource "hue_scene" "evening" {
     (data.hue_light.desk.id) = {
       on         = true
       brightness = 40
-      kelvin     = 2700
+      mirek      = provider::hue::mirek_from_kelvin(2700)
     }
   }
 }
