@@ -19,10 +19,18 @@ func TestSceneRefreshReadsOnlyTheScene(t *testing.T) {
 	r := sceneResource{client: b.Client()}
 	for i := 0; i < count; i++ {
 		id := fmt.Sprintf("aaaaaaaa-aaaa-4aaa-8aaa-%012d", i)
-		b.Put("scene", id, hue.Scene{ID: id, Type: "scene", Metadata: hue.Metadata{Name: "Read"}, Group: hue.Reference{RID: "room", RType: "room"}, Actions: []hue.SceneAction{{Target: hue.Reference{RID: fakebridge.LightID, RType: "light"}, Action: hue.Action{On: &hue.On{On: true}}}}})
+		b.Put("scene", id, hue.Scene{ID: id, Type: "scene", Metadata: hue.Metadata{Name: "Read"}, Group: hue.Reference{RID: "room", RType: "room"}, Actions: []hue.SceneAction{{Target: hue.Reference{RID: fakebridge.LightID, RType: "light"}, Action: hue.Action{On: &hue.On{On: true}, Dimming: &hue.Dimming{Brightness: 40}, Color: &hue.ActionColor{XY: hue.XY{X: 0.72, Y: 0.26}}, ColorTemperature: &hue.Temperature{Mirek: 1000}}}}})
 	}
 	for i := 0; i < count; i++ {
-		m := sceneModel{ID: types.StringValue(fmt.Sprintf("aaaaaaaa-aaaa-4aaa-8aaa-%012d", i)), Actions: types.MapNull(actionType)}
+		prior := emptyAction()
+		prior.XY = xyValue(hue.XY{X: 0.72, Y: 0.26})
+		prior.Kelvin = types.Int64Value(1000)
+		prior.Brightness = types.Float64Value(40)
+		actions, d := types.MapValueFrom(context.Background(), actionType, map[string]actionModel{fakebridge.LightID: prior})
+		if d.HasError() {
+			t.Fatal(d)
+		}
+		m := sceneModel{ID: types.StringValue(fmt.Sprintf("aaaaaaaa-aaaa-4aaa-8aaa-%012d", i)), Actions: actions}
 		if err := r.refresh(context.Background(), &m); err != nil {
 			t.Fatal(err)
 		}

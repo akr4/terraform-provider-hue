@@ -271,7 +271,7 @@ action object:
 ### bridge が保存する値
 
 - bridge はシーンの xy と mirek を、light の色域や対応範囲（`mirek_min` / `mirek_max`）の外でも送ったとおりに保存する。明るさは小数 2 桁に丸めて保存する（2026-10-17 に実機で確認。#25・#28）
-- provider は xy を小数 4 桁、明るさを小数 2 桁に丸めて送る
+- provider は xy を小数 4 桁、明るさを小数 2 桁に丸めて送る。palette の明るさも同じく小数 2 桁に丸めて送る（bridge が palette の明るさをどう保存するかは未確認だが、丸めて送れば保存値と比べ方がそろう）
 - light がその値をどう表示するかは確認していない
 
 ### semantic equality

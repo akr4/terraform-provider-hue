@@ -58,7 +58,7 @@ func TestReconcileStoredValues(t *testing.T) {
 		a := emptyAction()
 		a.Kelvin = types.Int64Value(kelvin)
 		a.Mirek = types.Int64Unknown()
-		stored := colors.ClampMirek(colors.KelvinToMirek(kelvin), colors.MinMirek, colors.MaxMirek)
+		stored := colors.MirekForKelvin(kelvin)
 		got := reconcileAction(a, hue.Action{ColorTemperature: &hue.Temperature{Mirek: stored}})
 		if !got.Kelvin.Equal(a.Kelvin) || got.Mirek.ValueInt64() != stored {
 			t.Errorf("kelvin %d stored as mirek %d: %+v", kelvin, stored, got)

@@ -214,7 +214,11 @@ func (r *sceneResource) body(ctx context.Context, m sceneModel, config sceneMode
 		if err := hue.ValidateConfiguration([]byte(m.Palette.ValueString())); err != nil {
 			return scene, fmt.Errorf("invalid palette: %w", err)
 		}
-		scene.Palette = json.RawMessage(m.Palette.ValueString())
+		palette, err := roundPaletteBrightness([]byte(m.Palette.ValueString()))
+		if err != nil {
+			return scene, fmt.Errorf("invalid palette: %w", err)
+		}
+		scene.Palette = palette
 	}
 	actions, d := actionsFrom(ctx, m.Actions)
 	if d.HasError() {
@@ -266,7 +270,7 @@ func (r *sceneResource) body(ctx context.Context, m sceneModel, config sceneMode
 		if known(c.Mirek) {
 			action.ColorTemperature = &hue.Temperature{Mirek: c.Mirek.ValueInt64()}
 		} else if known(c.Kelvin) {
-			action.ColorTemperature = &hue.Temperature{Mirek: colors.ClampMirek(colors.KelvinToMirek(c.Kelvin.ValueInt64()), colors.MinMirek, colors.MaxMirek)}
+			action.ColorTemperature = &hue.Temperature{Mirek: colors.MirekForKelvin(c.Kelvin.ValueInt64())}
 		}
 		if p, ok := readXY(c.XY); ok {
 			action.Color = &hue.ActionColor{XY: colors.Round(p)}
@@ -311,7 +315,7 @@ func reconcileAction(prior actionModel, actual hue.Action) actionModel {
 		}
 		expected, ok := prior.Mirek.ValueInt64(), known(prior.Mirek)
 		if !ok && known(prior.Kelvin) {
-			expected = colors.ClampMirek(colors.KelvinToMirek(prior.Kelvin.ValueInt64()), colors.MinMirek, colors.MaxMirek)
+			expected = colors.MirekForKelvin(prior.Kelvin.ValueInt64())
 			ok = true
 		}
 		if ok && colors.EqualMirek(expected, m) {

@@ -26,6 +26,10 @@ func MirekToKelvin(m int64) int64 {
 	}
 	return int64(math.Round(1e6 / float64(m)))
 }
+
+// MirekForKelvin is the mirek that the provider sends for a kelvin: converted and
+// clamped to the API range.
+func MirekForKelvin(k int64) int64 { return ClampMirek(KelvinToMirek(k), MinMirek, MaxMirek) }
 func ClampMirek(m, min, max int64) int64 {
 	if min <= 0 || max < min {
 		min, max = MinMirek, MaxMirek

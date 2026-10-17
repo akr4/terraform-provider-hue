@@ -34,6 +34,13 @@ func TestPaletteReconciliation(t *testing.T) {
 	if palettesEqual([]byte(strings.ReplaceAll(rounded, "33.33", "33.34")), []byte(rounded)) {
 		t.Fatal("brightness drift ignored")
 	}
+	sent, err := roundPaletteBrightness([]byte(`{"color":[{"color":{"xy":{"x":0.72345,"y":0.26}},"dimming":{"brightness":49.80392156862745}}],"dimming":[{"brightness":1.005}]}`))
+	if err != nil || string(sent) != `{"color":[{"color":{"xy":{"x":0.72345,"y":0.26}},"dimming":{"brightness":49.8}}],"dimming":[{"brightness":1}]}` {
+		t.Fatalf("palette sent as %s, %v", sent, err)
+	}
+	if !palettesEqual([]byte(`{"dimming":[{"brightness":1.005}]}`), []byte(`{"dimming":[{"brightness":1}]}`)) {
+		t.Fatal("palette rounded before sending differs")
+	}
 	for _, raw := range []string{"[]", "null", "bad"} {
 		if palettesEqual([]byte(raw), []byte(raw)) {
 			t.Fatal("invalid palette equal")
