@@ -4,13 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
+	"iter"
 	"math/big"
 	"slices"
+	"strings"
 
 	colors "github.com/akr4/terraform-provider-hue/internal/color"
 	"github.com/akr4/terraform-provider-hue/internal/hue"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
@@ -37,12 +40,10 @@ var dynamicPaletteTypes = map[string]attr.Type{
 	"effects":           types.ListType{ElemType: types.ObjectType{AttrTypes: effectTypes}},
 }
 
-func xyAttributes() map[string]schema.Attribute {
-	return map[string]schema.Attribute{"x": schema.Float64Attribute{Required: true}, "y": schema.Float64Attribute{Required: true}}
-}
 func effectAttributes() map[string]schema.Attribute {
+	last := len(effectNames) - 1
 	return map[string]schema.Attribute{
-		"effect": schema.StringAttribute{Required: true, Description: "Effect name: prism, opal, glisten, sparkle, fire, candle, underwater, cosmos, sunbeam, enchant or no_effect."},
+		"effect": schema.StringAttribute{Required: true, Description: "Effect name: " + strings.Join(effectNames[:last], ", ") + " or " + effectNames[last] + "."},
 		"parameters": schema.SingleNestedAttribute{Optional: true, Description: "Effect parameters.", Attributes: map[string]schema.Attribute{
 			"color_xy": schema.SingleNestedAttribute{Optional: true, Description: "Effect color as CIE xy, rounded to four decimal places.", Attributes: xyAttributes()},
 			"mirek":    schema.Int64Attribute{Optional: true, Description: "Effect color temperature, 50–1000 mirek."},
@@ -100,12 +101,21 @@ func emptyPalette() apiPalette {
 }
 
 // modeledPalette keeps the parts of a palette from the bridge that
-// dynamic_palette models. It leaves out the deprecated effects list, which the
-// bridge leaves empty but other apps may still write.
+// dynamic_palette models, in the form that dynamicPaletteJSON sends. It leaves
+// out the deprecated effects list, which the bridge leaves empty but other
+// apps may still write, and empty effect parameters. A palette that the bridge
+// leaves out is empty.
 func modeledPalette(raw []byte) ([]byte, error) {
 	p := emptyPalette()
-	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, err
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return nil, err
+		}
+	}
+	for i, e := range p.EffectsV2 {
+		if e.Action.Parameters != nil && *e.Action.Parameters == (apiEffectParameters{}) {
+			p.EffectsV2[i].Action.Parameters = nil
+		}
 	}
 	return json.Marshal(p)
 }
@@ -209,16 +219,20 @@ func effectAction(ctx context.Context, e effectModel) (apiEffectAction, error) {
 	if err != nil {
 		return action, err
 	}
-	action.Parameters = &apiEffectParameters{}
+	var parameters apiEffectParameters
 	if xy, ok := readXY(p.XY); ok {
-		action.Parameters.Color = &hue.ActionColor{XY: colors.Round(xy)}
+		parameters.Color = &hue.ActionColor{XY: colors.Round(xy)}
 	}
 	if known(p.Mirek) {
-		action.Parameters.ColorTemperature = &hue.Temperature{Mirek: p.Mirek.ValueInt64()}
+		parameters.ColorTemperature = &hue.Temperature{Mirek: p.Mirek.ValueInt64()}
 	}
 	if known(p.Speed) {
 		v := p.Speed.ValueFloat64()
-		action.Parameters.Speed = &v
+		parameters.Speed = &v
+	}
+	// Empty parameters are left out, so that the bridge has nothing to drop.
+	if parameters != (apiEffectParameters{}) {
+		action.Parameters = &parameters
 	}
 	return action, nil
 }
@@ -285,7 +299,7 @@ func effectValue(a apiEffectAction) types.Object {
 // dynamicPaletteEqual reports whether the bridge stored what the provider sends
 // for a known dynamic_palette.
 func dynamicPaletteEqual(ctx context.Context, palette types.Object, raw []byte) bool {
-	if !known(palette) || len(raw) == 0 {
+	if !known(palette) {
 		return false
 	}
 	sent, err := dynamicPaletteJSON(ctx, palette)
@@ -310,15 +324,21 @@ func reconcileDynamicPalette(ctx context.Context, prior types.Object, priorJSON 
 	return dynamicPaletteFromJSON(raw)
 }
 
-// validateDynamicPalette checks the limits in the Hue API v2 reference.
-func validateDynamicPalette(ctx context.Context, palette types.Object) []string {
-	var errs []string
+// validateDynamicPalette checks the limits in the Hue API v2 reference. Each
+// error points at the attribute that it is about.
+func validateDynamicPalette(ctx context.Context, palette types.Object) diag.Diagnostics {
+	var diags diag.Diagnostics
 	if !known(palette) {
-		return nil
+		return diags
+	}
+	root := path.Root("dynamic_palette")
+	invalid := func(p path.Path, message string) {
+		diags.AddAttributeError(p, "Invalid dynamic_palette", message)
 	}
 	m, err := objectAs[dynamicPaletteModel](ctx, palette)
 	if err != nil {
-		return []string{err.Error()}
+		invalid(root, err.Error())
+		return diags
 	}
 	for _, limit := range []struct {
 		name string
@@ -326,60 +346,81 @@ func validateDynamicPalette(ctx context.Context, palette types.Object) []string 
 		max  int
 	}{{"color", m.Color, 9}, {"color_temperature", m.ColorTemperature, 1}, {"dimming", m.Dimming, 1}, {"effects", m.Effects, 3}} {
 		if known(limit.list) && len(limit.list.Elements()) > limit.max {
-			errs = append(errs, fmt.Sprintf("dynamic_palette.%s can have at most %d entries.", limit.name, limit.max))
+			invalid(root.AtName(limit.name), fmt.Sprintf("dynamic_palette.%s can have at most %d entries.", limit.name, limit.max))
 		}
 	}
-	brightness := func(v types.Float64) {
+	brightness := func(p path.Path, v types.Float64) {
 		if known(v) && (v.ValueFloat64() < 0 || v.ValueFloat64() > 100) {
-			errs = append(errs, "brightness must be between 0 and 100.")
+			invalid(p, "brightness must be between 0 and 100.")
 		}
 	}
-	mirek := func(v types.Int64) {
+	mirek := func(p path.Path, v types.Int64) {
 		if known(v) && (v.ValueInt64() < colors.MinMirek || v.ValueInt64() > colors.MaxMirek) {
-			errs = append(errs, "mirek must be between 50 and 1000.")
+			invalid(p, "mirek must be between 50 and 1000.")
 		}
 	}
-	xy := func(v types.Object) {
-		if p, ok := readXY(v); ok && !validXY(p) {
-			errs = append(errs, "color_xy must have x >= 0, y >= 0 and x + y <= 1.")
+	xy := func(p path.Path, v types.Object) {
+		if c, ok := readXY(v); ok && !validXY(c) {
+			invalid(p, "color_xy must have x >= 0, y >= 0 and x + y <= 1.")
 		}
 	}
-	paletteColors, _ := listOf[paletteColorModel](ctx, m.Color)
-	for _, c := range paletteColors {
-		xy(c.XY)
-		brightness(c.Brightness)
+	for i, c := range knownElements[paletteColorModel](ctx, m.Color) {
+		p := root.AtName("color").AtListIndex(i)
+		xy(p.AtName("color_xy"), c.XY)
+		brightness(p.AtName("brightness"), c.Brightness)
 	}
-	temperatures, _ := listOf[paletteTemperatureModel](ctx, m.ColorTemperature)
-	for _, t := range temperatures {
-		mirek(t.Mirek)
-		brightness(t.Brightness)
+	for i, t := range knownElements[paletteTemperatureModel](ctx, m.ColorTemperature) {
+		p := root.AtName("color_temperature").AtListIndex(i)
+		mirek(p.AtName("mirek"), t.Mirek)
+		brightness(p.AtName("brightness"), t.Brightness)
 	}
-	dimming, _ := listOf[paletteDimmingModel](ctx, m.Dimming)
-	for _, d := range dimming {
-		brightness(d.Brightness)
+	for i, d := range knownElements[paletteDimmingModel](ctx, m.Dimming) {
+		brightness(root.AtName("dimming").AtListIndex(i).AtName("brightness"), d.Brightness)
 	}
-	effects, _ := listOf[effectModel](ctx, m.Effects)
-	for _, e := range effects {
+	for i, e := range knownElements[effectModel](ctx, m.Effects) {
+		p := root.AtName("effects").AtListIndex(i)
 		if known(e.Effect) && !slices.Contains(effectNames, e.Effect.ValueString()) {
-			errs = append(errs, fmt.Sprintf("effect %q is not one of %v.", e.Effect.ValueString(), effectNames))
+			invalid(p.AtName("effect"), fmt.Sprintf("effect %q is not one of %s.", e.Effect.ValueString(), strings.Join(effectNames, ", ")))
 		}
 		if !known(e.Parameters) {
 			continue
 		}
-		p, err := objectAs[effectParametersModel](ctx, e.Parameters)
+		parameters, err := objectAs[effectParametersModel](ctx, e.Parameters)
 		if err != nil {
 			continue
 		}
-		xy(p.XY)
-		mirek(p.Mirek)
-		if known(p.Speed) && (p.Speed.ValueFloat64() < 0 || p.Speed.ValueFloat64() > 1) {
-			errs = append(errs, "effect speed must be between 0 and 1.")
+		p = p.AtName("parameters")
+		xy(p.AtName("color_xy"), parameters.XY)
+		mirek(p.AtName("mirek"), parameters.Mirek)
+		if known(parameters.Speed) && (parameters.Speed.ValueFloat64() < 0 || parameters.Speed.ValueFloat64() > 1) {
+			invalid(p.AtName("speed"), "effect speed must be between 0 and 1.")
 		}
 	}
-	return errs
+	return diags
 }
-func validXY(p hue.XY) bool {
-	return p.X >= 0 && p.Y >= 0 && p.X <= 1 && p.Y <= 1 && p.X+p.Y <= 1+1e-12 && !math.IsNaN(p.X) && !math.IsNaN(p.Y)
+
+// knownElements yields the index and value of each known element of a list.
+// It skips elements that are unknown until apply, so that the others are still
+// checked.
+func knownElements[T any](ctx context.Context, list types.List) iter.Seq2[int, T] {
+	return func(yield func(int, T) bool) {
+		if !known(list) {
+			return
+		}
+		for i, e := range list.Elements() {
+			o, ok := e.(types.Object)
+			if !ok || !known(o) {
+				continue
+			}
+			v, err := objectAs[T](ctx, o)
+			if err != nil {
+				continue
+			}
+			if !yield(i, v) {
+				return
+			}
+		}
+	}
 }
 
 // planPalettes plans palette and dynamic_palette for an existing scene. The one
@@ -425,7 +466,9 @@ func followsPalette(prior sceneModel) bool {
 // planUnchanged reports whether Terraform plans no changes from prior to
 // planned. Like Terraform, it compares numbers by their shortest decimal form:
 // a number that the provider read as a float64 equals the same number read
-// from configuration or state.
+// from configuration or state. Everything else must be exactly equal. So it
+// never reports no changes where Terraform plans an update; at worst, palette
+// leaves the state in an update of its own.
 func planUnchanged(planned, prior tftypes.Value) bool {
 	diffs, err := planned.Diff(prior)
 	if err != nil {

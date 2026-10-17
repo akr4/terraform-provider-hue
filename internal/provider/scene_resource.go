@@ -63,6 +63,12 @@ func readXY(v types.Object) (hue.XY, bool) {
 	y, yok := v.Attributes()["y"].(types.Float64)
 	return hue.XY{X: x.ValueFloat64(), Y: y.ValueFloat64()}, xok && yok && known(x) && known(y)
 }
+func validXY(p hue.XY) bool {
+	return p.X >= 0 && p.Y >= 0 && p.X <= 1 && p.Y <= 1 && p.X+p.Y <= 1+1e-12 && !math.IsNaN(p.X) && !math.IsNaN(p.Y)
+}
+func xyAttributes() map[string]schema.Attribute {
+	return map[string]schema.Attribute{"x": schema.Float64Attribute{Required: true}, "y": schema.Float64Attribute{Required: true}}
+}
 func emptyAction() actionModel {
 	return actionModel{Gradient: types.StringNull(), Effects: types.StringNull(), EffectsV2: types.StringNull(), Dynamics: types.StringNull(), On: types.BoolNull(), Brightness: types.Float64Null(), Mirek: types.Int64Null(), Kelvin: types.Int64Null(), XY: types.ObjectNull(xyTypes)}
 }
@@ -95,7 +101,7 @@ func (r *sceneResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 			"brightness": schema.Float64Attribute{Optional: true, Description: "Brightness from 0 to 100, rounded to two decimal places."},
 			"mirek":      schema.Int64Attribute{Optional: true, Computed: true, Description: "Color temperature, 50–1000 mirek. Individual lights may support a narrower range. Conflicts with kelvin; may omit both."},
 			"kelvin":     schema.Int64Attribute{Optional: true, Computed: true, Description: "Positive color temperature in kelvin. Converted to mirek and bounded to the API range 50–1000; individual lights may further limit it. Conflicts with mirek. Use mirek with provider::hue::mirek_from_kelvin instead.", DeprecationMessage: "Use mirek = provider::hue::mirek_from_kelvin(KELVIN) instead. kelvin will be removed in a future version."},
-			"color_xy":   schema.SingleNestedAttribute{Optional: true, Computed: true, Description: "CIE xy chromaticity, rounded to four decimal places. Brightness is configured separately.", Attributes: map[string]schema.Attribute{"x": schema.Float64Attribute{Required: true}, "y": schema.Float64Attribute{Required: true}}},
+			"color_xy":   schema.SingleNestedAttribute{Optional: true, Computed: true, Description: "CIE xy chromaticity, rounded to four decimal places. Brightness is configured separately.", Attributes: xyAttributes()},
 		}}},
 	}}
 }
@@ -132,9 +138,7 @@ func (r *sceneResource) ValidateConfig(ctx context.Context, req resource.Validat
 	if !m.Palette.IsNull() && !m.DynamicPalette.IsNull() {
 		resp.Diagnostics.AddAttributeError(path.Root("dynamic_palette"), "Conflicting palettes", "palette and dynamic_palette cannot both be configured.")
 	}
-	for _, message := range validateDynamicPalette(ctx, m.DynamicPalette) {
-		resp.Diagnostics.AddAttributeError(path.Root("dynamic_palette"), "Invalid dynamic_palette", message)
-	}
+	resp.Diagnostics.Append(validateDynamicPalette(ctx, m.DynamicPalette)...)
 	// Individual map values may be unknown while referenced resources are planned.
 	if !known(m.Actions) {
 		return
@@ -195,7 +199,7 @@ func validateAction(a actionModel) []string {
 	if known(a.Brightness) && (a.Brightness.ValueFloat64() < 0 || a.Brightness.ValueFloat64() > 100) {
 		errs = append(errs, "brightness must be between 0 and 100.")
 	}
-	if p, ok := readXY(a.XY); ok && (p.X < 0 || p.Y < 0 || p.X > 1 || p.Y > 1 || p.X+p.Y > 1+1e-12 || math.IsNaN(p.X) || math.IsNaN(p.Y)) {
+	if p, ok := readXY(a.XY); ok && !validXY(p) {
 		errs = append(errs, "color_xy must have x >= 0, y >= 0 and x + y <= 1.")
 	}
 	return errs

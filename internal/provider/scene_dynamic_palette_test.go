@@ -10,6 +10,10 @@ import (
 	"testing"
 
 	"github.com/akr4/terraform-provider-hue/internal/fakebridge"
+	"github.com/akr4/terraform-provider-hue/internal/hue"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -19,6 +23,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
 	"github.com/hashicorp/terraform-plugin-testing/tfversion"
 )
+
+func nullList(elem map[string]attr.Type) types.List {
+	return types.ListNull(types.ObjectType{AttrTypes: elem})
+}
 
 func TestDynamicPaletteJSON(t *testing.T) {
 	ctx := context.Background()
@@ -53,6 +61,31 @@ func TestDynamicPaletteJSON(t *testing.T) {
 			t.Errorf("%q read as %v, %v", empty, p, err)
 		}
 	}
+	// Empty effect parameters are left out, and either form read back equals
+	// them.
+	emptyParameters, err := dynamicPaletteFromJSON([]byte(`{"effects_v2":[{"action":{"effect":"fire","parameters":{}}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sent, _ := dynamicPaletteJSON(ctx, emptyParameters); strings.Contains(string(sent), "parameters") {
+		t.Errorf("sent %s", sent)
+	}
+	for _, stored := range []string{`{"effects_v2":[{"action":{"effect":"fire"}}]}`, `{"effects_v2":[{"action":{"effect":"fire","parameters":{}}}]}`} {
+		if !dynamicPaletteEqual(ctx, emptyParameters, []byte(stored)) {
+			t.Errorf("parameters = {} differs from %s", stored)
+		}
+	}
+	// A scene that the bridge returns without a palette has an empty one.
+	cleared := types.ObjectValueMust(dynamicPaletteTypes, map[string]attr.Value{
+		"color":             types.ListValueMust(types.ObjectType{AttrTypes: paletteColorTypes}, []attr.Value{}),
+		"color_temperature": nullList(paletteTemperatureTypes), "dimming": nullList(paletteDimmingTypes), "effects": nullList(effectTypes),
+	})
+	if !dynamicPaletteEqual(ctx, cleared, nil) {
+		t.Error("color = [] differs from no palette")
+	}
+	if dynamicPaletteEqual(ctx, palette, nil) {
+		t.Error("a palette with colors equals no palette")
+	}
 	// Numbers are rounded as the bridge stores them.
 	rounded, err := dynamicPaletteFromJSON([]byte(`{"color":[{"color":{"xy":{"x":0.72345,"y":0.26}},"dimming":{"brightness":49.80392156862745}}]}`))
 	if err != nil {
@@ -72,26 +105,51 @@ func TestValidateDynamicPalette(t *testing.T) {
 		}
 		return p
 	}
+	// errorAt returns where the only error points.
+	errorAt := func(diags diag.Diagnostics) path.Path {
+		if len(diags) == 1 {
+			if d, ok := diags[0].(diag.DiagnosticWithPath); ok {
+				return d.Path()
+			}
+		}
+		return path.Empty()
+	}
+	root := path.Root("dynamic_palette")
+	effect := root.AtName("effects").AtListIndex(0)
 	color := `{"color":{"xy":{"x":0.3,"y":0.3}},"dimming":{"brightness":50}}`
-	for name, raw := range map[string]string{
-		"ten colors":       `{"color":[` + strings.TrimSuffix(strings.Repeat(color+",", 10), ",") + `]}`,
-		"two temperatures": `{"color_temperature":[{"color_temperature":{"mirek":370},"dimming":{"brightness":40}},{"color_temperature":{"mirek":300},"dimming":{"brightness":40}}]}`,
-		"bad mirek":        `{"color_temperature":[{"color_temperature":{"mirek":20},"dimming":{"brightness":40}}]}`,
-		"bad brightness":   `{"dimming":[{"brightness":101}]}`,
-		"bad xy":           `{"color":[{"color":{"xy":{"x":0.8,"y":0.8}},"dimming":{"brightness":50}}]}`,
-		"unknown effect":   `{"effects_v2":[{"action":{"effect":"disco"}}]}`,
-		"bad effect speed": `{"effects_v2":[{"action":{"effect":"sparkle","parameters":{"speed":2}}}]}`,
-		"four effects":     `{"effects_v2":[{"action":{"effect":"fire"}},{"action":{"effect":"fire"}},{"action":{"effect":"fire"}},{"action":{"effect":"fire"}}]}`,
-		"bad effect xy":    `{"effects_v2":[{"action":{"effect":"sparkle","parameters":{"color":{"xy":{"x":-1,"y":0.3}}}}}]}`,
-		"bad effect mirek": `{"effects_v2":[{"action":{"effect":"sparkle","parameters":{"color_temperature":{"mirek":2000}}}}]}`,
+	for name, c := range map[string]struct {
+		raw string
+		at  path.Path
+	}{
+		"ten colors":       {`{"color":[` + strings.TrimSuffix(strings.Repeat(color+",", 10), ",") + `]}`, root.AtName("color")},
+		"two temperatures": {`{"color_temperature":[{"color_temperature":{"mirek":370},"dimming":{"brightness":40}},{"color_temperature":{"mirek":300},"dimming":{"brightness":40}}]}`, root.AtName("color_temperature")},
+		"bad mirek":        {`{"color_temperature":[{"color_temperature":{"mirek":20},"dimming":{"brightness":40}}]}`, root.AtName("color_temperature").AtListIndex(0).AtName("mirek")},
+		"bad brightness":   {`{"dimming":[{"brightness":101}]}`, root.AtName("dimming").AtListIndex(0).AtName("brightness")},
+		"bad xy":           {`{"color":[` + color + `,{"color":{"xy":{"x":0.8,"y":0.8}},"dimming":{"brightness":50}}]}`, root.AtName("color").AtListIndex(1).AtName("color_xy")},
+		"unknown effect":   {`{"effects_v2":[{"action":{"effect":"disco"}}]}`, effect.AtName("effect")},
+		"bad effect speed": {`{"effects_v2":[{"action":{"effect":"sparkle","parameters":{"speed":2}}}]}`, effect.AtName("parameters").AtName("speed")},
+		"four effects":     {`{"effects_v2":[{"action":{"effect":"fire"}},{"action":{"effect":"fire"}},{"action":{"effect":"fire"}},{"action":{"effect":"fire"}}]}`, root.AtName("effects")},
+		"bad effect xy":    {`{"effects_v2":[{"action":{"effect":"sparkle","parameters":{"color":{"xy":{"x":-1,"y":0.3}}}}}]}`, effect.AtName("parameters").AtName("color_xy")},
+		"bad effect mirek": {`{"effects_v2":[{"action":{"effect":"sparkle","parameters":{"color_temperature":{"mirek":2000}}}}]}`, effect.AtName("parameters").AtName("mirek")},
 	} {
-		if len(validateDynamicPalette(ctx, read(raw))) == 0 {
-			t.Errorf("%s accepted", name)
+		if diags := validateDynamicPalette(ctx, read(c.raw)); !errorAt(diags).Equal(c.at) {
+			t.Errorf("%s: %v", name, diags)
 		}
 	}
+	// An element unknown until apply does not stop checking the others.
+	partial := types.ObjectValueMust(dynamicPaletteTypes, map[string]attr.Value{
+		"color": types.ListValueMust(types.ObjectType{AttrTypes: paletteColorTypes}, []attr.Value{
+			types.ObjectUnknown(paletteColorTypes),
+			types.ObjectValueMust(paletteColorTypes, map[string]attr.Value{"color_xy": xyValue(hue.XY{X: 0.3, Y: 0.3}), "brightness": types.Float64Value(500)}),
+		}),
+		"color_temperature": nullList(paletteTemperatureTypes), "dimming": nullList(paletteDimmingTypes), "effects": nullList(effectTypes),
+	})
+	if diags := validateDynamicPalette(ctx, partial); !errorAt(diags).Equal(root.AtName("color").AtListIndex(1).AtName("brightness")) {
+		t.Errorf("with an unknown color: %v", diags)
+	}
 	// The bridge accepts an effect with both a color and a color temperature.
-	if errs := validateDynamicPalette(ctx, read(`{"color":[`+color+`],"effects_v2":[{"action":{"effect":"candle"}},{"action":{"effect":"sparkle","parameters":{"color":{"xy":{"x":0.3,"y":0.13}},"color_temperature":{"mirek":250}}}}]}`)); len(errs) > 0 {
-		t.Fatal(errs)
+	if diags := validateDynamicPalette(ctx, read(`{"color":[`+color+`],"effects_v2":[{"action":{"effect":"candle"}},{"action":{"effect":"sparkle","parameters":{"color":{"xy":{"x":0.3,"y":0.13}},"color_temperature":{"mirek":250}}}}]}`)); diags.HasError() {
+		t.Fatal(diags)
 	}
 }
 
@@ -213,13 +271,13 @@ func TestAccSceneDynamicPalette(t *testing.T) {
   color = [provider::hue::color_from_hex("#ff8800"), { color_xy = { x = 0.3, y = 0.13 }, brightness = 33.333333 }]
   color_temperature = [{ mirek = provider::hue::mirek_from_kelvin(2700), brightness = 40 }]
   dimming = [{ brightness = 50 }]
-  effects = [{ effect = "sparkle", parameters = { color_xy = { x = 0.3, y = 0.13 }, speed = 0.4 } }]
+  effects = [{ effect = "sparkle", parameters = { color_xy = { x = 0.3, y = 0.13 }, speed = 0.4 } }, { effect = "fire", parameters = {} }]
  }`)
 	resource.Test(t, resource.TestCase{TerraformVersionChecks: []tfversion.TerraformVersionCheck{tfversion.SkipBelow(tfversion.Version1_8_0)}, ProtoV6ProviderFactories: factories(b), CheckDestroy: destroyed(b), Steps: []resource.TestStep{
 		{Config: dynamicPaletteSceneConfig(`palette = "{}"
  dynamic_palette = { dimming = [{ brightness = 50 }] }`), ExpectError: regexp.MustCompile("cannot both be configured")},
 		{Config: written, Check: resource.ComposeAggregateTestCheckFunc(
-			stored(`{"color":[{"color":{"xy":{"x":0.601,"y":0.3837}},"dimming":{"brightness":100}},{"color":{"xy":{"x":0.3,"y":0.13}},"dimming":{"brightness":33.33}}],"color_temperature":[{"color_temperature":{"mirek":370},"dimming":{"brightness":40}}],"dimming":[{"brightness":50}],"effects_v2":[{"action":{"effect":"sparkle","parameters":{"color":{"xy":{"x":0.3,"y":0.13}},"speed":0.4}}}]}`),
+			stored(`{"color":[{"color":{"xy":{"x":0.601,"y":0.3837}},"dimming":{"brightness":100}},{"color":{"xy":{"x":0.3,"y":0.13}},"dimming":{"brightness":33.33}}],"color_temperature":[{"color_temperature":{"mirek":370},"dimming":{"brightness":40}}],"dimming":[{"brightness":50}],"effects_v2":[{"action":{"effect":"sparkle","parameters":{"color":{"xy":{"x":0.3,"y":0.13}},"speed":0.4}}},{"action":{"effect":"fire"}}]}`),
 			resource.TestCheckNoResourceAttr("hue_scene.test", "palette"),
 			resource.TestCheckResourceAttr("hue_scene.test", "dynamic_palette.color.1.brightness", "33.333333"),
 		)},
