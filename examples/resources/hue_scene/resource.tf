@@ -17,6 +17,12 @@ resource "hue_scene" "evening" {
       mirek      = provider::hue::mirek_from_kelvin(2700)
     }
   }
+  dynamic_palette = {
+    color = [
+      provider::hue::color_from_hex("#ff8800"),
+      provider::hue::color_from_hex("#3355ff"),
+    ]
+  }
   speed        = 0.6
   auto_dynamic = false
 }

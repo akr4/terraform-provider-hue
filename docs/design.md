@@ -25,7 +25,7 @@ Philips Hue の設定（room / zone / scene）を GUI ではなくコードで�
 - bridge は HTTPS のみ。証明書は Signify のプライベート root CA で署名されている。CN は bridge ID（実機では大文字の16桁の16進数）で、ホスト名や IP とは一致しない
 - リソース ID はすべて UUID
 - room の `children` は device、zone の `children` は light service を指す
-- scene は `group`（room または zone）に属し、`actions`（light ごとの状態）と `palette`（ダイナミックシーン用）を持つ
+- scene は `group`（room または zone）に属し、`actions`（light ごとの状態）と `dynamic_palette`（ダイナミックシーン用）を持つ
 - v2 には light の探索・追加（ペアリング）のエンドポイントは存在しない（公開されていない）
 - リクエスト頻度に上限があり、超過すると 429 が返る
 
@@ -240,7 +240,8 @@ action object:
 - `mirek` / `kelvin` は ExactlyOneOf ではなく「両方省略可、両方指定は不可」。片方を指定すると他方は provider が計算して埋める。`kelvin` は非推奨で、指定すると validate と plan で警告を出す
 - ライトは色か色温度のどちらか一方で光るため、同じアクションに `color_xy` と `mirek` / `kelvin` は書けない（検査で止める）。実機のシーン 1,516 アクションに、両方を持つものはなかった
 - 色は `color_xy` と独立した `brightness` で指定する。`color_hex` は廃止し、state schema version 1 で旧属性だけを除去して xy を保持する。
-- `palette` は Optional + Computed の JSON 文字列。明示時は書き込み、未指定時は実機の値を維持する。actions とは独立して管理し、相互の自動生成は行わない。
+- `dynamic_palette` は Optional + Computed の型のある属性。API の palette に合わせ、中身が 1 つの入れ物は actions と同じく平らにする（`color_xy`・`mirek`・`brightness`）。`color` は 9 個まで、`color_temperature` と `dimming` は 1 個まで、`effects` は 3 個までを plan 時に検査する。明示時は書いたリストを送り、書かなかったリストは空にする。未指定時は実機の値を維持する。actions とは独立して管理し、相互の自動生成は行わない。エフェクトは `effects_v2` の形で送り、非推奨の `effects` は扱わない。bridge が `effects_v2` から `effects` を埋めても差分にしない
+- `palette`（JSON 文字列）は非推奨。`dynamic_palette` と同時には書けない。非推奨の期間は state に両方の形を持たせ、`palette` を同じ数値の `dynamic_palette` に書き換えたときは差分が出ない。書き換えたシーンは、次の更新で state から `palette` を外す（残すと、更新後に読み直した値が plan と食い違うことがある）。import と新しいシーンでは `palette` を埋めず、生成される設定は `dynamic_palette` だけになる
 - `actions` は Map なので、要素の追加・削除・変更は light ごとに独立した差分として表示される
 
 ## 9. 色と色温度の変換
