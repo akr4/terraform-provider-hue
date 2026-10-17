@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"strings"
+
+	huecolor "github.com/akr4/terraform-provider-hue/internal/color"
 )
 
 func number(v any) (float64, bool) {
@@ -116,13 +118,7 @@ func setColor(s *Sample, x, y float64, m map[string]any) {
 	Y *= level / scale
 	Z *= level / scale
 	gamma := func(v float64) int {
-		v = math.Max(0, math.Min(1, v/scale*level))
-		if v <= 0.0031308 {
-			v *= 12.92
-		} else {
-			v = 1.055*math.Pow(v, 1/2.4) - 0.055
-		}
-		return int(math.Round(v * 255))
+		return int(math.Round(huecolor.EncodeSRGB(math.Max(0, math.Min(1, v/scale*level))) * 255))
 	}
 	s.R, s.G, s.B = gamma(r), gamma(g), gamma(b)
 	s.HasColor = true

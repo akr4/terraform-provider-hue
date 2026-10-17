@@ -238,6 +238,7 @@ action object:
 | `color_xy` | Optional, Computed, object `{x, y}` | CIE xy |
 
 - `mirek` / `kelvin` は ExactlyOneOf ではなく「両方省略可、両方指定は不可」。片方を指定すると他方は provider が計算して埋める。`kelvin` は非推奨で、指定すると validate と plan で警告を出す
+- ライトは色か色温度のどちらか一方で光るため、同じアクションに `color_xy` と `mirek` / `kelvin` は書けない（検査で止める）。実機のシーン 1,516 アクションに、両方を持つものはなかった
 - 色は `color_xy` と独立した `brightness` で指定する。`color_hex` は廃止し、state schema version 1 で旧属性だけを除去して xy を保持する。
 - `palette` は Optional + Computed の JSON 文字列。明示時は書き込み、未指定時は実機の値を維持する。actions とは独立して管理し、相互の自動生成は行わない。
 - `actions` は Map なので、要素の追加・削除・変更は light ごとに独立した差分として表示される
@@ -267,6 +268,10 @@ action object:
 - `provider::hue::mirek_from_kelvin(kelvin)` は `round(1_000_000 / kelvin)` を返す。結果が API の範囲 50〜1000 の外ならエラーにする。Terraform 1.8 以降で使える
 - 関数名は `<返すもの>_from_<入力>` とし、引数の単位を名前に含める
 - 関数の結果は mirek の数値なので、state・比較・import は `mirek` を直接書いた場合と同じになる
+- `provider::hue::color_from_hex(hex)` は `#rrggbb` か `#rgb` を受け取り、`{ color_xy, brightness }` を返す。actions では `merge(provider::hue::color_from_hex("#ff8800"), { on = true })` と書く。merge は後ろの引数が勝つので、関数を先に書くと、明るさなどを自分で書いた値で上書きできる
+  - xy は Philips の Wide RGB D65 の式（sRGB のガンマ補正のあと Wide RGB D65 の行列）で求め、小数 4 桁に丸める。sRGB として読むと、hex で Hue の色域の端（特に緑と赤）に届かないため
+  - 明るさは RGB で一番大きい値（HSV の V）を百分率にし、小数 2 桁に丸める。輝度（Y）は、実機で青などの飽和した色が暗くなりすぎたため使わない（青の 100% は白の 100% よりもともと暗い）
+  - 黒（`#000000`）は色を持たないためエラーにする
 
 ### bridge が保存する値
 
