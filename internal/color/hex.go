@@ -11,7 +11,7 @@ import (
 // HexToXYBrightness and XYToHex convert with the Philips Wide RGB D65 formula:
 // sRGB gamma and the Wide RGB D65 matrix. Unlike sRGB, it reaches the full gamut
 // of Hue lights. hue-tf show prints XYToHex, which HexToXYBrightness reads back
-// to about the same xy.
+// to about the same xy. XYToHex prints #000000 for y <= 0, which has no color.
 //
 // HexToXYBrightness reads #rrggbb or #rgb. Brightness is the largest channel as a
 // percentage, so that #0000ff is as bright as the light can show blue. Both are
@@ -37,7 +37,8 @@ func HexToXYBrightness(s string) (hue.XY, float64, error) {
 	y := r*0.283881 + g*0.668433 + b*0.047685
 	z := r*0.000088 + g*0.072310 + b*0.986039
 	brightness := float64(max(r8, g8, b8)) / 255 * 100
-	return Round(hue.XY{X: x / (x + y + z), Y: y / (x + y + z)}), RoundBrightness(brightness), nil
+	sum := x + y + z
+	return Round(hue.XY{X: x / sum, Y: y / sum}), RoundBrightness(brightness), nil
 }
 
 // XYToHex shows xy as hex at full brightness.

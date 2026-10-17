@@ -1,6 +1,7 @@
-// Package color provides temperature conversions, the rounding that the bridge
-// applies to scene values, and display colors. XY is independent of brightness;
-// hex reconstructed from XY is for display only.
+// Package color converts scene colors and color temperatures: hex to and from
+// xy with the Philips Wide RGB D65 formula, kelvin to and from mirek, the
+// rounding that the provider applies before sending, and the sRGB transfer
+// functions. XY is independent of brightness.
 package color
 
 import (

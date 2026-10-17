@@ -86,6 +86,8 @@ func TestValidateAction(t *testing.T) {
 		change func(*actionModel)
 	}{
 		{"temperature conflict", func(a *actionModel) { a.Mirek = types.Int64Value(370); a.Kelvin = types.Int64Value(2700) }},
+		{"color and temperature", func(a *actionModel) { a.XY = xyValue(hue.XY{X: 0.3, Y: 0.3}); a.Mirek = types.Int64Value(370) }},
+		{"color and kelvin", func(a *actionModel) { a.XY = xyValue(hue.XY{X: 0.3, Y: 0.3}); a.Kelvin = types.Int64Value(2700) }},
 		{"bad brightness", func(a *actionModel) { a.Brightness = types.Float64Value(101) }},
 		{"bad kelvin", func(a *actionModel) { a.Kelvin = types.Int64Value(0) }},
 		{"bad xy", func(a *actionModel) { a.XY = xyValue(hue.XY{X: .8, Y: .8}) }},

@@ -174,6 +174,9 @@ func validateAction(a actionModel) []string {
 	if !a.Mirek.IsNull() && !a.Kelvin.IsNull() {
 		errs = append(errs, "mirek and kelvin cannot both be configured.")
 	}
+	if !a.XY.IsNull() && (!a.Mirek.IsNull() || !a.Kelvin.IsNull()) {
+		errs = append(errs, "color_xy cannot be combined with mirek or kelvin. A light shows either a color or a color temperature.")
+	}
 	if known(a.Mirek) && (a.Mirek.ValueInt64() < colors.MinMirek || a.Mirek.ValueInt64() > colors.MaxMirek) {
 		errs = append(errs, "mirek must be between 50 and 1000.")
 	}
