@@ -21,13 +21,28 @@ func TestReconcileAction(t *testing.T) {
 			t.Fatal("subsequent refresh introduced kelvin")
 		}
 	})
-	t.Run("resolves planned computed kelvin", func(t *testing.T) {
-		a := emptyAction()
-		a.Mirek = types.Int64Value(200)
-		a.Kelvin = types.Int64Unknown()
-		got := reconcileAction(a, hue.Action{ColorTemperature: &hue.Temperature{Mirek: 200}})
-		if got.Kelvin.ValueInt64() != 5000 {
-			t.Fatal(got)
+	t.Run("keeps the configured temperature form", func(t *testing.T) {
+		for _, tc := range []struct {
+			name                  string
+			mirek, kelvin         types.Int64
+			stored                int64
+			wantMirek, wantKelvin types.Int64
+		}{
+			{"mirek", types.Int64Value(200), types.Int64Null(), 200, types.Int64Value(200), types.Int64Null()},
+			{"kelvin", types.Int64Null(), types.Int64Value(2700), 370, types.Int64Null(), types.Int64Value(2700)},
+			{"kelvin after drift", types.Int64Null(), types.Int64Value(2700), 300, types.Int64Null(), types.Int64Value(3333)},
+			// A state from an earlier version holds both. The plan removes the
+			// one that is not configured.
+			{"both from an earlier version", types.Int64Value(370), types.Int64Value(2700), 370, types.Int64Value(370), types.Int64Value(2700)},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				a := emptyAction()
+				a.Mirek, a.Kelvin = tc.mirek, tc.kelvin
+				got := reconcileAction(a, hue.Action{ColorTemperature: &hue.Temperature{Mirek: tc.stored}})
+				if !got.Mirek.Equal(tc.wantMirek) || !got.Kelvin.Equal(tc.wantKelvin) {
+					t.Fatalf("got mirek %v and kelvin %v", got.Mirek, got.Kelvin)
+				}
+			})
 		}
 	})
 	t.Run("drift replaces both representations", func(t *testing.T) {
@@ -57,10 +72,9 @@ func TestReconcileStoredValues(t *testing.T) {
 	for _, kelvin := range []int64{1000, 1800, 2000, 2700, 6500, 7000, 20000} {
 		a := emptyAction()
 		a.Kelvin = types.Int64Value(kelvin)
-		a.Mirek = types.Int64Unknown()
 		stored := colors.MirekForKelvin(kelvin)
 		got := reconcileAction(a, hue.Action{ColorTemperature: &hue.Temperature{Mirek: stored}})
-		if !got.Kelvin.Equal(a.Kelvin) || got.Mirek.ValueInt64() != stored {
+		if !got.Kelvin.Equal(a.Kelvin) || !got.Mirek.IsNull() {
 			t.Errorf("kelvin %d stored as mirek %d: %+v", kelvin, stored, got)
 		}
 	}
@@ -123,23 +137,20 @@ func TestPlanAction(t *testing.T) {
 	prior.XY = xyValue(hue.XY{X: 0.3, Y: 0.4})
 	prior.Kelvin = types.Int64Value(2700)
 	prior.Mirek = types.Int64Value(370)
+	// mirek and kelvin are not computed, so Terraform plans them as configured.
+	// The form that the configuration does not use is not carried over from a
+	// state that holds both.
 	config := emptyAction()
 	config.Kelvin = prior.Kelvin
-	planned := config
-	planned.Mirek = types.Int64Unknown()
-	got := planAction(config, planned, prior)
-	if got.Mirek != prior.Mirek {
-		t.Fatal("unchanged counterparts not preserved")
+	got := planAction(config, config, prior)
+	if !got.Kelvin.Equal(prior.Kelvin) || !got.Mirek.IsNull() {
+		t.Fatalf("got mirek %v and kelvin %v", got.Mirek, got.Kelvin)
 	}
-	config.Kelvin = types.Int64Value(3000)
-	got = planAction(config, config, prior)
-	if !got.Mirek.IsUnknown() {
-		t.Fatal("stale counterparts retained")
-	}
-	config = emptyAction()
-	got = planAction(config, prior, prior)
-	if !got.XY.IsNull() || !got.Mirek.IsNull() || !got.Kelvin.IsNull() {
-		t.Fatal("absent pair was not removed")
+	planned := emptyAction()
+	planned.XY = types.ObjectUnknown(xyTypes)
+	got = planAction(emptyAction(), planned, prior)
+	if !got.XY.IsNull() {
+		t.Fatal("removed color was kept")
 	}
 }
 
@@ -159,7 +170,7 @@ func TestExtendedTemperatureReconcile(t *testing.T) {
 		prior := emptyAction()
 		prior.Kelvin = types.Int64Value(colors.MirekToKelvin(m))
 		got := reconcileAction(prior, hue.Action{ColorTemperature: &hue.Temperature{Mirek: m}})
-		if !got.Kelvin.Equal(prior.Kelvin) || got.Mirek.ValueInt64() != m {
+		if !got.Kelvin.Equal(prior.Kelvin) || !got.Mirek.IsNull() {
 			t.Fatalf("mirek %d: %+v", m, got)
 		}
 	}

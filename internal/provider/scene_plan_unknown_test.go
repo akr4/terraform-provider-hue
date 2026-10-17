@@ -32,7 +32,7 @@ resource "hue_scene" "test" {
  name = "Scene"
  group = hue_zone.test.id
  actions = {
-  %[1]q = { on = true, kelvin = 2700 }
+  %[1]q = { on = true, mirek = 370 }
   %[2]q = %[3]s
  }
 }

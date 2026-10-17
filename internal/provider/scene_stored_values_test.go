@@ -24,7 +24,7 @@ func TestAccSceneStoredValues(t *testing.T) {
 	resource.Test(t, resource.TestCase{ProtoV6ProviderFactories: factories(b), CheckDestroy: destroyed(b), Steps: []resource.TestStep{
 		{Config: temperature, Check: resource.ComposeAggregateTestCheckFunc(
 			resource.TestCheckResourceAttr(addr, action+".kelvin", "1800"),
-			resource.TestCheckResourceAttr(addr, action+".mirek", "556"),
+			resource.TestCheckNoResourceAttr(addr, action+".mirek"),
 			resource.TestCheckResourceAttr(addr, action+".brightness", "33.33333333333333"),
 		)},
 		{Config: temperature, PlanOnly: true},

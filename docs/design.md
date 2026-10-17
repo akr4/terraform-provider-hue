@@ -233,11 +233,11 @@ action object:
 |---|---|---|
 | `on` | Optional | 点灯状態 |
 | `brightness` | Optional | 0.0〜100.0 |
-| `mirek` | Optional, Computed | 色温度（50〜1000 mirek、API全体の範囲） |
-| `kelvin` | Optional, Computed, **非推奨** | 色温度（ケルビン）。`mirek` と排他。代わりに `mirek` と `provider::hue::mirek_from_kelvin` を使う |
+| `mirek` | Optional | 色温度（50〜1000 mirek、API全体の範囲） |
+| `kelvin` | Optional, **非推奨** | 色温度（ケルビン）。`mirek` と排他。代わりに `mirek` と `provider::hue::mirek_from_kelvin` を使う |
 | `color_xy` | Optional, Computed, object `{x, y}` | CIE xy |
 
-- `mirek` / `kelvin` は ExactlyOneOf ではなく「両方省略可、両方指定は不可」。片方を指定すると他方は provider が計算して埋める。`kelvin` は非推奨で、指定すると validate と plan で警告を出す
+- `mirek` / `kelvin` は ExactlyOneOf ではなく「両方省略可、両方指定は不可」。state には、設定で書いたほうだけを持たせる。import は `mirek` を使う。`kelvin` から `mirek` に書き換えると、plan に `kelvin` の削除と `mirek` の追加が出る。同じ色温度なら、apply しても同じ mirek を送り直すだけになる。v0.1 の state には両方の形が入っていることがあり、そのときは上げた直後の plan に、書いていないほうの削除が出る。`kelvin` は非推奨で、指定すると validate と plan で警告を出す
 - ライトは色か色温度のどちらか一方で光るため、同じアクションに `color_xy` と `mirek` / `kelvin` は書けない（検査で止める）。実機のシーン 1,516 アクションに、両方を持つものはなかった
 - 色は `color_xy` と独立した `brightness` で指定する。`color_hex` は廃止し、state schema version 1 で旧属性だけを除去して xy を保持する。
 - `palette` は Optional + Computed の JSON 文字列。明示時は書き込み、未指定時は実機の値を維持する。actions とは独立して管理し、相互の自動生成は行わない。
@@ -286,7 +286,7 @@ action object:
 - `mirek`: 設定値（kelvin から変換して API の範囲に収めた値、または直接指定）と bridge の値の差が ±1 以内なら等しいとみなす
 - `brightness`: 小数 2 桁に丸めた設定値と bridge の値が同じなら等しいとみなす
 - 等しい場合、state には設定側の表現（ユーザーが書いた xy / kelvin / brightness）をそのまま保持する
-- 等しくない場合（drift）、state の値を実機の値へ更新する。色温度の kelvin も再計算する
+- 等しくない場合（drift）、state の値を実機の値へ更新する。`kelvin` を書いている場合は、実機の mirek から kelvin を計算し直す
 - scene の Read はシーンだけを読む。light の一覧は取得しない
 
 ## 10. 補助 CLI `hue-tf`

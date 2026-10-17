@@ -90,8 +90,8 @@ func (r *sceneResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 			"dynamics":   schema.StringAttribute{Optional: true, Computed: true, Description: "Light transition settings as a JSON object; use jsonencode({ duration = 800 }) for milliseconds. Preserved from the bridge when omitted."},
 			"on":         schema.BoolAttribute{Optional: true, Description: "On/off state."},
 			"brightness": schema.Float64Attribute{Optional: true, Description: "Brightness from 0 to 100, rounded to two decimal places."},
-			"mirek":      schema.Int64Attribute{Optional: true, Computed: true, Description: "Color temperature, 50–1000 mirek. Individual lights may support a narrower range. Conflicts with kelvin; may omit both."},
-			"kelvin":     schema.Int64Attribute{Optional: true, Computed: true, Description: "Positive color temperature in kelvin. Converted to mirek and bounded to the API range 50–1000; individual lights may further limit it. Conflicts with mirek. Use mirek with provider::hue::mirek_from_kelvin instead.", DeprecationMessage: "Use mirek = provider::hue::mirek_from_kelvin(KELVIN) instead. kelvin will be removed in a future version."},
+			"mirek":      schema.Int64Attribute{Optional: true, Description: "Color temperature, 50–1000 mirek. Individual lights may support a narrower range. Conflicts with kelvin; may omit both."},
+			"kelvin":     schema.Int64Attribute{Optional: true, Description: "Positive color temperature in kelvin. Converted to mirek and bounded to the API range 50–1000; individual lights may further limit it. Conflicts with mirek. Use mirek with provider::hue::mirek_from_kelvin instead.", DeprecationMessage: "Use mirek = provider::hue::mirek_from_kelvin(KELVIN) instead. kelvin will be removed in a future version."},
 			"color_xy":   schema.SingleNestedAttribute{Optional: true, Computed: true, Description: "CIE xy chromaticity, rounded to four decimal places. Brightness is configured separately.", Attributes: map[string]schema.Attribute{"x": schema.Float64Attribute{Required: true}, "y": schema.Float64Attribute{Required: true}}},
 		}}},
 	}}
@@ -309,10 +309,13 @@ func reconcileAction(prior actionModel, actual hue.Action) actionModel {
 	}
 	if actual.ColorTemperature != nil {
 		m := actual.ColorTemperature.Mirek
-		next.Mirek = types.Int64Value(m)
-		// Import has no configured temperature representation. Keep only the API
-		// value so Terraform does not generate mutually exclusive attributes.
-		// Existing/planned kelvin (including a computed unknown) still resolves.
+		// The state holds the color temperature in the form that the
+		// configuration uses: kelvin while kelvin is configured, and mirek
+		// otherwise, as after import. A state from an earlier version may hold
+		// both, and the plan then removes the one that is not configured.
+		if prior.Kelvin.IsNull() || !prior.Mirek.IsNull() {
+			next.Mirek = types.Int64Value(m)
+		}
 		if !prior.Kelvin.IsNull() {
 			next.Kelvin = types.Int64Value(colors.MirekToKelvin(m))
 		}
@@ -547,20 +550,6 @@ func planAction(config, planned, prior actionModel) actionModel {
 	}
 	if config.Dynamics.IsNull() {
 		planned.Dynamics = prior.Dynamics
-	}
-	if config.Mirek.IsNull() && config.Kelvin.IsNull() {
-		planned.Mirek = types.Int64Null()
-		planned.Kelvin = types.Int64Null()
-	} else if !config.Mirek.IsNull() {
-		planned.Kelvin = types.Int64Unknown()
-		if known(config.Mirek) && config.Mirek.Equal(prior.Mirek) {
-			planned.Kelvin = prior.Kelvin
-		}
-	} else {
-		planned.Mirek = types.Int64Unknown()
-		if known(config.Kelvin) && config.Kelvin.Equal(prior.Kelvin) {
-			planned.Mirek = prior.Mirek
-		}
 	}
 	return planned
 }

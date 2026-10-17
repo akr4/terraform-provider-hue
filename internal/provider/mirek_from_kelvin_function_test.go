@@ -35,7 +35,7 @@ func TestAccSceneMirekFromKelvin(t *testing.T) {
 	addr := "hue_scene.test"
 	config := sceneConfig("on = true\nbrightness = 40\nmirek = provider::hue::mirek_from_kelvin(2700)", "Evening", "room")
 	resource.Test(t, resource.TestCase{TerraformVersionChecks: []tfversion.TerraformVersionCheck{tfversion.SkipBelow(tfversion.Version1_8_0)}, ProtoV6ProviderFactories: factories(b), CheckDestroy: destroyed(b), Steps: []resource.TestStep{
-		{Config: config, Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr(addr, "actions."+fakebridge.LightID+".mirek", "370"), resource.TestCheckResourceAttr(addr, "actions."+fakebridge.LightID+".kelvin", "2703"))},
+		{Config: config, Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr(addr, "actions."+fakebridge.LightID+".mirek", "370"), resource.TestCheckNoResourceAttr(addr, "actions."+fakebridge.LightID+".kelvin"))},
 		{Config: config, PlanOnly: true},
 	}})
 }
