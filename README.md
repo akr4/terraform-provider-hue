@@ -112,8 +112,29 @@ keyed by light UUID. A device belongs to one room, so adding it to a room moves
 it out of its current room. Destroying a resource deletes it from the bridge,
 except `hue_device`, which only stops managing the device.
 
-See [resources](docs/resources) and [data sources](docs/data-sources) for the
-full reference.
+See [resources](docs/resources), [data sources](docs/data-sources) and
+[functions](docs/functions) for the full reference.
+
+### Scene colors
+
+A scene action takes a color as CIE xy (`color_xy`) or a color temperature in
+mirek (`mirek`), and `brightness` from 0 to 100. Provider functions convert from
+familiar notations:
+
+```hcl
+actions = {
+  (data.hue_light.shelf.id) = merge(provider::hue::color_from_hex("#ff8800"), { on = true })
+  (data.hue_light.sofa.id)  = { on = true, brightness = 40, mirek = provider::hue::mirek_from_kelvin(2700) }
+}
+```
+
+`color_from_hex` returns `color_xy` and `brightness`. It reads hex with the
+Philips Wide RGB D65 formula, which reaches the full gamut of Hue lights, so a
+color can look more saturated on a light than on a screen. Brightness is the
+largest RGB channel: `#ff8800` is 100 and `#7f4400` is 49.8. Put the function
+first in `merge`, so that the settings after it win:
+`merge(provider::hue::color_from_hex("#ff8800"), { on = true, brightness = 40 })`
+keeps the color and sets the brightness to 40.
 
 ## CLI
 

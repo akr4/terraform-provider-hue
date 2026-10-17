@@ -267,6 +267,10 @@ action object:
 - `provider::hue::mirek_from_kelvin(kelvin)` は `round(1_000_000 / kelvin)` を返す。結果が API の範囲 50〜1000 の外ならエラーにする。Terraform 1.8 以降で使える
 - 関数名は `<返すもの>_from_<入力>` とし、引数の単位を名前に含める
 - 関数の結果は mirek の数値なので、state・比較・import は `mirek` を直接書いた場合と同じになる
+- `provider::hue::color_from_hex(hex)` は `#rrggbb` か `#rgb` を受け取り、`{ color_xy, brightness }` を返す。actions では `merge(provider::hue::color_from_hex("#ff8800"), { on = true })` と書く。merge は後ろの引数が勝つので、関数を先に書くと、明るさなどを自分で書いた値で上書きできる
+  - xy は Philips の Wide RGB D65 の式（sRGB のガンマ補正のあと Wide RGB D65 の行列）で求め、小数 4 桁に丸める。sRGB として読むと、hex で Hue の色域の端（特に緑と赤）に届かないため
+  - 明るさは RGB で一番大きい値（HSV の V）を百分率にし、小数 2 桁に丸める。輝度（Y）は、実機で青などの飽和した色が暗くなりすぎたため使わない（青の 100% は白の 100% よりもともと暗い）
+  - 黒（`#000000`）は色を持たないためエラーにする
 
 ### bridge が保存する値
 

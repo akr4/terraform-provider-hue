@@ -82,5 +82,5 @@ func (p *hueProvider) DataSources(context.Context) []func() datasource.DataSourc
 	return []func() datasource.DataSource{func() datasource.DataSource { return &lookupDataSource{kind: "light"} }, func() datasource.DataSource { return &lookupDataSource{kind: "device"} }}
 }
 func (p *hueProvider) Functions(context.Context) []func() function.Function {
-	return []func() function.Function{func() function.Function { return &mirekFromKelvinFunction{} }}
+	return []func() function.Function{func() function.Function { return &colorFromHexFunction{} }, func() function.Function { return &mirekFromKelvinFunction{} }}
 }

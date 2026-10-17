@@ -4,7 +4,6 @@
 package color
 
 import (
-	"fmt"
 	"math"
 
 	"github.com/akr4/terraform-provider-hue/internal/hue"
@@ -42,22 +41,20 @@ func ClampMirek(m, min, max int64) int64 {
 	}
 	return m
 }
-func gamma(v float64) float64 {
+
+// EncodeSRGB and DecodeSRGB convert between linear light and sRGB-encoded
+// values, both from 0 to 1.
+func EncodeSRGB(v float64) float64 {
 	if v <= 0.0031308 {
 		return 12.92 * v
 	}
 	return 1.055*math.Pow(v, 1/2.4) - 0.055
 }
-func XYToHex(p hue.XY) string {
-	if p.Y <= 0 {
-		return "#000000"
+func DecodeSRGB(v float64) float64 {
+	if v > 0.04045 {
+		return math.Pow((v+0.055)/1.055, 2.4)
 	}
-	x, y, z := p.X/p.Y, 1.0, (1-p.X-p.Y)/p.Y
-	r, g, b := x*1.656492-y*0.354851-z*0.255038, -x*0.707196+y*1.655397+z*0.036152, x*0.051713-y*0.121364+z*1.011530
-	r, g, b = math.Max(0, r), math.Max(0, g), math.Max(0, b)
-	scale := math.Max(1, math.Max(r, math.Max(g, b)))
-	channel := func(v float64) int { return int(math.Round(math.Min(1, math.Max(0, gamma(v/scale))) * 255)) }
-	return fmt.Sprintf("#%02x%02x%02x", channel(r), channel(g), channel(b))
+	return v / 12.92
 }
 func Round(p hue.XY) hue.XY {
 	return hue.XY{X: math.Round(p.X*1e4) / 1e4, Y: math.Round(p.Y*1e4) / 1e4}
