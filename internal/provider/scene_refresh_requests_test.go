@@ -24,7 +24,7 @@ func TestSceneRefreshReadsOnlyTheScene(t *testing.T) {
 	for i := 0; i < count; i++ {
 		prior := emptyAction()
 		prior.XY = xyValue(hue.XY{X: 0.72, Y: 0.26})
-		prior.Kelvin = types.Int64Value(1000)
+		prior.Mirek = types.Int64Value(1000)
 		prior.Brightness = types.Float64Value(40)
 		actions, d := types.MapValueFrom(context.Background(), actionType, map[string]actionModel{fakebridge.LightID: prior})
 		if d.HasError() {

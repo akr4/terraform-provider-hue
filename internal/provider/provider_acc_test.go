@@ -11,6 +11,7 @@ import (
 	"github.com/akr4/terraform-provider-hue/internal/fakebridge"
 	"github.com/akr4/terraform-provider-hue/internal/hue"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
@@ -123,9 +124,9 @@ func TestAccScene(t *testing.T) {
 		{Config: sceneConfig("on = true\nbrightness = 40\ncolor_xy = { x = 0.6915, y = 0.3083 }", "Evening", "room"), Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr(addr, "actions."+fakebridge.LightID+".color_xy.x", "0.6915"), func(s *terraform.State) error { sceneID = s.RootModule().Resources[addr].Primary.ID; return nil })},
 		{Config: sceneConfig("on = true\nbrightness = 40\ncolor_xy = { x = 0.6915, y = 0.3083 }", "Evening", "room"), PlanOnly: true},
 		{ResourceName: addr, ImportState: true, ImportStateVerify: true},
-		{Config: sceneConfig("on = false\nbrightness = 20\nkelvin = 1000", "Warm", "room"), Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr(addr, "actions."+fakebridge.LightID+".kelvin", "1000"), resource.TestCheckResourceAttr(addr, "actions."+fakebridge.LightID+".mirek", "1000"), resource.TestCheckNoResourceAttr(addr, "actions."+fakebridge.LightID+".color_xy"))},
-		{Config: sceneConfig("on = false\nbrightness = 20\nkelvin = 1000", "Warm", "room"), PlanOnly: true},
-		{Config: sceneConfig("mirek = 200", "Cool", "room"), Check: resource.TestCheckResourceAttr(addr, "actions."+fakebridge.LightID+".kelvin", "5000")},
+		{Config: sceneConfig("on = false\nbrightness = 20\nmirek = 1000", "Warm", "room"), Check: resource.ComposeAggregateTestCheckFunc(resource.TestCheckResourceAttr(addr, "actions."+fakebridge.LightID+".mirek", "1000"), resource.TestCheckNoResourceAttr(addr, "actions."+fakebridge.LightID+".color_xy"))},
+		{Config: sceneConfig("on = false\nbrightness = 20\nmirek = 1000", "Warm", "room"), PlanOnly: true},
+		{Config: sceneConfig("mirek = 200", "Cool", "room"), Check: resource.TestCheckResourceAttr(addr, "actions."+fakebridge.LightID+".mirek", "200")},
 		{PreConfig: func() {
 			scene, err := hue.GetOne[hue.Scene](context.Background(), b.Client(), "scene", sceneID)
 			if err != nil {
@@ -146,7 +147,11 @@ func TestAccScene(t *testing.T) {
 func TestAccValidation(t *testing.T) {
 	b := fakebridge.New()
 	defer b.Close()
-	resource.Test(t, resource.TestCase{ProtoV6ProviderFactories: factories(b), Steps: []resource.TestStep{{Config: sceneConfig("mirek = 370\nkelvin = 2700", "Invalid", "room"), ExpectError: regexp.MustCompile("cannot both be configured")}}})
+	resource.Test(t, resource.TestCase{ProtoV6ProviderFactories: factories(b), Steps: []resource.TestStep{
+		{Config: sceneConfig("mirek = 370\ncolor_xy = { x = 0.3, y = 0.3 }", "Invalid", "room"), ExpectError: regexp.MustCompile("color_xy cannot be combined with mirek")},
+		// kelvin was removed in 0.2.0, and the error names what replaces it.
+		{Config: sceneConfig("kelvin = 2700", "Invalid", "room"), ExpectError: regexp.MustCompile(strings.ReplaceAll(regexp.QuoteMeta(kelvinReplacement(types.Int64Value(2700))), " ", `\s+`))},
+	}})
 }
 
 func TestAccSceneActionsAndMetadata(t *testing.T) {
@@ -230,18 +235,36 @@ func TestAccSceneExtendedTemperature(t *testing.T) {
 	light.ColorTemperature.MirekSchema = hue.MirekSchema{Min: 50, Max: 1000}
 	b.Put("light", fakebridge.LightID, light)
 	addr := "hue_scene.test"
+	action := "actions." + fakebridge.LightID
 	steps := []resource.TestStep{}
-	for _, tc := range []struct{ config, attr, value string }{
-		{"mirek = 50", "mirek", "50"},
-		{"mirek = 1000", "mirek", "1000"},
-		{"kelvin = 1000", "mirek", "1000"},
-		{"kelvin = 20000", "mirek", "50"},
-		{"kelvin = 500", "mirek", "1000"},
-		{"kelvin = 40000", "mirek", "50"},
+	for _, tc := range []struct {
+		config string
+		mirek  int64
+	}{
+		{"mirek = 50", 50},
+		{"mirek = 1000", 1000},
 	} {
 		cfg := sceneConfig(tc.config, "Extended", "room")
-		steps = append(steps, resource.TestStep{Config: cfg, Check: resource.TestCheckResourceAttr(addr, "actions."+fakebridge.LightID+"."+tc.attr, tc.value)}, resource.TestStep{Config: cfg, PlanOnly: true})
-		steps = append(steps, resource.TestStep{ResourceName: addr, ImportState: true, ImportStateVerify: true, ImportStateVerifyIgnore: []string{"actions." + fakebridge.LightID + ".kelvin"}})
+		// The bridge stores the mirek that the provider sends, and import reads
+		// it back.
+		stored := func(s *terraform.State) error {
+			scene, err := hue.GetOne[hue.Scene](context.Background(), b.Client(), "scene", s.RootModule().Resources[addr].Primary.ID)
+			if err != nil {
+				return err
+			}
+			if temperature := scene.Actions[0].Action.ColorTemperature; temperature == nil || temperature.Mirek != tc.mirek {
+				return fmt.Errorf("%s stored as %+v", tc.config, temperature)
+			}
+			return nil
+		}
+		imported := func(states []*terraform.InstanceState) error {
+			if states[0].Attributes[action+".mirek"] != fmt.Sprint(tc.mirek) {
+				return fmt.Errorf("%s imported as %v", tc.config, states[0].Attributes)
+			}
+			return nil
+		}
+		steps = append(steps, resource.TestStep{Config: cfg, Check: stored}, resource.TestStep{Config: cfg, PlanOnly: true})
+		steps = append(steps, resource.TestStep{ResourceName: addr, ImportState: true, ImportStateCheck: imported, ImportStateVerify: true})
 	}
 	resource.Test(t, resource.TestCase{ProtoV6ProviderFactories: factories(b), CheckDestroy: destroyed(b), Steps: steps})
 }

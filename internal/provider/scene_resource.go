@@ -108,9 +108,9 @@ func (r *sceneResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 			"dynamics":   schema.StringAttribute{Optional: true, Computed: true, Description: "Light transition settings as a JSON object; use jsonencode({ duration = 800 }) for milliseconds. Preserved from the bridge when omitted."},
 			"on":         schema.BoolAttribute{Optional: true, Description: "On/off state."},
 			"brightness": schema.Float64Attribute{Optional: true, Description: "Brightness from 0 to 100, rounded to two decimal places."},
-			"mirek":      schema.Int64Attribute{Optional: true, Computed: true, Description: "Color temperature, 50–1000 mirek. Individual lights may support a narrower range. Conflicts with kelvin; may omit both."},
-			"kelvin":     schema.Int64Attribute{Optional: true, Computed: true, Description: "Positive color temperature in kelvin. Converted to mirek and bounded to the API range 50–1000; individual lights may further limit it. Conflicts with mirek. Use mirek with provider::hue::mirek_from_kelvin instead.", DeprecationMessage: "Use mirek = provider::hue::mirek_from_kelvin(KELVIN) instead. kelvin will be removed in a future version."},
-			"color_xy":   schema.SingleNestedAttribute{Optional: true, Computed: true, Description: "CIE xy chromaticity, rounded to four decimal places. Brightness is configured separately.", Attributes: xyAttributes()},
+			"mirek":      schema.Int64Attribute{Optional: true, Description: "Color temperature, 50–1000 mirek. Individual lights may support a narrower range. Use provider::hue::mirek_from_kelvin for kelvin."},
+			"kelvin":     schema.Int64Attribute{Optional: true, Description: "Removed in 0.2.0, and an error when set. Use mirek instead; provider::hue::mirek_from_kelvin converts kelvin.", DeprecationMessage: kelvinRemoved + " Use mirek instead."},
+			"color_xy":   schema.SingleNestedAttribute{Optional: true, Description: "CIE xy chromaticity, rounded to four decimal places. Brightness is configured separately.", Attributes: xyAttributes()},
 		}}},
 	}}
 }
@@ -157,14 +157,38 @@ func (r *sceneResource) ValidateConfig(ctx context.Context, req resource.Validat
 			continue
 		}
 		var a actionModel
-		resp.Diagnostics.Append(value.(types.Object).As(ctx, &a, basetypes.ObjectAsOptions{})...)
-		if resp.Diagnostics.HasError() {
+		// Errors in other actions do not stop this one from being checked.
+		d := value.(types.Object).As(ctx, &a, basetypes.ObjectAsOptions{})
+		resp.Diagnostics.Append(d...)
+		if d.HasError() {
 			continue
+		}
+		// Terraform drops an attribute that a nested object does not have
+		// without an error, so the schema keeps kelvin to report its removal.
+		if !a.Kelvin.IsNull() {
+			resp.Diagnostics.AddAttributeError(p.AtName("kelvin"), "kelvin was removed", kelvinReplacement(a.Kelvin))
 		}
 		for _, message := range validateAction(a) {
 			resp.Diagnostics.AddAttributeError(p, "Invalid action", message)
 		}
 	}
+}
+
+const kelvinRemoved = "kelvin was removed in 0.2.0."
+
+// kelvinReplacement tells what to write instead of a configured kelvin: the
+// mirek that earlier versions sent for it, and provider::hue::mirek_from_kelvin
+// where it returns the same mirek. The function needs Terraform 1.8.
+func kelvinReplacement(kelvin types.Int64) string {
+	if !known(kelvin) || kelvin.ValueInt64() <= 0 {
+		return kelvinRemoved + " Write mirek instead. provider::hue::mirek_from_kelvin converts kelvin."
+	}
+	k := kelvin.ValueInt64()
+	m := colors.MirekForKelvin(k)
+	if colors.KelvinToMirek(k) != m {
+		return fmt.Sprintf("%s Write mirek = %d instead, the mirek that earlier versions sent for kelvin = %d.", kelvinRemoved, m, k)
+	}
+	return fmt.Sprintf("%s Write mirek = provider::hue::mirek_from_kelvin(%d) instead, or mirek = %d before Terraform 1.8.", kelvinRemoved, k, m)
 }
 func validateAction(a actionModel) []string {
 	var errs []string
@@ -181,21 +205,15 @@ func validateAction(a actionModel) []string {
 				Effect string `json:"effect"`
 			} `json:"action"`
 		}
-		if json.Unmarshal([]byte(a.EffectsV2.ValueString()), &effect) == nil && effect.Action.Effect != "" && effect.Action.Effect != "no_effect" && (known(a.XY) || known(a.Mirek) || known(a.Kelvin) || known(a.Gradient)) {
-			errs = append(errs, "effects_v2.action.effect cannot be combined with color_xy, mirek, kelvin or gradient. Configure effect colors inside effects_v2.action.parameters instead.")
+		if json.Unmarshal([]byte(a.EffectsV2.ValueString()), &effect) == nil && effect.Action.Effect != "" && effect.Action.Effect != "no_effect" && (known(a.XY) || known(a.Mirek) || known(a.Gradient)) {
+			errs = append(errs, "effects_v2.action.effect cannot be combined with color_xy, mirek or gradient. Configure effect colors inside effects_v2.action.parameters instead.")
 		}
 	}
-	if !a.Mirek.IsNull() && !a.Kelvin.IsNull() {
-		errs = append(errs, "mirek and kelvin cannot both be configured.")
-	}
-	if !a.XY.IsNull() && (!a.Mirek.IsNull() || !a.Kelvin.IsNull()) {
-		errs = append(errs, "color_xy cannot be combined with mirek or kelvin. A light shows either a color or a color temperature.")
+	if !a.XY.IsNull() && !a.Mirek.IsNull() {
+		errs = append(errs, "color_xy cannot be combined with mirek. A light shows either a color or a color temperature.")
 	}
 	if known(a.Mirek) && !validMirek(a.Mirek.ValueInt64()) {
 		errs = append(errs, mirekRange)
-	}
-	if known(a.Kelvin) && a.Kelvin.ValueInt64() <= 0 {
-		errs = append(errs, "kelvin must be positive.")
 	}
 	if known(a.Brightness) && !validBrightness(a.Brightness.ValueFloat64()) {
 		errs = append(errs, brightnessRange)
@@ -279,12 +297,9 @@ func (r *sceneResource) body(ctx context.Context, m sceneModel, config sceneMode
 		if known(a.Brightness) {
 			action.Dimming = &hue.Dimming{Brightness: colors.RoundBrightness(a.Brightness.ValueFloat64())}
 		}
-		// Only configured color representations select writes. Computed counterparts
-		// from prior state must never override a newly configured value or removal.
+		// Only configured colors and color temperatures are sent.
 		if known(c.Mirek) {
 			action.ColorTemperature = &hue.Temperature{Mirek: c.Mirek.ValueInt64()}
-		} else if known(c.Kelvin) {
-			action.ColorTemperature = &hue.Temperature{Mirek: colors.MirekForKelvin(c.Kelvin.ValueInt64())}
 		}
 		if p, ok := readXY(c.XY); ok {
 			action.Color = &hue.ActionColor{XY: colors.Round(p)}
@@ -321,24 +336,8 @@ func reconcileAction(prior actionModel, actual hue.Action) actionModel {
 	if actual.ColorTemperature != nil {
 		m := actual.ColorTemperature.Mirek
 		next.Mirek = types.Int64Value(m)
-		// Import has no configured temperature representation. Keep only the API
-		// value so Terraform does not generate mutually exclusive attributes.
-		// Existing/planned kelvin (including a computed unknown) still resolves.
-		if !prior.Kelvin.IsNull() {
-			next.Kelvin = types.Int64Value(colors.MirekToKelvin(m))
-		}
-		expected, ok := prior.Mirek.ValueInt64(), known(prior.Mirek)
-		if !ok && known(prior.Kelvin) {
-			expected = colors.MirekForKelvin(prior.Kelvin.ValueInt64())
-			ok = true
-		}
-		if ok && colors.EqualMirek(expected, m) {
-			if known(prior.Mirek) {
-				next.Mirek = prior.Mirek
-			}
-			if known(prior.Kelvin) {
-				next.Kelvin = prior.Kelvin
-			}
+		if known(prior.Mirek) && colors.EqualMirek(prior.Mirek.ValueInt64(), m) {
+			next.Mirek = prior.Mirek
 		}
 	}
 	return next
@@ -476,7 +475,8 @@ func (r *sceneResource) ImportState(ctx context.Context, req resource.ImportStat
 	importID(ctx, req, resp)
 }
 
-// ModifyPlan resolves computed temperature counterparts without bridge access.
+// ModifyPlan plans the values that the bridge keeps when they are omitted,
+// without bridge access.
 func (r *sceneResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
 	if req.Plan.Raw.IsNull() {
 		return
@@ -540,9 +540,6 @@ func (r *sceneResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 	resp.Diagnostics.Append(resp.Plan.Set(ctx, &planned)...)
 }
 func planAction(config, planned, prior actionModel) actionModel {
-	if config.XY.IsNull() {
-		planned.XY = types.ObjectNull(xyTypes)
-	}
 	if config.Gradient.IsNull() {
 		planned.Gradient = prior.Gradient
 	}
@@ -554,20 +551,6 @@ func planAction(config, planned, prior actionModel) actionModel {
 	}
 	if config.Dynamics.IsNull() {
 		planned.Dynamics = prior.Dynamics
-	}
-	if config.Mirek.IsNull() && config.Kelvin.IsNull() {
-		planned.Mirek = types.Int64Null()
-		planned.Kelvin = types.Int64Null()
-	} else if !config.Mirek.IsNull() {
-		planned.Kelvin = types.Int64Unknown()
-		if known(config.Mirek) && config.Mirek.Equal(prior.Mirek) {
-			planned.Kelvin = prior.Kelvin
-		}
-	} else {
-		planned.Mirek = types.Int64Unknown()
-		if known(config.Kelvin) && config.Kelvin.Equal(prior.Kelvin) {
-			planned.Mirek = prior.Mirek
-		}
 	}
 	return planned
 }

@@ -36,10 +36,10 @@
 | device | metadata.name / archetype、light_idsの取得 | geometry.objects（サービスの位置・回転）、旧device_mode。旧modeは非推奨でswitch_input_configurationが後継。[Device][device] |
 | room | children、metadata.name / archetype | geometry.objectsの位置・回転。[Room][room] |
 | zone | children、metadata.name / archetype | 保存資料のPOST/PUT設定項目に確認できた欠落なし。roomのgeometryをzoneにもあると扱わない。[Zone][zone] |
-| scene.actions | on、brightness、xy、mirek/kelvin、gradient / effects / effects_v2 / dynamicsのJSON | effects_v2のaction / parameters、dynamics.durationを保持・設定可能。旧effectsは公式では非推奨。[Scene PUT][scene-put] |
+| scene.actions | on、brightness、xy、mirek、gradient / effects / effects_v2 / dynamicsのJSON | effects_v2のaction / parameters、dynamics.durationを保持・設定可能。旧effectsは公式では非推奨。[Scene PUT][scene-put] |
 | scene本体 | name、group、palette、speed、auto_dynamic | **metadata.appdata**、**mapping.algorithm**（SpatialAware対応機種のclassic / spatial）が未対応。[Scene POST][scene-post] |
 | scene / smart_sceneの画像 | 管理対象外 | 作成・更新ともmetadata.imageを送らない。公式POSTには画像参照があるが、画像の登録APIは保存資料にない。旧stateのimage_idはローカル移行で除去する |
-| sceneの色温度 | mirek / kelvin指定 | 入力検証・kelvin変換は公式型の50〜1000に対応済み。bridgeは照明の範囲外の値もそのまま保存するため、送った値と比較する |
+| sceneの色温度 | mirek指定（ケルビンはprovider::hue::mirek_from_kelvinで変換） | 入力検証は公式型の50〜1000に対応済み。bridgeは照明の範囲外の値もそのまま保存するため、送った値と比較する |
 | smart_scene | name、group、week_timeslots、transition_duration、稼働状態の読取 | metadata.appdataが未対応。画像は管理対象外。[Smart scene][smart-post] |
 | behavior_instance | script_id、name、enabled、configuration全体、status / last_errorの読取 | POSTのmigrated_from（v1由来ID）とPUTのtriggerが未対応。前者は移行補助、後者は実行時操作。[Behavior POST][behavior-post]、[PUT][behavior-put] |
 
@@ -152,9 +152,9 @@ data sourceはlight / deviceのUUID指定のみで、API応答全体を返すも
 
 1. scene.actionsのeffects_v2 / dynamicsの保持はJSON属性で対応済み。機種固有のパラメーターや実機応答の差を確認する。
 2. 画像は管理対象外とし、POST/PUTに含めない（対応済み）。旧state移行と画像を持つシーンの更新を回帰テストで確認する。
-3. mirek / kelvinの範囲は50〜1000に修正済み。fakebridgeは実機と同じく範囲外の値をそのまま保存し、明るさを小数2桁に丸める。
+3. mirekの範囲は50〜1000に修正済み。fakebridgeは実機と同じく範囲外の値をそのまま保存し、明るさを小数2桁に丸める。
 4. appdata、mapping、device / room geometryの更新時保持。省略で残るものまで、公開前の機能追加を必須にしない。
-5. 標準import/config生成は、device・room・zone・scene・smart_scene・behavior_instanceをfakebridgeで検証する。実Terraform CLIで生成した設定を無編集で適用し、importブロック削除後のplanが差分なし、API書き込みなしになることを回帰テストで確認する。sceneは色温度・xy・palette・gradient・effects / effects_v2・dynamicsを含む。色温度のimportではmirekを採用し、kelvinとの重複生成を避ける。JSON属性の内部構造すべてを検証するものではない。
+5. 標準import/config生成は、device・room・zone・scene・smart_scene・behavior_instanceをfakebridgeで検証する。実Terraform CLIで生成した設定を無編集で適用し、importブロック削除後のplanが差分なし、API書き込みなしになることを回帰テストで確認する。sceneは色温度・xy・palette・gradient・effects / effects_v2・dynamicsを含む。色温度はmirekで生成する。JSON属性の内部構造すべてを検証するものではない。
 
 **公開後の機能追加候補**
 

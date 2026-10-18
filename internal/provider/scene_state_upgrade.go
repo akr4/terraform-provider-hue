@@ -16,9 +16,9 @@ var _ resource.ResourceWithUpgradeState = (*sceneResource)(nil)
 // Each upgrader converts directly to the current schema without bridge access.
 func (r *sceneResource) UpgradeState(context.Context) map[int64]resource.StateUpgrader {
 	return map[int64]resource.StateUpgrader{
-		0: sceneStateUpgrader(removeSceneHex, removeSceneImage, upgradeScenePalette),
-		1: sceneStateUpgrader(removeSceneImage, upgradeScenePalette),
-		2: sceneStateUpgrader(upgradeScenePalette),
+		0: sceneStateUpgrader(removeSceneHex, removeSceneImage, upgradeScenePalette, removeSceneKelvin),
+		1: sceneStateUpgrader(removeSceneImage, upgradeScenePalette, removeSceneKelvin),
+		2: sceneStateUpgrader(upgradeScenePalette, removeSceneKelvin),
 	}
 }
 
@@ -130,6 +130,23 @@ func removeSceneImage(data []byte) ([]byte, error) {
 }
 
 func removeSceneHex(data []byte) ([]byte, error) {
+	return editSceneActions(data, func(a map[string]json.RawMessage) error {
+		delete(a, "color_hex")
+		return nil
+	})
+}
+
+// removeSceneKelvin clears kelvin, which is an error from version 3 on. Earlier
+// versions write mirek, read from the bridge, whenever they write kelvin.
+func removeSceneKelvin(data []byte) ([]byte, error) {
+	return editSceneActions(data, func(a map[string]json.RawMessage) error {
+		delete(a, "kelvin")
+		return nil
+	})
+}
+
+// editSceneActions applies edit to each action in the state JSON.
+func editSceneActions(data []byte, edit func(map[string]json.RawMessage) error) ([]byte, error) {
 	var root map[string]json.RawMessage
 	if err := json.Unmarshal(data, &root); err != nil {
 		return nil, err
@@ -143,7 +160,9 @@ func removeSceneHex(data []byte) ([]byte, error) {
 			return nil, err
 		}
 		for _, a := range actions {
-			delete(a, "color_hex")
+			if err := edit(a); err != nil {
+				return nil, err
+			}
 		}
 		raw, err := json.Marshal(actions)
 		if err != nil {

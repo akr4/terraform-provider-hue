@@ -19,11 +19,10 @@ func TestAccSceneStoredValues(t *testing.T) {
 	defer b.Close()
 	addr := "hue_scene.test"
 	action := "actions." + fakebridge.LightID
-	temperature := sceneConfig("on = true\nbrightness = 33.33333333333333\nkelvin = 1800", "Candle", "room")
+	temperature := sceneConfig("on = true\nbrightness = 33.33333333333333\nmirek = 556", "Candle", "room")
 	color := sceneConfig("on = true\nbrightness = 49.80392156862745\ncolor_xy = { x = 0.72345, y = 0.26 }", "Red", "room")
 	resource.Test(t, resource.TestCase{ProtoV6ProviderFactories: factories(b), CheckDestroy: destroyed(b), Steps: []resource.TestStep{
 		{Config: temperature, Check: resource.ComposeAggregateTestCheckFunc(
-			resource.TestCheckResourceAttr(addr, action+".kelvin", "1800"),
 			resource.TestCheckResourceAttr(addr, action+".mirek", "556"),
 			resource.TestCheckResourceAttr(addr, action+".brightness", "33.33333333333333"),
 		)},
