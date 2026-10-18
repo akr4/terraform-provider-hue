@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-go/tftypes"
 	tfresource "github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
@@ -28,10 +29,12 @@ func TestValidateConfigReportsEveryAction(t *testing.T) {
 	if d.HasError() {
 		t.Fatal(d)
 	}
-	m := sceneModel{ID: types.StringUnknown(), Name: types.StringValue("Scene"), Group: types.StringValue(fakebridge.DeviceID), Actions: actions, Speed: types.Float64Null(), AutoDynamic: types.BoolNull(), Palette: types.StringNull()}
-	plan := tfsdk.Plan{Schema: schemaResp.Schema}
-	if d := plan.Set(ctx, &m); d.HasError() {
-		t.Fatal(d)
+	// The other attributes are null.
+	plan := tfsdk.Plan{Schema: schemaResp.Schema, Raw: tftypes.NewValue(schemaResp.Schema.Type().TerraformType(ctx), nil)}
+	for name, value := range map[string]any{"name": "Scene", "group": fakebridge.DeviceID, "actions": actions} {
+		if d := plan.SetAttribute(ctx, path.Root(name), value); d.HasError() {
+			t.Fatal(d)
+		}
 	}
 	for range 20 {
 		var resp resource.ValidateConfigResponse
