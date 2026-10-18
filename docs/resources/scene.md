@@ -75,7 +75,7 @@ resource "hue_scene" "fireplace" {
 
 ### Required
 
-- `actions` (Attributes Map) Actions keyed by light UUID. (see [below for nested schema](#nestedatt--actions))
+- `actions` (Attributes Map) Actions keyed by light UUID. An update sends every action whole, so fields in an action that the provider does not model are removed. (see [below for nested schema](#nestedatt--actions))
 - `group` (String) Room or zone UUID. Changes replace the scene.
 - `name` (String) Scene name.
 

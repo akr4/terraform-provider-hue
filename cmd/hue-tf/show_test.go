@@ -99,3 +99,30 @@ func TestShowCLI(t *testing.T) {
 		t.Fatalf("requests=%d output=%s", calls, out.String())
 	}
 }
+
+// show flags the extras that the hex swatch does not summarize, and an
+// effects_v2 that stops an effect is not one.
+func TestShowSceneExtras(t *testing.T) {
+	for want, action := range map[string]string{
+		"gradient":   `"gradient":{"points":[{"color":{"xy":{"x":0.3,"y":0.4}}},{"color":{"xy":{"x":0.4,"y":0.4}}}],"mode":"interpolated_palette"}`,
+		"effects":    `"effects":{"effect":"fire"}`,
+		"effects_v2": `"effects_v2":{"action":{"effect":"candle","parameters":{"speed":0.4}}}`,
+		"":           `"effects_v2":{"action":{"effect":"no_effect"}}`,
+	} {
+		data := []json.RawMessage{json.RawMessage(`{"id":"scene","type":"scene","metadata":{"name":"Fireplace"},"group":{"rid":"zone","rtype":"zone"},"actions":[{"target":{"rid":"light","rtype":"light"},"action":{"on":{"on":true},` + action + `}}]}`)}
+		var out bytes.Buffer
+		if err := printSceneDetails(data, "scene", &out); err != nil {
+			t.Fatal(err)
+		}
+		// The action is the last row, and its last column lists the extras.
+		lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+		fields := strings.Fields(lines[len(lines)-1])
+		got := fields[len(fields)-1]
+		if got == "-" {
+			got = ""
+		}
+		if got != want {
+			t.Errorf("%s flagged as %q:\n%s", action, got, out.String())
+		}
+	}
+}

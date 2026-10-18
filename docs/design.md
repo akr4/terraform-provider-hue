@@ -435,11 +435,12 @@ import-blocks は未管理分の import ブロック準備に対応する。既�
 `actions` の `gradient`・`effects_v2`・`dynamics` はOptional + Computedの型のある属性とする。
 `gradient` は2〜5個のCIE xyの `points` と `mode`、`effects_v2` は `effect` と `parameters`（`color_xy`・`mirek`・`speed`）、`dynamics` はミリ秒単位の `duration` を表現する。
 明示指定はその値を管理し、省略時はBridgeから読み取った値を保持して更新リクエストに含める。
+省略した値は state の値を丸めずに送る。Hueアプリはgradientの点を小数7桁まで保存するので、Bridgeから読んだ値はそのまま戻る。書いた値と読んだ値は state では見分けられないため、書いた値を設定から外すと、それまで丸めて送っていた値が丸めずに送られる（差は0.00005未満）。
 属性の削除は解除指示ではない。エフェクト停止には `effect = "no_effect"`、即時遷移には `duration = 0` を指定する。
 点の数、mode とエフェクトの名前、parameters と duration の範囲は plan 時に検査する。機種固有の内部制約はBridgeで検証する。
-Bridgeから読んだ値は、providerが送るときの形に直して比べる。providerが扱わないフィールドは差分にしない。
+Bridgeから読んだ値は、providerが送るときの形に直して比べる。providerが扱わないフィールドは差分にしない。更新では actions 全体を送るので、そうしたフィールドは消える。公式資料のフィールドはすべて扱っている。
 API で非推奨の `effects` はJSON文字列のまま扱い、JSON objectであることを検証する。
 
-有効な `effects_v2.effect` と、同じアクション直下の `color_xy` / `mirek` / `gradient` の併用を検証で拒否する。エフェクト内の色指定は `effects_v2.parameters` に置く。`no_effect` の併用可否は未検証のため、この事前検証の対象外とする。
+有効な `effects_v2.effect` と、同じアクション直下の `color_xy` / `mirek` / `gradient` の併用を検証で拒否する。エラーは `effects_v2.effect` を指す。エフェクト内の色指定は `effects_v2.parameters` に置く。`no_effect` の併用可否は未検証のため、この事前検証の対象外とする。実機の 1,516 アクションでは、エフェクト（旧 `effects`）を持つ 6 つはどれも色・色温度・グラデーションを持たず、グラデーションを持つ 21 はどれもエフェクトと色を持たなかった。
 
 色温度の入力検証と `provider::hue::mirek_from_kelvin` の範囲には、API範囲50〜1000 mirekを使う。bridge は light の範囲の外の値もそのまま保存するため、等価比較に `mirek_schema` は使わない。

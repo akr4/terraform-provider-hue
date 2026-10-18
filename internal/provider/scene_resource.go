@@ -101,7 +101,7 @@ func (r *sceneResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 		"speed":        schema.Float64Attribute{Optional: true, Computed: true, Description: "Dynamic scene speed from 0 to 1."},
 		"auto_dynamic": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), Description: "Enable dynamic playback. Defaults to false."},
 		"palette":      paletteAttribute(),
-		"actions": schema.MapNestedAttribute{Required: true, Description: "Actions keyed by light UUID.", NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
+		"actions": schema.MapNestedAttribute{Required: true, Description: "Actions keyed by light UUID. An update sends every action whole, so fields in an action that the provider does not model are removed.", NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
 			"gradient":   gradientAttribute(),
 			"effects":    schema.StringAttribute{Optional: true, Computed: true, Description: "The API's deprecated effects as a JSON object; use jsonencode. Use effects_v2 instead. Preserved from the bridge when omitted."},
 			"effects_v2": effectsV2Attribute(),
@@ -196,12 +196,6 @@ func validateAction(a actionModel) []string {
 	if known(a.Effects) && hue.ValidateConfiguration([]byte(a.Effects.ValueString())) != nil {
 		errs = append(errs, "effects must be a JSON object.")
 	}
-	if known(a.EffectsV2) {
-		effect, _ := a.EffectsV2.Attributes()["effect"].(types.String)
-		if known(effect) && effect.ValueString() != "no_effect" && (known(a.XY) || known(a.Mirek) || known(a.Gradient)) {
-			errs = append(errs, "effects_v2.effect cannot be combined with color_xy, mirek or gradient. Configure effect colors in effects_v2.parameters instead.")
-		}
-	}
 	if !a.XY.IsNull() && !a.Mirek.IsNull() {
 		errs = append(errs, "color_xy cannot be combined with mirek. A light shows either a color or a color temperature.")
 	}
@@ -272,16 +266,20 @@ func (r *sceneResource) body(ctx context.Context, m sceneModel, config sceneMode
 			}
 			action.Effects = raw
 		}
+		// Values that the configuration leaves out are sent as the state holds
+		// them, without rounding, so that values read from the bridge go back
+		// as it stores them.
 		for _, o := range []struct {
-			name  string
-			value types.Object
-			send  func(context.Context, types.Object) (json.RawMessage, error)
-			raw   *json.RawMessage
-		}{{"gradient", a.Gradient, gradientJSON, &action.Gradient}, {"effects_v2", a.EffectsV2, effectsV2JSON, &action.EffectsV2}, {"dynamics", a.Dynamics, dynamicsJSON, &action.Dynamics}} {
+			name    string
+			value   types.Object
+			written bool
+			send    func(context.Context, types.Object, bool) (json.RawMessage, error)
+			raw     *json.RawMessage
+		}{{"gradient", a.Gradient, !c.Gradient.IsNull(), gradientJSON, &action.Gradient}, {"effects_v2", a.EffectsV2, !c.EffectsV2.IsNull(), effectsV2JSON, &action.EffectsV2}, {"dynamics", a.Dynamics, !c.Dynamics.IsNull(), dynamicsJSON, &action.Dynamics}} {
 			if !known(o.value) {
 				continue
 			}
-			raw, err := o.send(ctx, o.value)
+			raw, err := o.send(ctx, o.value, o.written)
 			if err != nil {
 				return scene, fmt.Errorf("invalid %s action: %w", o.name, err)
 			}

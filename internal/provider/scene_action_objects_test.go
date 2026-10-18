@@ -53,13 +53,14 @@ func stateJSON(t *testing.T, v attr.Value) string {
 	return mustJSON(t, value)
 }
 
-// The provider sends the API's form, with xy rounded as the bridge stores it.
+// The provider sends the API's form. Written xy is rounded as the bridge
+// stores it, and xy read from the bridge is sent as read.
 func TestActionObjectsJSON(t *testing.T) {
 	ctx := context.Background()
 	noParameters := types.ObjectValueMust(effectTypes, map[string]attr.Value{"effect": types.StringValue("no_effect"), "parameters": types.ObjectValueMust(effectParameterTypes, map[string]attr.Value{"color_xy": types.ObjectNull(xyTypes), "mirek": types.Int64Null(), "speed": types.Float64Null()})})
 	for name, c := range map[string]struct {
 		value types.Object
-		send  func(context.Context, types.Object) (json.RawMessage, error)
+		send  func(context.Context, types.Object, bool) (json.RawMessage, error)
 		want  string
 	}{
 		"gradient":                  {gradientValue("interpolated_palette", hue.XY{X: 0.72345, Y: 0.26}, hue.XY{X: 0.3, Y: 0.4}), gradientJSON, `{"points":[{"color":{"xy":{"x":0.7235,"y":0.26}}},{"color":{"xy":{"x":0.3,"y":0.4}}}],"mode":"interpolated_palette"}`},
@@ -69,9 +70,23 @@ func TestActionObjectsJSON(t *testing.T) {
 		"dynamics":                  {dynamicsValue(800), dynamicsJSON, `{"duration":800}`},
 		"no transition":             {dynamicsValue(0), dynamicsJSON, `{"duration":0}`},
 	} {
-		got, err := c.send(ctx, c.value)
+		got, err := c.send(ctx, c.value, true)
 		if err != nil || string(got) != c.want {
 			t.Errorf("%s: sent %s, %v; want %s", name, got, err, c.want)
+		}
+	}
+	// The Hue app writes gradient points with up to seven decimal places.
+	for name, c := range map[string]struct {
+		value types.Object
+		send  func(context.Context, types.Object, bool) (json.RawMessage, error)
+		want  string
+	}{
+		"gradient": {gradientValue("interpolated_palette", hue.XY{X: 0.6123457, Y: 0.3123457}, hue.XY{X: 0.3, Y: 0.4}), gradientJSON, `{"points":[{"color":{"xy":{"x":0.6123457,"y":0.3123457}}},{"color":{"xy":{"x":0.3,"y":0.4}}}],"mode":"interpolated_palette"}`},
+		"effect":   {effectsV2Value(t, `{"action":{"effect":"sparkle","parameters":{"color":{"xy":{"x":0.30004,"y":0.13}}}}}`), effectsV2JSON, `{"action":{"effect":"sparkle","parameters":{"color":{"xy":{"x":0.30004,"y":0.13}}}}}`},
+	} {
+		got, err := c.send(ctx, c.value, false)
+		if err != nil || string(got) != c.want {
+			t.Errorf("%s read from the bridge: sent %s, %v; want %s", name, got, err, c.want)
 		}
 	}
 }
@@ -79,10 +94,10 @@ func TestActionObjectsJSON(t *testing.T) {
 // What the bridge returns is read into the attribute, and sent back the same.
 func TestActionObjectsFromJSON(t *testing.T) {
 	ctx := context.Background()
-	points := `"points":[{"color":{"xy":{"x":0.3,"y":0.4}}},{"color":{"xy":{"x":0.4,"y":0.4}}}]`
+	points := `"points":[{"color":{"xy":{"x":0.6123457,"y":0.3123457}}},{"color":{"xy":{"x":0.4,"y":0.4}}}]`
 	for name, c := range map[string]struct {
 		read      func([]byte) (types.Object, error)
-		send      func(context.Context, types.Object) (json.RawMessage, error)
+		send      func(context.Context, types.Object, bool) (json.RawMessage, error)
 		raw, sent string
 	}{
 		"gradient": {gradientFromJSON, gradientJSON, `{` + points + `,"mode":"random_pixelated"}`, `{` + points + `,"mode":"random_pixelated"}`},
@@ -96,7 +111,7 @@ func TestActionObjectsFromJSON(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		if got, err := c.send(ctx, value); err != nil || string(got) != c.sent {
+		if got, err := c.send(ctx, value, false); err != nil || string(got) != c.sent {
 			t.Errorf("%s: read %s and sent %s, %v; want %s", name, c.raw, got, err, c.sent)
 		}
 	}
@@ -261,8 +276,8 @@ func TestValidateActionObjects(t *testing.T) {
 			t.Errorf("%s: %v", effect, diags)
 		}
 	}
-	// A point unknown until apply does not stop checking the others, and
-	// points unknown until apply are not counted.
+	// A point unknown until apply does not stop checking the others, and it
+	// counts as a point. A list unknown until apply is not counted.
 	a := emptyAction()
 	a.Gradient = types.ObjectValueMust(gradientTypes, map[string]attr.Value{
 		"points": types.ListValueMust(types.ObjectType{AttrTypes: xyTypes}, []attr.Value{xyValue(point), types.ObjectUnknown(xyTypes), xyValue(hue.XY{X: 0.8, Y: 0.8})}),
@@ -270,6 +285,13 @@ func TestValidateActionObjects(t *testing.T) {
 	})
 	if diags := validateActionObjects(ctx, p, a); !errorAt(diags).Equal(gradient.AtName("points").AtListIndex(2)) {
 		t.Errorf("with an unknown point: %v", diags)
+	}
+	a.Gradient = types.ObjectValueMust(gradientTypes, map[string]attr.Value{
+		"points": types.ListValueMust(types.ObjectType{AttrTypes: xyTypes}, []attr.Value{xyValue(point), xyValue(point), xyValue(point), xyValue(point), xyValue(point), types.ObjectUnknown(xyTypes)}),
+		"mode":   types.StringValue("interpolated_palette"),
+	})
+	if diags := validateActionObjects(ctx, p, a); !errorAt(diags).Equal(gradient.AtName("points")) {
+		t.Errorf("with five points and one unknown: %v", diags)
 	}
 	a.Gradient = types.ObjectValueMust(gradientTypes, map[string]attr.Value{"points": types.ListUnknown(types.ObjectType{AttrTypes: xyTypes}), "mode": types.StringValue("interpolated_palette")})
 	a.EffectsV2 = types.ObjectUnknown(effectTypes)
@@ -280,6 +302,8 @@ func TestValidateActionObjects(t *testing.T) {
 }
 
 func TestSceneEffectV2ColorConflicts(t *testing.T) {
+	ctx := context.Background()
+	p := path.Root("actions").AtMapKey("light")
 	candle := effectsV2Value(t, `{"action":{"effect":"candle"}}`)
 	off := effectsV2Value(t, `{"action":{"effect":"no_effect"}}`)
 	for _, tc := range []struct {
@@ -296,13 +320,14 @@ func TestSceneEffectV2ColorConflicts(t *testing.T) {
 			a := emptyAction()
 			a.EffectsV2 = candle
 			tc.set(&a)
-			if len(validateAction(a)) == 0 {
-				t.Fatal("accepted effect with conflicting color")
+			diags := validateActionObjects(ctx, p, a)
+			if len(diags) != 1 || diags[0].(diag.DiagnosticWithPath).Path().String() != p.AtName("effects_v2").AtName("effect").String() {
+				t.Fatalf("accepted effect with conflicting color: %v", diags)
 			}
 			// no_effect stops an effect, so it is not checked.
 			a.EffectsV2 = off
-			if errs := validateAction(a); len(errs) != 0 {
-				t.Fatal(errs)
+			if diags := validateActionObjects(ctx, p, a); diags.HasError() {
+				t.Fatal(diags)
 			}
 		})
 	}
@@ -311,8 +336,8 @@ func TestSceneEffectV2ColorConflicts(t *testing.T) {
 	a.Brightness = types.Float64Value(25)
 	a.Dynamics = dynamicsValue(800)
 	a.EffectsV2 = effectsV2Value(t, `{"action":{"effect":"candle","parameters":{"color_temperature":{"mirek":370},"speed":0.4}}}`)
-	if errs := validateAction(a); len(errs) != 0 {
-		t.Fatal(errs)
+	if diags := validateActionObjects(ctx, p, a); diags.HasError() || len(validateAction(a)) != 0 {
+		t.Fatal(diags, validateAction(a))
 	}
 }
 
@@ -358,9 +383,10 @@ func TestAccSceneActionObjects(t *testing.T) {
 	const sceneID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 	const groupID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 	b.Put("zone", groupID, hue.Group{ID: groupID, Type: "zone", Metadata: hue.Metadata{Name: "Zone", Archetype: "other"}, Children: []hue.Reference{{RID: fakebridge.LightID, RType: "light"}, {RID: fakebridge.WhiteLightID, RType: "light"}}})
-	// A scene made in the Hue app, with a mode that is not the default.
+	// A scene made in the Hue app, with a mode that is not the default and a
+	// point with seven decimal places, as the app writes them.
 	app := map[string]hue.Action{
-		fakebridge.LightID:      {On: &hue.On{On: true}, Dimming: &hue.Dimming{Brightness: 40}, Gradient: json.RawMessage(`{"points":[{"color":{"xy":{"x":0.6,"y":0.3}}},{"color":{"xy":{"x":0.2,"y":0.6}}},{"color":{"xy":{"x":0.15,"y":0.1}}}],"mode":"segmented_palette"}`), Dynamics: json.RawMessage(`{"duration":400}`)},
+		fakebridge.LightID:      {On: &hue.On{On: true}, Dimming: &hue.Dimming{Brightness: 40}, Gradient: json.RawMessage(`{"points":[{"color":{"xy":{"x":0.6123457,"y":0.3123457}}},{"color":{"xy":{"x":0.2,"y":0.6}}},{"color":{"xy":{"x":0.15,"y":0.1}}}],"mode":"segmented_palette"}`), Dynamics: json.RawMessage(`{"duration":400}`)},
 		fakebridge.WhiteLightID: {On: &hue.On{On: true}, EffectsV2: json.RawMessage(`{"action":{"effect":"fire","parameters":{"speed":0.7}}}`), Effects: json.RawMessage(`{"effect":"fire"}`)},
 	}
 	speed, dynamic := 0.5, false
@@ -428,7 +454,8 @@ resource "hue_scene" "test" {
 			resource.TestCheckResourceAttr(light, at(fakebridge.WhiteLightID, "effects_v2.parameters.speed"), "0.7"),
 		)},
 		{Config: omitted, PlanOnly: true},
-		// An update for another reason sends them back as they were.
+		// An update for another reason sends them back as the bridge stores
+		// them, without rounding.
 		{Config: config(41, "", ""), Check: stored(app)},
 		// Written values are sent in the API's form and kept in state as written.
 		{Config: written, Check: resource.ComposeAggregateTestCheckFunc(
@@ -456,9 +483,14 @@ resource "hue_scene" "test" {
 			}
 			b.Put("scene", sceneID, scene)
 		}, Config: written, ConfigPlanChecks: resource.ConfigPlanChecks{PreApply: []plancheck.PlanCheck{plancheck.ExpectResourceAction(light, plancheck.ResourceActionUpdate)}}, Check: stored(writtenStored)},
-		// no_effect stops an effect.
+		// no_effect stops an effect. The gradient that the configuration now
+		// leaves out is sent as the state holds it, without rounding, as the
+		// provider cannot tell a written value from one read from the bridge.
 		{Config: config(40, "", `, effects_v2 = { effect = "no_effect" }`), Check: resource.ComposeAggregateTestCheckFunc(
-			stored(map[string]hue.Action{fakebridge.LightID: writtenStored[fakebridge.LightID], fakebridge.WhiteLightID: {EffectsV2: json.RawMessage(`{"action":{"effect":"no_effect"}}`), Effects: json.RawMessage(`{"effect":"candle"}`)}}),
+			stored(map[string]hue.Action{
+				fakebridge.LightID:      {Gradient: json.RawMessage(`{"points":[{"color":{"xy":{"x":0.72345,"y":0.26}}},{"color":{"xy":{"x":0.17,"y":0.7}}}],"mode":"interpolated_palette"}`), Dynamics: writtenStored[fakebridge.LightID].Dynamics},
+				fakebridge.WhiteLightID: {EffectsV2: json.RawMessage(`{"action":{"effect":"no_effect"}}`), Effects: json.RawMessage(`{"effect":"candle"}`)},
+			}),
 		)},
 		{Config: config(40, "", `, effects_v2 = { effect = "no_effect" }`), PlanOnly: true},
 	}})

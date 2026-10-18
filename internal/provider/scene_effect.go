@@ -61,7 +61,10 @@ type effectParametersModel struct {
 	Speed types.Float64 `tfsdk:"speed"`
 }
 
-func effectAction(ctx context.Context, e effectModel) (apiEffectAction, error) {
+// effectAction returns the action that the provider sends for an effect.
+// Written colors are rounded as the bridge stores them, and colors read from
+// the bridge are sent as read.
+func effectAction(ctx context.Context, e effectModel, written bool) (apiEffectAction, error) {
 	action := apiEffectAction{Effect: e.Effect.ValueString()}
 	if !known(e.Parameters) {
 		return action, nil
@@ -72,7 +75,10 @@ func effectAction(ctx context.Context, e effectModel) (apiEffectAction, error) {
 	}
 	var parameters apiEffectParameters
 	if xy, ok := readXY(p.XY); ok {
-		parameters.Color = &hue.ActionColor{XY: colors.Round(xy)}
+		if written {
+			xy = colors.Round(xy)
+		}
+		parameters.Color = &hue.ActionColor{XY: xy}
 	}
 	if known(p.Mirek) {
 		parameters.ColorTemperature = &hue.Temperature{Mirek: p.Mirek.ValueInt64()}

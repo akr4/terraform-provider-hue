@@ -162,7 +162,7 @@ func paletteJSON(ctx context.Context, palette types.Object) (json.RawMessage, er
 		return nil, err
 	}
 	for _, e := range effects {
-		action, err := effectAction(ctx, e)
+		action, err := effectAction(ctx, e, true)
 		if err != nil {
 			return nil, err
 		}

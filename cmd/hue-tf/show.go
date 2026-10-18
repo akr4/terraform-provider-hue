@@ -155,6 +155,14 @@ func printSceneDetails(data []json.RawMessage, id string, out io.Writer) error {
 			if len(a.Action.Effects) > 0 && string(a.Action.Effects) != "null" {
 				extras = append(extras, "effects")
 			}
+			var effect struct {
+				Action struct {
+					Effect string `json:"effect"`
+				} `json:"action"`
+			}
+			if json.Unmarshal(a.Action.EffectsV2, &effect) == nil && effect.Action.Effect != "" && effect.Action.Effect != "no_effect" {
+				extras = append(extras, "effects_v2")
+			}
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", room, name(a.Target), tableText(a.Target.RID), on, brightness, color, strings.Join(extras, ", "))
 		}
 		if len(scene.Actions) == 0 {

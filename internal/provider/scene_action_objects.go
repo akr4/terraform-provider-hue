@@ -66,8 +66,9 @@ type dynamicsModel struct {
 }
 
 // gradientJSON returns the gradient that the provider sends for a known
-// gradient, rounded as the bridge stores it.
-func gradientJSON(ctx context.Context, gradient types.Object) (json.RawMessage, error) {
+// gradient. Written points are rounded as the bridge stores them, and points
+// read from the bridge are sent as read.
+func gradientJSON(ctx context.Context, gradient types.Object, written bool) (json.RawMessage, error) {
 	m, err := objectAs[gradientModel](ctx, gradient)
 	if err != nil {
 		return nil, err
@@ -83,7 +84,10 @@ func gradientJSON(ctx context.Context, gradient types.Object) (json.RawMessage, 
 			if !ok {
 				return nil, fmt.Errorf("gradient point %d is not known", len(out.Points))
 			}
-			out.Points = append(out.Points, apiGradientPoint{Color: hue.ActionColor{XY: colors.Round(xy)}})
+			if written {
+				xy = colors.Round(xy)
+			}
+			out.Points = append(out.Points, apiGradientPoint{Color: hue.ActionColor{XY: xy}})
 		}
 	}
 	return json.Marshal(out)
@@ -112,13 +116,13 @@ func gradientFromJSON(raw []byte) (types.Object, error) {
 }
 
 // effectsV2JSON returns the effects_v2 that the provider sends for a known
-// effect.
-func effectsV2JSON(ctx context.Context, effect types.Object) (json.RawMessage, error) {
+// effect, rounded as gradientJSON rounds.
+func effectsV2JSON(ctx context.Context, effect types.Object, written bool) (json.RawMessage, error) {
 	e, err := objectAs[effectModel](ctx, effect)
 	if err != nil {
 		return nil, err
 	}
-	action, err := effectAction(ctx, e)
+	action, err := effectAction(ctx, e, written)
 	if err != nil {
 		return nil, err
 	}
@@ -143,8 +147,9 @@ func effectsV2FromJSON(raw []byte) (types.Object, error) {
 	return effectValue(e.Action), nil
 }
 
-// dynamicsJSON returns the dynamics that the provider sends for known dynamics.
-func dynamicsJSON(ctx context.Context, dynamics types.Object) (json.RawMessage, error) {
+// dynamicsJSON returns the dynamics that the provider sends for known
+// dynamics. A duration needs no rounding.
+func dynamicsJSON(ctx context.Context, dynamics types.Object, _ bool) (json.RawMessage, error) {
 	m, err := objectAs[dynamicsModel](ctx, dynamics)
 	if err != nil {
 		return nil, err
@@ -176,19 +181,19 @@ func dynamicsFromJSON(raw []byte) (types.Object, error) {
 }
 
 // reconcileObject keeps prior while the bridge stores what the provider sends
-// for it, and reads the bridge's value otherwise. The bridge's value is
-// compared in the form that the provider would send for it, so that fields
-// the provider does not model make no difference.
-func reconcileObject(ctx context.Context, prior types.Object, raw []byte, send func(context.Context, types.Object) (json.RawMessage, error), read func([]byte) (types.Object, error)) (types.Object, error) {
+// for it, and reads the bridge's value otherwise. Both are compared in the
+// form that the provider sends for written values, so that fields the
+// provider does not model make no difference.
+func reconcileObject(ctx context.Context, prior types.Object, raw []byte, send func(context.Context, types.Object, bool) (json.RawMessage, error), read func([]byte) (types.Object, error)) (types.Object, error) {
 	stored, err := read(raw)
 	if err != nil || !known(prior) || !known(stored) {
 		return stored, err
 	}
-	a, err := send(ctx, prior)
+	a, err := send(ctx, prior, true)
 	if err != nil {
 		return stored, nil
 	}
-	b, err := send(ctx, stored)
+	b, err := send(ctx, stored, true)
 	if err == nil && apiJSONEqual(a, b) {
 		return prior, nil
 	}
@@ -223,6 +228,11 @@ func validateActionObjects(ctx context.Context, p path.Path, a actionModel) diag
 	}
 	if e, ok := knownObject[effectModel](ctx, a.EffectsV2); ok {
 		validateEffect(ctx, p.AtName("effects_v2"), e, invalid)
+		// Colors for an effect go in its parameters. no_effect is not checked,
+		// since whether the bridge takes it with colors is not known.
+		if known(e.Effect) && e.Effect.ValueString() != "no_effect" && (known(a.XY) || known(a.Mirek) || known(a.Gradient)) {
+			invalid(p.AtName("effects_v2").AtName("effect"), "effects_v2.effect cannot be combined with color_xy, mirek or gradient. Configure effect colors in effects_v2.parameters instead.")
+		}
 	}
 	if d, ok := knownObject[dynamicsModel](ctx, a.Dynamics); ok && known(d.Duration) && d.Duration.ValueInt64() < 0 {
 		invalid(p.AtName("dynamics").AtName("duration"), "dynamics.duration must be 0 or more milliseconds.")
