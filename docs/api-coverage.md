@@ -43,9 +43,9 @@
 | smart_scene | name、group、week_timeslots、transition_duration、稼働状態の読取 | metadata.appdataが未対応。画像は管理対象外。[Smart scene][smart-post] |
 | behavior_instance | script_id、name、enabled、configuration全体、status / last_errorの読取 | POSTのmigrated_from（v1由来ID）とPUTのtriggerが未対応。前者は移行補助、後者は実行時操作。[Behavior POST][behavior-post]、[PUT][behavior-put] |
 
-paletteとactionsのeffects_v2は区別する。**palette.effects_v2、actionsのeffects_v2ともにJSONで保持・設定できる。**
+paletteとactionsのeffects_v2は区別する。**palette.effects_v2はpaletteのeffectsとして型で、actionsのeffects_v2はJSONで保持・設定できる。**
 palette.colorは公式資料では最大9要素、dimming / color_temperatureは各最大1、effects / effects_v2は各最大3。
-gradient.pointsは最大5要素で、palette.colorの上限とは別。providerはこれらの配列長・内部構造を網羅的には検証しない。
+gradient.pointsは最大5要素で、palette.colorの上限とは別。paletteの配列長と値の範囲はplan時に検証する。JSONのgradientとeffects_v2の内部構造は網羅的には検証しない。
 
 **更新時の保持:** scene更新はactions全体を組み直して送る。effects_v2 / dynamicsは、設定を省略した場合も読取値を保持して再送する。
 fakebridgeでimport・更新・省略時保持を検証済み。全機種での実機動作は未検証。

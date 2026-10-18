@@ -5,64 +5,62 @@ import (
 	"fmt"
 )
 
-// Decode only supported palette fields; never render the raw JSON.
+// Decode only supported palette fields; never render the raw JSON. Plans
+// from provider 0.2.0 on hold the palette as an object, and earlier plans as a
+// JSON string in the API's form.
 func paletteSamples(raw any) []Row {
 	if raw == nil {
 		return nil
 	}
-	text, ok := raw.(string)
+	if text, ok := raw.(string); ok {
+		if special(text) {
+			return []Row{{Name: "Palette", After: Sample{Exists: true, Notice: text}}}
+		}
+		var data map[string]any
+		if json.Unmarshal([]byte(text), &data) != nil || data == nil {
+			return []Row{{Name: "Palette", After: Sample{Exists: true, Notice: "Invalid palette JSON"}}}
+		}
+		raw = apiPalette(data)
+	}
+	data, ok := raw.(map[string]any)
 	if !ok {
-		return []Row{{Name: "Palette", After: Sample{Exists: true, Notice: "Invalid palette JSON"}}}
-	}
-	if special(text) {
-		return []Row{{Name: "Palette", After: Sample{Exists: true, Notice: text}}}
-	}
-	var data map[string]any
-	if json.Unmarshal([]byte(text), &data) != nil || data == nil {
-		return []Row{{Name: "Palette", After: Sample{Exists: true, Notice: "Invalid palette JSON"}}}
+		return []Row{{Name: "Palette", After: Sample{Exists: true, Notice: "Invalid palette"}}}
 	}
 	rows := []Row{}
 	for _, category := range []struct{ key, label string }{
-		{"color", "Color"}, {"color_temperature", "Temperature"}, {"dimming", "Brightness"}, {"effects", "Effects"}, {"effects_v2", "Effects v2"},
+		{"color", "Color"}, {"color_temperature", "Temperature"}, {"dimming", "Brightness"}, {"effects", "Effects"},
 	} {
-		raw, exists := data[category.key]
-		if !exists {
+		raw := data[category.key]
+		if raw == nil {
 			continue
 		}
 		entries, ok := raw.([]any)
 		if !ok {
-			rows = append(rows, Row{ID: category.key, Name: category.label, After: Sample{Exists: true, Notice: "Invalid palette entries"}})
+			notice := "Invalid palette entries"
+			if text, ok := raw.(string); ok && special(text) {
+				notice = text
+			}
+			rows = append(rows, Row{ID: category.key, Name: category.label, After: Sample{Exists: true, Notice: notice}})
 			continue
 		}
 		for i, entry := range entries {
 			id := fmt.Sprintf("%s:%d", category.key, i)
 			row := Row{ID: id, Name: fmt.Sprintf("%s %d", category.label, i+1)}
 			obj, ok := entry.(map[string]any)
-			if !ok {
+			if text, isText := entry.(string); isText && special(text) {
+				row.After = Sample{Exists: true, Notice: text}
+			} else if !ok {
 				row.After = Sample{Exists: true, Notice: "Invalid palette entry"}
-			} else if category.key == "effects" || category.key == "effects_v2" {
+			} else if category.key == "effects" {
 				row.After = Sample{Exists: true, Notice: "Effect present; appearance is not simulated"}
 			} else {
-				values := map[string]any{}
-				if category.key == "dimming" {
-					values["brightness"] = obj["brightness"]
-				} else if d, ok := obj["dimming"].(map[string]any); ok {
-					values["brightness"] = d["brightness"]
-				}
-				if category.key == "color" {
-					c, _ := obj["color"].(map[string]any)
-					if c["xy"] == nil {
-						values["color_xy"] = pending
-					} else {
-						values["color_xy"] = c["xy"]
-					}
-				}
-				if category.key == "color_temperature" {
-					c, _ := obj["color_temperature"].(map[string]any)
-					if c["mirek"] == nil {
-						values["mirek"] = pending
-					} else {
-						values["mirek"] = c["mirek"]
+				values := map[string]any{"brightness": obj["brightness"]}
+				for key, value := range map[string]string{"color": "color_xy", "color_temperature": "mirek"} {
+					if category.key == key {
+						values[value] = obj[value]
+						if values[value] == nil {
+							values[value] = pending
+						}
 					}
 				}
 				row.After = sample(values, true)
@@ -73,6 +71,48 @@ func paletteSamples(raw any) []Row {
 		}
 	}
 	return rows
+}
+
+// apiPalette rewrites a palette in the API's form into the form of the
+// palette attribute, which flattens wrappers that hold one field. Effects of
+// both lists are effects.
+func apiPalette(data map[string]any) map[string]any {
+	out := map[string]any{}
+	for _, category := range []struct{ key, wrapper, field, name string }{
+		{"color", "color", "xy", "color_xy"}, {"color_temperature", "color_temperature", "mirek", "mirek"}, {"dimming", "", "", ""}, {"effects", "", "", ""}, {"effects_v2", "", "", ""},
+	} {
+		raw, exists := data[category.key]
+		if !exists {
+			continue
+		}
+		key := category.key
+		if key == "effects_v2" {
+			key = "effects"
+		}
+		entries, ok := raw.([]any)
+		if !ok {
+			out[key] = raw
+			continue
+		}
+		list, _ := out[key].([]any)
+		for _, entry := range entries {
+			obj, ok := entry.(map[string]any)
+			if !ok || category.wrapper == "" {
+				list = append(list, entry)
+				continue
+			}
+			flat := map[string]any{}
+			if d, ok := obj["dimming"].(map[string]any); ok {
+				flat["brightness"] = d["brightness"]
+			}
+			if c, ok := obj[category.wrapper].(map[string]any); ok {
+				flat[category.name] = c[category.field]
+			}
+			list = append(list, flat)
+		}
+		out[key] = list
+	}
+	return out
 }
 func paletteRows(before, after any, changed bool) []Row {
 	old, next := paletteSamples(before), paletteSamples(after)

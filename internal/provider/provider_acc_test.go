@@ -187,8 +187,8 @@ func TestAccSceneActionsAndMetadata(t *testing.T) {
 			if len(states) != 1 || states[0].Attributes["image_id"] != "" {
 				return fmt.Errorf("image unexpectedly managed on import")
 			}
-			if !strings.Contains(states[0].Attributes["palette"], "42") {
-				return fmt.Errorf("palette missing on import")
+			if states[0].Attributes["palette.dimming.0.brightness"] != "42" {
+				return fmt.Errorf("palette missing on import: %v", states[0].Attributes)
 			}
 			return nil
 		}},
