@@ -418,8 +418,10 @@ func knownElements[T any](ctx context.Context, list types.List) iter.Seq2[int, T
 
 // planPalettes plans palette and dynamic_palette. The state holds the palette
 // in the form that the configuration uses: palette while it is configured, and
-// dynamic_palette otherwise. With neither configured, an existing scene keeps
-// its form and the palette on the bridge. prior is nil for a new scene.
+// dynamic_palette otherwise. With neither configured, the bridge keeps its
+// palette, and a state that holds it as palette, as every state from an
+// earlier version does, moves it to dynamic_palette. prior is nil for a new
+// scene.
 func planPalettes(config sceneModel, planned *sceneModel, prior *sceneModel) {
 	switch {
 	case !config.Palette.IsNull():
@@ -427,8 +429,13 @@ func planPalettes(config sceneModel, planned *sceneModel, prior *sceneModel) {
 	case !config.DynamicPalette.IsNull() || prior == nil:
 		planned.Palette = types.StringNull()
 	case !prior.Palette.IsNull():
-		planned.Palette = prior.Palette
-		planned.DynamicPalette = types.ObjectNull(dynamicPaletteTypes)
+		planned.Palette = types.StringNull()
+		// A palette that dynamic_palette cannot read is read from the bridge
+		// after apply.
+		planned.DynamicPalette = types.ObjectUnknown(dynamicPaletteTypes)
+		if dynamic, err := dynamicPaletteFromJSON([]byte(prior.Palette.ValueString())); err == nil {
+			planned.DynamicPalette = dynamic
+		}
 	default:
 		planned.Palette = types.StringNull()
 		planned.DynamicPalette = prior.DynamicPalette

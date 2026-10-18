@@ -241,7 +241,7 @@ action object:
 - ライトは色か色温度のどちらか一方で光るため、同じアクションに `color_xy` と `mirek` / `kelvin` は書けない（検査で止める）。実機のシーン 1,516 アクションに、両方を持つものはなかった
 - 色は `color_xy` と独立した `brightness` で指定する。`color_hex` は廃止し、state schema version 1 で旧属性だけを除去して xy を保持する。
 - `dynamic_palette` は Optional + Computed の型のある属性。API の palette に合わせ、中身が 1 つの入れ物は actions と同じく平らにする（`color_xy`・`mirek`・`brightness`）。`color` は 9 個まで、`color_temperature` と `dimming` は 1 個まで、`effects` は 3 個までを plan 時に検査する。明示時は書いたリストを送り、書かなかったリストは空にする。未指定時は実機の値を維持する。actions とは独立して管理し、相互の自動生成は行わない。エフェクトは `effects_v2` の形で送り、非推奨の `effects` は扱わない。ほかのアプリが `effects` を書いても差分にしない
-- `palette`（JSON 文字列）は非推奨。`dynamic_palette` と同時には書けない。state には、設定で使っている形だけを持たせる。`palette` を書いている間は `dynamic_palette` を state に入れない。`dynamic_palette` に書き換えると、plan に `palette` の削除と `dynamic_palette` の追加が出る。同じ数値なら、apply しても同じパレットを送り直すだけになる。どちらも書かないときは、今の形のまま bridge の値を保つ。import と新しいシーンは `dynamic_palette` を使い、生成される設定も `dynamic_palette` だけになる
+- `palette`（JSON 文字列）は非推奨。`dynamic_palette` と同時には書けない。state には、設定で使っている形だけを持たせる。`palette` を書いている間は `dynamic_palette` を state に入れず、それ以外は `dynamic_palette` を使う。`dynamic_palette` に書き換えると、plan に `palette` の削除と `dynamic_palette` の追加が出る。同じ数値なら、apply しても同じパレットを送り直すだけになる。どちらも書かないときは bridge の値を保ち、state の `palette` は `dynamic_palette` に移す。v0.1 の state にはどのシーンにも `palette` が入っているので、上げた直後の plan に、`palette` を書いていないシーンごとに `palette` の削除と `dynamic_palette` の追加が 1 回出る（パレットが空なら削除だけ）。apply してもパレットは送らないので、bridge の値は変わらない。import と新しいシーンは `dynamic_palette` を使い、生成される設定も `dynamic_palette` だけになる
 - `actions` は Map なので、要素の追加・削除・変更は light ごとに独立した差分として表示される
 
 ## 9. 色と色温度の変換
