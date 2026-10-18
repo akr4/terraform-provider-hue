@@ -23,7 +23,7 @@ func TestSceneStateUpgrade(t *testing.T) {
 	}
 	var schemaResp resource.SchemaResponse
 	r.Schema(context.Background(), resource.SchemaRequest{}, &schemaResp)
-	if schemaResp.Schema.Version != 3 {
+	if schemaResp.Schema.Version != 4 {
 		t.Fatal("schema not versioned")
 	}
 	if _, err := resp.DynamicValue.Unmarshal(schemaResp.Schema.Type().TerraformType(context.Background())); err != nil {
@@ -40,6 +40,7 @@ func TestSceneStateUpgrade(t *testing.T) {
 	want := original["actions"].(map[string]any)["light"].(map[string]any)
 	delete(want, "color_hex")
 	delete(want, "kelvin")
+	want["effects_v2"], want["dynamics"] = nil, nil
 	delete(original, "image_id")
 	// The palette JSON "{}" has no entries.
 	original["palette"] = nil
@@ -147,6 +148,7 @@ func TestScenePaletteStateUpgrade(t *testing.T) {
 		delete(got, "palette")
 		delete(state, "palette")
 		delete(action, "kelvin")
+		action["dynamics"] = map[string]any{"duration": 800}
 		for k := range c.extra {
 			delete(state, k)
 		}
@@ -199,6 +201,74 @@ func TestSceneKelvinStateUpgrade(t *testing.T) {
 			a, _ := json.Marshal(state)
 			b, _ := json.Marshal(got)
 			if string(a) != string(b) {
+				t.Errorf("version %d, %s: upgraded to %s, want %s", version, name, b, a)
+			}
+		}
+	}
+}
+
+// States before version 4 hold gradient, effects_v2 and dynamics as the JSON
+// strings that the bridge returned, or that the configuration wrote. Only
+// development builds wrote version 3, with the palette's effects_v2 named
+// effects.
+func TestSceneActionObjectsStateUpgrade(t *testing.T) {
+	ctx := context.Background()
+	r := &sceneResource{}
+	var schemaResp resource.SchemaResponse
+	r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
+	written := map[string]any{
+		"gradient":   `{"mode":"segmented_palette","points":[{"color":{"xy":{"x":0.3,"y":0.4}}},{"color":{"xy":{"x":0.4,"y":0.4}}}]}`,
+		"effects":    `{"effect":"candle"}`,
+		"effects_v2": `{"action":{"effect":"candle","parameters":{"color_temperature":{"mirek":370},"speed":0.4}}}`,
+		"dynamics":   `{"duration":800}`,
+	}
+	upgraded := map[string]any{
+		"gradient":   map[string]any{"mode": "segmented_palette", "points": []any{map[string]any{"x": 0.3, "y": 0.4}, map[string]any{"x": 0.4, "y": 0.4}}},
+		"effects":    `{"effect":"candle"}`,
+		"effects_v2": map[string]any{"effect": "candle", "parameters": map[string]any{"color_xy": nil, "mirek": 370, "speed": 0.4}},
+		"dynamics":   map[string]any{"duration": 800},
+	}
+	none := map[string]any{"gradient": nil, "effects": nil, "effects_v2": nil, "dynamics": nil}
+	for _, version := range []int64{0, 1, 2, 3} {
+		for name, c := range map[string]struct{ values, want map[string]any }{
+			"written": {written, upgraded},
+			// The API defaults the mode.
+			"without mode": {map[string]any{"gradient": `{"points":[{"color":{"xy":{"x":0.3,"y":0.4}}},{"color":{"xy":{"x":0.4,"y":0.4}}}]}`}, map[string]any{"gradient": map[string]any{"mode": "interpolated_palette", "points": []any{map[string]any{"x": 0.3, "y": 0.4}, map[string]any{"x": 0.4, "y": 0.4}}}}},
+			"none":         {none, none},
+			// Refresh reads values that cannot be read here from the bridge.
+			"unreadable": {map[string]any{"gradient": `{"points":"red"}`, "effects_v2": `{"action":"fire"}`, "dynamics": `[]`}, none},
+		} {
+			action := map[string]any{"gradient": nil, "effects": nil, "effects_v2": nil, "dynamics": nil, "on": true, "brightness": 25, "mirek": nil, "kelvin": nil, "color_xy": nil}
+			for k, v := range c.values {
+				action[k] = v
+			}
+			palette := any(nil)
+			if version == 3 {
+				palette = map[string]any{"color": nil, "color_temperature": nil, "dimming": nil, "effects": []any{map[string]any{"effect": "fire", "parameters": nil}}}
+				delete(action, "kelvin")
+			}
+			state := map[string]any{"id": "scene", "name": "Evening", "group": "room", "actions": map[string]any{"light": action}, "speed": 0.5, "auto_dynamic": false, "palette": palette}
+			raw, _ := json.Marshal(state)
+			var resp resource.UpgradeStateResponse
+			r.UpgradeState(ctx)[version].StateUpgrader(ctx, resource.UpgradeStateRequest{RawState: &tfprotov6.RawState{JSON: raw}}, &resp)
+			if resp.Diagnostics.HasError() {
+				t.Fatalf("version %d, %s: %v", version, name, resp.Diagnostics)
+			}
+			if _, err := resp.DynamicValue.Unmarshal(schemaResp.Schema.Type().TerraformType(ctx)); err != nil {
+				t.Fatalf("version %d, %s: %v", version, name, err)
+			}
+			delete(action, "kelvin")
+			for k, v := range c.want {
+				action[k] = v
+			}
+			if version == 3 {
+				state["palette"] = map[string]any{"color": nil, "color_temperature": nil, "dimming": nil, "effects_v2": []any{map[string]any{"effect": "fire", "parameters": nil}}}
+			}
+			var got map[string]any
+			if err := json.Unmarshal(resp.DynamicValue.JSON, &got); err != nil {
+				t.Fatal(err)
+			}
+			if a, b := mustJSON(t, state), mustJSON(t, got); a != b {
 				t.Errorf("version %d, %s: upgraded to %s, want %s", version, name, b, a)
 			}
 		}

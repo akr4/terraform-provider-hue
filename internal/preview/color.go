@@ -1,6 +1,7 @@
 package preview
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -83,6 +84,9 @@ func sample(v any, exists bool) Sample {
 			s.Extra += k + " present; "
 		}
 	}
+	if activeEffect(m["effects_v2"]) {
+		s.Extra += "effects_v2 present; "
+	}
 	s.Extra = strings.TrimSuffix(s.Extra, "; ")
 	if s.Extra != "" {
 		s.Notice = strings.TrimSpace(s.Notice + " Dynamic/gradient appearance is not simulated.")
@@ -98,6 +102,30 @@ func sample(v any, exists bool) Sample {
 		s.Text = "off"
 	}
 	return s
+}
+
+// activeEffect reports whether effects_v2 may hold an effect other than
+// no_effect. Plans from provider 0.1 hold it as a JSON string, and a value
+// that is unknown until apply or sensitive may hold one.
+func activeEffect(v any) bool {
+	switch e := v.(type) {
+	case nil:
+		return false
+	case map[string]any:
+		name, ok := e["effect"].(string)
+		return !ok || name != "no_effect"
+	case string:
+		if special(e) {
+			return true
+		}
+		var data struct {
+			Action struct {
+				Effect string `json:"effect"`
+			} `json:"action"`
+		}
+		return json.Unmarshal([]byte(e), &data) != nil || data.Action.Effect != "no_effect"
+	}
+	return true
 }
 
 // Swatches scale normalized linear D65 color by the configured brightness.

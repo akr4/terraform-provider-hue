@@ -61,13 +61,15 @@ func TestAccGeneratedConfig(t *testing.T) {
 		return out
 	}
 	run("plan", "-input=false", "-no-color", "-generate-config-out=generated.tf", "-out=import.tfplan")
-	// The palette is generated as an object, not as JSON.
+	// The palette and the action objects are generated as objects, not as JSON.
 	generated, err := os.ReadFile(filepath.Join(dir, "generated.tf"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !regexp.MustCompile(`(?m)^\s*palette\s*=\s*\{`).Match(generated) {
-		t.Fatalf("generated configuration should write palette as an object:\n%s", generated)
+	for _, attribute := range []string{"palette", "gradient", "effects_v2", "dynamics"} {
+		if !regexp.MustCompile(`(?m)^\s*` + attribute + `\s*=\s*\{`).Match(generated) {
+			t.Errorf("generated configuration should write %s as an object:\n%s", attribute, generated)
+		}
 	}
 	var plan struct {
 		ResourceChanges []struct {

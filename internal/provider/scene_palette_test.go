@@ -64,7 +64,7 @@ func TestPaletteJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !m.Dimming.IsNull() || len(m.Color.Elements()) != 1 || len(m.ColorTemperature.Elements()) != 1 || len(m.Effects.Elements()) != 1 {
+	if !m.Dimming.IsNull() || len(m.Color.Elements()) != 1 || len(m.ColorTemperature.Elements()) != 1 || len(m.EffectsV2.Elements()) != 1 {
 		t.Fatalf("read %v", palette)
 	}
 	if !paletteEqual(ctx, palette, []byte(raw)) {
@@ -95,7 +95,7 @@ func TestPaletteJSON(t *testing.T) {
 	fire := types.ObjectValueMust(effectTypes, map[string]attr.Value{"effect": types.StringValue("fire"), "parameters": types.ObjectValueMust(effectParameterTypes, map[string]attr.Value{"color_xy": types.ObjectNull(xyTypes), "mirek": types.Int64Null(), "speed": types.Float64Null()})})
 	emptyParameters := types.ObjectValueMust(paletteTypes, map[string]attr.Value{
 		"color": nullList(paletteColorTypes), "color_temperature": nullList(paletteTemperatureTypes), "dimming": nullList(paletteDimmingTypes),
-		"effects": types.ListValueMust(types.ObjectType{AttrTypes: effectTypes}, []attr.Value{fire}),
+		"effects_v2": types.ListValueMust(types.ObjectType{AttrTypes: effectTypes}, []attr.Value{fire}),
 	})
 	if sent, _ := paletteJSON(ctx, emptyParameters); strings.Contains(string(sent), "parameters") {
 		t.Errorf("sent %s", sent)
@@ -108,7 +108,7 @@ func TestPaletteJSON(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		effects, err := listOf[effectModel](ctx, read.Attributes()["effects"].(types.List))
+		effects, err := listOf[effectModel](ctx, read.Attributes()["effects_v2"].(types.List))
 		if err != nil || len(effects) != 1 || !effects[0].Parameters.IsNull() {
 			t.Errorf("%s read as %v, %v", stored, read, err)
 		}
@@ -116,7 +116,7 @@ func TestPaletteJSON(t *testing.T) {
 	// A scene that the bridge returns without a palette has an empty one.
 	cleared := types.ObjectValueMust(paletteTypes, map[string]attr.Value{
 		"color":             types.ListValueMust(types.ObjectType{AttrTypes: paletteColorTypes}, []attr.Value{}),
-		"color_temperature": nullList(paletteTemperatureTypes), "dimming": nullList(paletteDimmingTypes), "effects": nullList(effectTypes),
+		"color_temperature": nullList(paletteTemperatureTypes), "dimming": nullList(paletteDimmingTypes), "effects_v2": nullList(effectTypes),
 	})
 	if !paletteEqual(ctx, cleared, nil) {
 		t.Error("color = [] differs from no palette")
@@ -153,7 +153,7 @@ func TestValidatePalette(t *testing.T) {
 		return path.Empty()
 	}
 	root := path.Root("palette")
-	effect := root.AtName("effects").AtListIndex(0)
+	effect := root.AtName("effects_v2").AtListIndex(0)
 	color := `{"color":{"xy":{"x":0.3,"y":0.3}},"dimming":{"brightness":50}}`
 	for name, c := range map[string]struct {
 		raw string
@@ -166,7 +166,7 @@ func TestValidatePalette(t *testing.T) {
 		"bad xy":           {`{"color":[` + color + `,{"color":{"xy":{"x":0.8,"y":0.8}},"dimming":{"brightness":50}}]}`, root.AtName("color").AtListIndex(1).AtName("color_xy")},
 		"unknown effect":   {`{"effects_v2":[{"action":{"effect":"disco"}}]}`, effect.AtName("effect")},
 		"bad effect speed": {`{"effects_v2":[{"action":{"effect":"sparkle","parameters":{"speed":2}}}]}`, effect.AtName("parameters").AtName("speed")},
-		"four effects":     {`{"effects_v2":[{"action":{"effect":"fire"}},{"action":{"effect":"fire"}},{"action":{"effect":"fire"}},{"action":{"effect":"fire"}}]}`, root.AtName("effects")},
+		"four effects":     {`{"effects_v2":[{"action":{"effect":"fire"}},{"action":{"effect":"fire"}},{"action":{"effect":"fire"}},{"action":{"effect":"fire"}}]}`, root.AtName("effects_v2")},
 		"bad effect xy":    {`{"effects_v2":[{"action":{"effect":"sparkle","parameters":{"color":{"xy":{"x":-1,"y":0.3}}}}}]}`, effect.AtName("parameters").AtName("color_xy")},
 		"bad effect mirek": {`{"effects_v2":[{"action":{"effect":"sparkle","parameters":{"color_temperature":{"mirek":2000}}}}]}`, effect.AtName("parameters").AtName("mirek")},
 	} {
@@ -180,7 +180,7 @@ func TestValidatePalette(t *testing.T) {
 			types.ObjectUnknown(paletteColorTypes),
 			types.ObjectValueMust(paletteColorTypes, map[string]attr.Value{"color_xy": xyValue(hue.XY{X: 0.3, Y: 0.3}), "brightness": types.Float64Value(500)}),
 		}),
-		"color_temperature": nullList(paletteTemperatureTypes), "dimming": nullList(paletteDimmingTypes), "effects": nullList(effectTypes),
+		"color_temperature": nullList(paletteTemperatureTypes), "dimming": nullList(paletteDimmingTypes), "effects_v2": nullList(effectTypes),
 	})
 	if diags := validatePalette(ctx, partial); !errorAt(diags).Equal(root.AtName("color").AtListIndex(1).AtName("brightness")) {
 		t.Errorf("with an unknown color: %v", diags)
@@ -235,7 +235,7 @@ func TestAccScenePalette(t *testing.T) {
   color = [provider::hue::color_from_hex("#ff8800"), { color_xy = { x = 0.3, y = 0.13 }, brightness = 33.333333 }]
   color_temperature = [{ mirek = provider::hue::mirek_from_kelvin(2700), brightness = 40 }]
   dimming = [{ brightness = 50 }]
-  effects = [{ effect = "sparkle", parameters = { color_xy = { x = 0.3, y = 0.13 }, speed = 0.4 } }, { effect = "fire", parameters = {} }]
+  effects_v2 = [{ effect = "sparkle", parameters = { color_xy = { x = 0.3, y = 0.13 }, speed = 0.4 } }, { effect = "fire", parameters = {} }]
  }`)
 	resource.Test(t, resource.TestCase{TerraformVersionChecks: []tfversion.TerraformVersionCheck{tfversion.SkipBelow(tfversion.Version1_8_0)}, ProtoV6ProviderFactories: factories(b), CheckDestroy: destroyed(b), Steps: []resource.TestStep{
 		// The JSON string that palette took before version 0.2.0 is a type error.

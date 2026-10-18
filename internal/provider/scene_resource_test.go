@@ -9,14 +9,24 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
+// reconcile reads actual into an action whose state was prior.
+func reconcile(t *testing.T, prior actionModel, actual hue.Action) actionModel {
+	t.Helper()
+	next, err := reconcileAction(context.Background(), prior, actual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return next
+}
+
 func TestReconcileAction(t *testing.T) {
 	t.Run("import reads mirek", func(t *testing.T) {
 		actual := hue.Action{ColorTemperature: &hue.Temperature{Mirek: 300}}
-		got := reconcileAction(emptyAction(), actual)
+		got := reconcile(t, emptyAction(), actual)
 		if got.Mirek.ValueInt64() != 300 {
 			t.Fatalf("import read %+v", got)
 		}
-		if again := reconcileAction(got, actual); !again.Mirek.Equal(got.Mirek) {
+		if again := reconcile(t, got, actual); !again.Mirek.Equal(got.Mirek) {
 			t.Fatalf("refresh read %+v", again)
 		}
 	})
@@ -26,14 +36,14 @@ func TestReconcileAction(t *testing.T) {
 		a.Mirek = types.Int64Value(370)
 		a.Brightness = types.Float64Value(40)
 		actual := hue.Action{Color: &hue.ActionColor{XY: hue.XY{X: .3, Y: .3}}, ColorTemperature: &hue.Temperature{Mirek: 300}, Dimming: &hue.Dimming{Brightness: 41}}
-		got := reconcileAction(a, actual)
+		got := reconcile(t, a, actual)
 		if got.XY.Equal(a.XY) || got.Mirek == a.Mirek || got.Brightness == a.Brightness {
 			t.Fatal(got)
 		}
 	})
 	t.Run("removed values become null", func(t *testing.T) {
 		a := emptyAction()
-		got := reconcileAction(a, hue.Action{})
+		got := reconcile(t, a, hue.Action{})
 		if !got.XY.IsNull() || !got.Mirek.IsNull() || !got.Brightness.IsNull() {
 			t.Fatal(got)
 		}
@@ -46,14 +56,14 @@ func TestReconcileStoredValues(t *testing.T) {
 	a := emptyAction()
 	a.XY = xyValue(hue.XY{X: 0.72345, Y: 0.26})
 	a.Mirek = types.Int64Value(1000)
-	got := reconcileAction(a, hue.Action{Color: &hue.ActionColor{XY: colors.Round(hue.XY{X: 0.72345, Y: 0.26})}, ColorTemperature: &hue.Temperature{Mirek: 1000}})
+	got := reconcile(t, a, hue.Action{Color: &hue.ActionColor{XY: colors.Round(hue.XY{X: 0.72345, Y: 0.26})}, ColorTemperature: &hue.Temperature{Mirek: 1000}})
 	if !got.XY.Equal(a.XY) || !got.Mirek.Equal(a.Mirek) {
 		t.Fatal(got)
 	}
 	for _, brightness := range []float64{49.80392156862745, 49.8039, 33.33333333333333, 40} {
 		a := emptyAction()
 		a.Brightness = types.Float64Value(brightness)
-		got := reconcileAction(a, hue.Action{Dimming: &hue.Dimming{Brightness: colors.RoundBrightness(brightness)}})
+		got := reconcile(t, a, hue.Action{Dimming: &hue.Dimming{Brightness: colors.RoundBrightness(brightness)}})
 		if !got.Brightness.Equal(a.Brightness) {
 			t.Errorf("brightness %v: %+v", brightness, got)
 		}
@@ -130,14 +140,14 @@ func TestExtendedTemperatureReconcile(t *testing.T) {
 	for _, m := range []int64{50, 1000} {
 		prior := emptyAction()
 		prior.Mirek = types.Int64Value(m)
-		got := reconcileAction(prior, hue.Action{ColorTemperature: &hue.Temperature{Mirek: m}})
+		got := reconcile(t, prior, hue.Action{ColorTemperature: &hue.Temperature{Mirek: m}})
 		if !got.Mirek.Equal(prior.Mirek) {
 			t.Fatalf("mirek %d: %+v", m, got)
 		}
 	}
 	prior := emptyAction()
 	prior.Mirek = types.Int64Value(750)
-	got := reconcileAction(prior, hue.Action{ColorTemperature: &hue.Temperature{Mirek: 500}})
+	got := reconcile(t, prior, hue.Action{ColorTemperature: &hue.Temperature{Mirek: 500}})
 	if got.Mirek.Equal(prior.Mirek) {
 		t.Fatal("temperature drift masked")
 	}

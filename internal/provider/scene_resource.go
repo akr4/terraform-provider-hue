@@ -34,10 +34,10 @@ type sceneModel struct {
 	Palette     types.Object  `tfsdk:"palette"`
 }
 type actionModel struct {
-	Gradient   types.String  `tfsdk:"gradient"`
+	Gradient   types.Object  `tfsdk:"gradient"`
 	Effects    types.String  `tfsdk:"effects"`
-	EffectsV2  types.String  `tfsdk:"effects_v2"`
-	Dynamics   types.String  `tfsdk:"dynamics"`
+	EffectsV2  types.Object  `tfsdk:"effects_v2"`
+	Dynamics   types.Object  `tfsdk:"dynamics"`
 	On         types.Bool    `tfsdk:"on"`
 	Brightness types.Float64 `tfsdk:"brightness"`
 	Mirek      types.Int64   `tfsdk:"mirek"`
@@ -46,7 +46,7 @@ type actionModel struct {
 }
 
 var xyTypes = map[string]attr.Type{"x": types.Float64Type, "y": types.Float64Type}
-var actionTypes = map[string]attr.Type{"gradient": types.StringType, "effects": types.StringType, "effects_v2": types.StringType, "dynamics": types.StringType, "on": types.BoolType, "brightness": types.Float64Type, "mirek": types.Int64Type, "kelvin": types.Int64Type, "color_xy": types.ObjectType{AttrTypes: xyTypes}}
+var actionTypes = map[string]attr.Type{"gradient": types.ObjectType{AttrTypes: gradientTypes}, "effects": types.StringType, "effects_v2": types.ObjectType{AttrTypes: effectTypes}, "dynamics": types.ObjectType{AttrTypes: dynamicsTypes}, "on": types.BoolType, "brightness": types.Float64Type, "mirek": types.Int64Type, "kelvin": types.Int64Type, "color_xy": types.ObjectType{AttrTypes: xyTypes}}
 var actionType = types.ObjectType{AttrTypes: actionTypes}
 
 func known(v attr.Value) bool { return !v.IsNull() && !v.IsUnknown() }
@@ -80,7 +80,7 @@ func xyAttributes() map[string]schema.Attribute {
 	return map[string]schema.Attribute{"x": schema.Float64Attribute{Required: true}, "y": schema.Float64Attribute{Required: true}}
 }
 func emptyAction() actionModel {
-	return actionModel{Gradient: types.StringNull(), Effects: types.StringNull(), EffectsV2: types.StringNull(), Dynamics: types.StringNull(), On: types.BoolNull(), Brightness: types.Float64Null(), Mirek: types.Int64Null(), Kelvin: types.Int64Null(), XY: types.ObjectNull(xyTypes)}
+	return actionModel{Gradient: types.ObjectNull(gradientTypes), Effects: types.StringNull(), EffectsV2: types.ObjectNull(effectTypes), Dynamics: types.ObjectNull(dynamicsTypes), On: types.BoolNull(), Brightness: types.Float64Null(), Mirek: types.Int64Null(), Kelvin: types.Int64Null(), XY: types.ObjectNull(xyTypes)}
 }
 func actionsFrom(ctx context.Context, m types.Map) (map[string]actionModel, diag.Diagnostics) {
 	result := map[string]actionModel{}
@@ -94,18 +94,18 @@ func (r *sceneResource) Metadata(_ context.Context, req resource.MetadataRequest
 	resp.TypeName = req.ProviderTypeName + "_scene"
 }
 func (r *sceneResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
-	resp.Schema = schema.Schema{Version: 3, Description: "Manage a Hue scene. Changing its group replaces it.", Attributes: map[string]schema.Attribute{
+	resp.Schema = schema.Schema{Version: 4, Description: "Manage a Hue scene. Changing its group replaces it.", Attributes: map[string]schema.Attribute{
 		"id":           schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}, Description: "Bridge resource UUID."},
 		"name":         schema.StringAttribute{Required: true, Description: "Scene name."},
 		"group":        schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}, Description: "Room or zone UUID. Changes replace the scene."},
 		"speed":        schema.Float64Attribute{Optional: true, Computed: true, Description: "Dynamic scene speed from 0 to 1."},
 		"auto_dynamic": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), Description: "Enable dynamic playback. Defaults to false."},
 		"palette":      paletteAttribute(),
-		"actions": schema.MapNestedAttribute{Required: true, Description: "Actions keyed by light UUID.", NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
-			"gradient":   schema.StringAttribute{Optional: true, Computed: true, Description: "Gradient action as a JSON object; use jsonencode. Preserved from the bridge when omitted."},
-			"effects":    schema.StringAttribute{Optional: true, Computed: true, Description: "Effect action as a JSON object; use jsonencode. Preserved from the bridge when omitted."},
-			"effects_v2": schema.StringAttribute{Optional: true, Computed: true, Description: "Effect v2 action and parameters as a JSON object; use jsonencode. Preserved from the bridge when omitted. Use action.effect = no_effect to stop an effect."},
-			"dynamics":   schema.StringAttribute{Optional: true, Computed: true, Description: "Light transition settings as a JSON object; use jsonencode({ duration = 800 }) for milliseconds. Preserved from the bridge when omitted."},
+		"actions": schema.MapNestedAttribute{Required: true, Description: "Actions keyed by light UUID. An update sends every action whole, so fields in an action that the provider does not model are removed.", NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
+			"gradient":   gradientAttribute(),
+			"effects":    schema.StringAttribute{Optional: true, Computed: true, Description: "The API's deprecated effects as a JSON object; use jsonencode. Use effects_v2 instead. Preserved from the bridge when omitted."},
+			"effects_v2": effectsV2Attribute(),
+			"dynamics":   dynamicsAttribute(),
 			"on":         schema.BoolAttribute{Optional: true, Description: "On/off state."},
 			"brightness": schema.Float64Attribute{Optional: true, Description: "Brightness from 0 to 100, rounded to two decimal places."},
 			"mirek":      schema.Int64Attribute{Optional: true, Description: "Color temperature, 50–1000 mirek. Individual lights may support a narrower range. Use provider::hue::mirek_from_kelvin for kelvin."},
@@ -171,6 +171,7 @@ func (r *sceneResource) ValidateConfig(ctx context.Context, req resource.Validat
 		for _, message := range validateAction(a) {
 			resp.Diagnostics.AddAttributeError(p, "Invalid action", message)
 		}
+		resp.Diagnostics.Append(validateActionObjects(ctx, p, a)...)
 	}
 }
 
@@ -192,22 +193,8 @@ func kelvinReplacement(kelvin types.Int64) string {
 }
 func validateAction(a actionModel) []string {
 	var errs []string
-	for key, value := range map[string]types.String{"gradient": a.Gradient, "effects": a.Effects, "effects_v2": a.EffectsV2, "dynamics": a.Dynamics} {
-		if known(value) {
-			if err := hue.ValidateConfiguration([]byte(value.ValueString())); err != nil {
-				errs = append(errs, key+" must be a JSON object.")
-			}
-		}
-	}
-	if known(a.EffectsV2) {
-		var effect struct {
-			Action struct {
-				Effect string `json:"effect"`
-			} `json:"action"`
-		}
-		if json.Unmarshal([]byte(a.EffectsV2.ValueString()), &effect) == nil && effect.Action.Effect != "" && effect.Action.Effect != "no_effect" && (known(a.XY) || known(a.Mirek) || known(a.Gradient)) {
-			errs = append(errs, "effects_v2.action.effect cannot be combined with color_xy, mirek or gradient. Configure effect colors inside effects_v2.action.parameters instead.")
-		}
+	if known(a.Effects) && hue.ValidateConfiguration([]byte(a.Effects.ValueString())) != nil {
+		errs = append(errs, "effects must be a JSON object.")
 	}
 	if !a.XY.IsNull() && !a.Mirek.IsNull() {
 		errs = append(errs, "color_xy cannot be combined with mirek. A light shows either a color or a color temperature.")
@@ -272,24 +259,31 @@ func (r *sceneResource) body(ctx context.Context, m sceneModel, config sceneMode
 			return scene, fmt.Errorf("missing configured action %s", id)
 		}
 		action := hue.Action{}
-		for field, value := range map[string]types.String{"gradient": a.Gradient, "effects": a.Effects, "effects_v2": a.EffectsV2, "dynamics": a.Dynamics} {
-			if !known(value) {
+		if known(a.Effects) {
+			raw := json.RawMessage(a.Effects.ValueString())
+			if err := hue.ValidateConfiguration(raw); err != nil {
+				return scene, fmt.Errorf("invalid effects action: %w", err)
+			}
+			action.Effects = raw
+		}
+		// Values that the configuration leaves out are sent as the state holds
+		// them, without rounding, so that values read from the bridge go back
+		// as it stores them.
+		for _, o := range []struct {
+			name    string
+			value   types.Object
+			written bool
+			send    func(context.Context, types.Object, bool) (json.RawMessage, error)
+			raw     *json.RawMessage
+		}{{"gradient", a.Gradient, !c.Gradient.IsNull(), gradientJSON, &action.Gradient}, {"effects_v2", a.EffectsV2, !c.EffectsV2.IsNull(), effectsV2JSON, &action.EffectsV2}, {"dynamics", a.Dynamics, !c.Dynamics.IsNull(), dynamicsJSON, &action.Dynamics}} {
+			if !known(o.value) {
 				continue
 			}
-			raw := json.RawMessage(value.ValueString())
-			if err := hue.ValidateConfiguration(raw); err != nil {
-				return scene, fmt.Errorf("invalid %s action: %w", field, err)
+			raw, err := o.send(ctx, o.value, o.written)
+			if err != nil {
+				return scene, fmt.Errorf("invalid %s action: %w", o.name, err)
 			}
-			switch field {
-			case "gradient":
-				action.Gradient = raw
-			case "effects":
-				action.Effects = raw
-			case "effects_v2":
-				action.EffectsV2 = raw
-			case "dynamics":
-				action.Dynamics = raw
-			}
+			*o.raw = raw
 		}
 		if known(a.On) {
 			action.On = &hue.On{On: a.On.ValueBool()}
@@ -312,12 +306,19 @@ func (r *sceneResource) body(ctx context.Context, m sceneModel, config sceneMode
 // reconcileAction keeps the user's exact representation when the bridge stored
 // what the provider sent for it. The bridge stores xy and mirek as sent, even
 // outside the light's gamut or range, and rounds brightness to two decimal places.
-func reconcileAction(prior actionModel, actual hue.Action) actionModel {
+func reconcileAction(ctx context.Context, prior actionModel, actual hue.Action) (actionModel, error) {
 	next := emptyAction()
-	next.Gradient = sceneJSONValue(prior.Gradient, actual.Gradient)
 	next.Effects = sceneJSONValue(prior.Effects, actual.Effects)
-	next.EffectsV2 = sceneJSONValue(prior.EffectsV2, actual.EffectsV2)
-	next.Dynamics = sceneJSONValue(prior.Dynamics, actual.Dynamics)
+	var err error
+	if next.Gradient, err = reconcileObject(ctx, prior.Gradient, actual.Gradient, gradientJSON, gradientFromJSON); err != nil {
+		return next, fmt.Errorf("read gradient: %w", err)
+	}
+	if next.EffectsV2, err = reconcileObject(ctx, prior.EffectsV2, actual.EffectsV2, effectsV2JSON, effectsV2FromJSON); err != nil {
+		return next, fmt.Errorf("read effects_v2: %w", err)
+	}
+	if next.Dynamics, err = reconcileObject(ctx, prior.Dynamics, actual.Dynamics, dynamicsJSON, dynamicsFromJSON); err != nil {
+		return next, fmt.Errorf("read dynamics: %w", err)
+	}
 	if actual.On != nil {
 		next.On = types.BoolValue(actual.On.On)
 	}
@@ -340,7 +341,7 @@ func reconcileAction(prior actionModel, actual hue.Action) actionModel {
 			next.Mirek = prior.Mirek
 		}
 	}
-	return next
+	return next, nil
 }
 func (r *sceneResource) refresh(ctx context.Context, m *sceneModel) error {
 	scene, err := hue.GetOne[hue.Scene](ctx, r.client, "scene", m.ID.ValueString())
@@ -363,7 +364,9 @@ func (r *sceneResource) refresh(ctx context.Context, m *sceneModel) error {
 		if _, duplicate := actions[item.Target.RID]; duplicate {
 			return fmt.Errorf("duplicate scene action for light %s", item.Target.RID)
 		}
-		actions[item.Target.RID] = reconcileAction(old, item.Action)
+		if actions[item.Target.RID], err = reconcileAction(ctx, old, item.Action); err != nil {
+			return fmt.Errorf("scene action for light %s: %w", item.Target.RID, err)
+		}
 	}
 	m.Name = types.StringValue(scene.Metadata.Name)
 	m.Group = types.StringValue(scene.Group.RID)

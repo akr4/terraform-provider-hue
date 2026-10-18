@@ -75,7 +75,7 @@ func TestPaletteObjectPreview(t *testing.T) {
 		"color":             []any{map[string]any{"color_xy": map[string]any{"x": 0.16, "y": 0.1}, "brightness": 10.0}},
 		"color_temperature": []any{map[string]any{"mirek": 400.0, "brightness": 8.0}},
 		"dimming":           []any{map[string]any{"brightness": 8.0}},
-		"effects":           []any{map[string]any{"effect": "sparkle", "parameters": nil}},
+		"effects_v2":        []any{map[string]any{"effect": "sparkle", "parameters": nil}},
 	}
 	api := `{"color":[{"color":{"xy":{"x":0.16,"y":0.1}},"dimming":{"brightness":10}}],"color_temperature":[{"color_temperature":{"mirek":400},"dimming":{"brightness":8}}],"dimming":[{"brightness":8}],"effects":[],"effects_v2":[{"action":{"effect":"sparkle"}}]}`
 	rows := paletteRows(nil, object, false)
@@ -85,12 +85,12 @@ func TestPaletteObjectPreview(t *testing.T) {
 	if !same(rows, paletteRows(nil, api, false)) {
 		t.Fatalf("the object and the JSON of the same palette differ: %v", paletteRows(nil, api, false))
 	}
-	if null := paletteRows(nil, map[string]any{"color": []any{}, "color_temperature": nil, "dimming": nil, "effects": nil}, false); len(null) != 0 {
+	if null := paletteRows(nil, map[string]any{"color": []any{}, "color_temperature": nil, "dimming": nil, "effects_v2": nil}, false); len(null) != 0 {
 		t.Fatal(null)
 	}
 	// The plan omits attributes known only after apply and puts null for
 	// such list entries, and marks them in after_unknown.
-	after := map[string]any{"color": []any{map[string]any{"brightness": 10.0}, nil}, "color_temperature": nil, "dimming": nil, "effects": nil}
+	after := map[string]any{"color": []any{map[string]any{"brightness": 10.0}, nil}, "color_temperature": nil, "dimming": nil, "effects_v2": nil}
 	change := map[string]any{"actions": []string{"update"}, "before": map[string]any{"name": "test", "palette": object}, "after": map[string]any{"name": "test", "palette": after},
 		"after_unknown": map[string]any{"palette": map[string]any{"color": []any{map[string]any{"color_xy": true}, true}}}}
 	raw, _ := json.Marshal(map[string]any{"format_version": "1.2", "resource_changes": []any{map[string]any{"address": "hue_scene.test", "type": "hue_scene", "change": change}}})
