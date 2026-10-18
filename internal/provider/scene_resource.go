@@ -76,7 +76,7 @@ func (r *sceneResource) Metadata(_ context.Context, req resource.MetadataRequest
 	resp.TypeName = req.ProviderTypeName + "_scene"
 }
 func (r *sceneResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
-	resp.Schema = schema.Schema{Version: 2, Description: "Manage a Hue scene. Changing its group replaces it.", Attributes: map[string]schema.Attribute{
+	resp.Schema = schema.Schema{Version: 3, Description: "Manage a Hue scene. Changing its group replaces it.", Attributes: map[string]schema.Attribute{
 		"id":           schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}, Description: "Bridge resource UUID."},
 		"name":         schema.StringAttribute{Required: true, Description: "Scene name."},
 		"group":        schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}, Description: "Room or zone UUID. Changes replace the scene."},
@@ -90,8 +90,8 @@ func (r *sceneResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 			"dynamics":   schema.StringAttribute{Optional: true, Computed: true, Description: "Light transition settings as a JSON object; use jsonencode({ duration = 800 }) for milliseconds. Preserved from the bridge when omitted."},
 			"on":         schema.BoolAttribute{Optional: true, Description: "On/off state."},
 			"brightness": schema.Float64Attribute{Optional: true, Description: "Brightness from 0 to 100, rounded to two decimal places."},
-			"mirek":      schema.Int64Attribute{Optional: true, Description: "Color temperature, 50–1000 mirek. Individual lights may support a narrower range. Conflicts with kelvin; may omit both."},
-			"kelvin":     schema.Int64Attribute{Optional: true, Description: "Positive color temperature in kelvin. Converted to mirek and bounded to the API range 50–1000; individual lights may further limit it. Conflicts with mirek. Use mirek with provider::hue::mirek_from_kelvin instead.", DeprecationMessage: "Use mirek = provider::hue::mirek_from_kelvin(KELVIN) instead. kelvin will be removed in a future version."},
+			"mirek":      schema.Int64Attribute{Optional: true, Description: "Color temperature, 50–1000 mirek. Individual lights may support a narrower range. Use provider::hue::mirek_from_kelvin for kelvin."},
+			"kelvin":     schema.Int64Attribute{Optional: true, Description: "Removed in 0.2.0, and an error when set. Use mirek = provider::hue::mirek_from_kelvin(KELVIN) instead.", DeprecationMessage: "kelvin was removed in 0.2.0. Use mirek = provider::hue::mirek_from_kelvin(KELVIN) instead."},
 			"color_xy":   schema.SingleNestedAttribute{Optional: true, Computed: true, Description: "CIE xy chromaticity, rounded to four decimal places. Brightness is configured separately.", Attributes: map[string]schema.Attribute{"x": schema.Float64Attribute{Required: true}, "y": schema.Float64Attribute{Required: true}}},
 		}}},
 	}}
@@ -147,6 +147,15 @@ func (r *sceneResource) ValidateConfig(ctx context.Context, req resource.Validat
 		if resp.Diagnostics.HasError() {
 			continue
 		}
+		// Terraform drops an attribute that a nested object does not have
+		// without an error, so the schema keeps kelvin to report its removal.
+		if !a.Kelvin.IsNull() {
+			use := "mirek = provider::hue::mirek_from_kelvin(KELVIN)"
+			if known(a.Kelvin) {
+				use = fmt.Sprintf("mirek = provider::hue::mirek_from_kelvin(%d)", a.Kelvin.ValueInt64())
+			}
+			resp.Diagnostics.AddAttributeError(p.AtName("kelvin"), "kelvin was removed", "kelvin was removed in 0.2.0. Write "+use+" instead.")
+		}
 		for _, message := range validateAction(a) {
 			resp.Diagnostics.AddAttributeError(p, "Invalid action", message)
 		}
@@ -167,21 +176,15 @@ func validateAction(a actionModel) []string {
 				Effect string `json:"effect"`
 			} `json:"action"`
 		}
-		if json.Unmarshal([]byte(a.EffectsV2.ValueString()), &effect) == nil && effect.Action.Effect != "" && effect.Action.Effect != "no_effect" && (known(a.XY) || known(a.Mirek) || known(a.Kelvin) || known(a.Gradient)) {
-			errs = append(errs, "effects_v2.action.effect cannot be combined with color_xy, mirek, kelvin or gradient. Configure effect colors inside effects_v2.action.parameters instead.")
+		if json.Unmarshal([]byte(a.EffectsV2.ValueString()), &effect) == nil && effect.Action.Effect != "" && effect.Action.Effect != "no_effect" && (known(a.XY) || known(a.Mirek) || known(a.Gradient)) {
+			errs = append(errs, "effects_v2.action.effect cannot be combined with color_xy, mirek or gradient. Configure effect colors inside effects_v2.action.parameters instead.")
 		}
 	}
-	if !a.Mirek.IsNull() && !a.Kelvin.IsNull() {
-		errs = append(errs, "mirek and kelvin cannot both be configured.")
-	}
-	if !a.XY.IsNull() && (!a.Mirek.IsNull() || !a.Kelvin.IsNull()) {
-		errs = append(errs, "color_xy cannot be combined with mirek or kelvin. A light shows either a color or a color temperature.")
+	if !a.XY.IsNull() && !a.Mirek.IsNull() {
+		errs = append(errs, "color_xy cannot be combined with mirek. A light shows either a color or a color temperature.")
 	}
 	if known(a.Mirek) && (a.Mirek.ValueInt64() < colors.MinMirek || a.Mirek.ValueInt64() > colors.MaxMirek) {
 		errs = append(errs, "mirek must be between 50 and 1000.")
-	}
-	if known(a.Kelvin) && a.Kelvin.ValueInt64() <= 0 {
-		errs = append(errs, "kelvin must be positive.")
 	}
 	if known(a.Brightness) && (a.Brightness.ValueFloat64() < 0 || a.Brightness.ValueFloat64() > 100) {
 		errs = append(errs, "brightness must be between 0 and 100.")
@@ -268,12 +271,9 @@ func (r *sceneResource) body(ctx context.Context, m sceneModel, config sceneMode
 		if known(a.Brightness) {
 			action.Dimming = &hue.Dimming{Brightness: colors.RoundBrightness(a.Brightness.ValueFloat64())}
 		}
-		// Only configured color representations select writes. Computed counterparts
-		// from prior state must never override a newly configured value or removal.
+		// Only configured colors and color temperatures are sent.
 		if known(c.Mirek) {
 			action.ColorTemperature = &hue.Temperature{Mirek: c.Mirek.ValueInt64()}
-		} else if known(c.Kelvin) {
-			action.ColorTemperature = &hue.Temperature{Mirek: colors.MirekForKelvin(c.Kelvin.ValueInt64())}
 		}
 		if p, ok := readXY(c.XY); ok {
 			action.Color = &hue.ActionColor{XY: colors.Round(p)}
@@ -309,28 +309,9 @@ func reconcileAction(prior actionModel, actual hue.Action) actionModel {
 	}
 	if actual.ColorTemperature != nil {
 		m := actual.ColorTemperature.Mirek
-		// The state holds the color temperature in the form that the
-		// configuration uses: kelvin while kelvin is configured, and mirek
-		// otherwise, as after import. A state from an earlier version may hold
-		// both, and the plan then removes the one that is not configured.
-		if prior.Kelvin.IsNull() || !prior.Mirek.IsNull() {
-			next.Mirek = types.Int64Value(m)
-		}
-		if !prior.Kelvin.IsNull() {
-			next.Kelvin = types.Int64Value(colors.MirekToKelvin(m))
-		}
-		expected, ok := prior.Mirek.ValueInt64(), known(prior.Mirek)
-		if !ok && known(prior.Kelvin) {
-			expected = colors.MirekForKelvin(prior.Kelvin.ValueInt64())
-			ok = true
-		}
-		if ok && colors.EqualMirek(expected, m) {
-			if known(prior.Mirek) {
-				next.Mirek = prior.Mirek
-			}
-			if known(prior.Kelvin) {
-				next.Kelvin = prior.Kelvin
-			}
+		next.Mirek = types.Int64Value(m)
+		if known(prior.Mirek) && colors.EqualMirek(prior.Mirek.ValueInt64(), m) {
+			next.Mirek = prior.Mirek
 		}
 	}
 	return next
@@ -470,7 +451,8 @@ func (r *sceneResource) ImportState(ctx context.Context, req resource.ImportStat
 	importID(ctx, req, resp)
 }
 
-// ModifyPlan resolves computed temperature counterparts without bridge access.
+// ModifyPlan plans the values that the bridge keeps when they are omitted,
+// without bridge access.
 func (r *sceneResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
 	if req.Plan.Raw.IsNull() {
 		return

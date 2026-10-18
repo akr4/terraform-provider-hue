@@ -71,7 +71,7 @@ APIの項目別の不足、根拠リンク、公開前後の区分は[API対応�
 ## 公開前の優先事項
 
 1. scene.actionsのeffects_v2 / dynamicsは保持に対応済み。他の未対応属性の更新時保持を確認する。
-2. mirek / kelvinはAPI範囲で検証し、bridgeが保存した値と比較する（機種範囲は比較に使わない）。画像は管理対象から除外済み。
+2. mirekはAPI範囲で検証し、bridgeが保存した値と比較する（機種範囲は比較に使わない）。画像は管理対象から除外済み。
 3. native import/config生成時のmirek / kelvin重複、実機で判明したactions対象一致を回帰テストへ反映する。
 4. 管理範囲とdestroyの意味を明記し、CI・配布バイナリ・通常インストールの経路を確認する。
 

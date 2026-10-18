@@ -210,14 +210,15 @@ func TestAccPullRoundTrip(t *testing.T) {
 	scene := hue.Scene{ID: sceneID, Type: "scene", Metadata: hue.Metadata{Name: "Evening"}, Group: hue.Reference{RID: id, RType: "room"}, Actions: []hue.SceneAction{{Target: hue.Reference{RID: fakebridge.LightID, RType: "light"}, Action: hue.Action{On: &hue.On{On: true}, Dimming: &hue.Dimming{Brightness: 20}, ColorTemperature: &hue.Temperature{Mirek: 350}}}}}
 	b.Put("scene", sceneID, scene)
 	write(sceneID, "--write")
-	// Terraform generates both temperature representations from provider state.
-	// The user removes the redundant representation before plan/apply.
 	_, genErr := run(ctx, "plan", "-input=false", "-generate-config-out=generated_scene.tf")
 	generated, e := os.ReadFile("generated_scene.tf")
 	if e != nil {
 		t.Fatal(genErr, e)
 	}
-	generated = regexp.MustCompile(`(?m)^\s*kelvin\s*=.*\n`).ReplaceAll(generated, nil)
+	// The color temperature is generated as mirek. kelvin is an error.
+	if regexp.MustCompile(`(?m)^\s*kelvin\s*=`).Match(generated) {
+		t.Fatalf("generated kelvin:\n%s", generated)
+	}
 	generated = regexp.MustCompile(`(?m)^\s*color_hex\s*=.*\n`).ReplaceAll(generated, nil)
 	if e = os.WriteFile("generated_scene.tf", generated, 0600); e != nil {
 		t.Fatal(e)

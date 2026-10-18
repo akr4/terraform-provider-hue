@@ -124,7 +124,6 @@ func TestSceneEffectV2ColorConflicts(t *testing.T) {
 		set  func(*actionModel)
 	}{
 		{"mirek", func(a *actionModel) { a.Mirek = types.Int64Value(370) }},
-		{"kelvin", func(a *actionModel) { a.Kelvin = types.Int64Value(2700) }},
 		{"xy", func(a *actionModel) { a.XY = xyValue(hue.XY{X: 0.3, Y: 0.4}) }},
 		{"gradient", func(a *actionModel) { a.Gradient = types.StringValue(`{"points":[]}`) }},
 	} {

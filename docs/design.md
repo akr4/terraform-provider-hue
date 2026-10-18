@@ -234,11 +234,13 @@ action object:
 | `on` | Optional | 点灯状態 |
 | `brightness` | Optional | 0.0〜100.0 |
 | `mirek` | Optional | 色温度（50〜1000 mirek、API全体の範囲） |
-| `kelvin` | Optional, **非推奨** | 色温度（ケルビン）。`mirek` と排他。代わりに `mirek` と `provider::hue::mirek_from_kelvin` を使う |
+| `kelvin` | Optional, **0.2.0 で削除** | 書くとエラーになる。代わりに `mirek` と `provider::hue::mirek_from_kelvin` を使う |
 | `color_xy` | Optional, Computed, object `{x, y}` | CIE xy |
 
-- `mirek` / `kelvin` は ExactlyOneOf ではなく「両方省略可、両方指定は不可」。state には、設定で書いたほうだけを持たせる。import は `mirek` を使う。`kelvin` から `mirek` に書き換えると、plan に `kelvin` の削除と `mirek` の追加が出る。同じ色温度なら、apply しても同じ mirek を送り直すだけになる。v0.1 の state には両方の形が入っていることがあり、そのときは上げた直後の plan に、書いていないほうの削除が出る。`kelvin` は非推奨で、指定すると validate と plan で警告を出す
-- ライトは色か色温度のどちらか一方で光るため、同じアクションに `color_xy` と `mirek` / `kelvin` は書けない（検査で止める）。実機のシーン 1,516 アクションに、両方を持つものはなかった
+- 色温度は `mirek` で書く。ケルビンで書くときは `mirek = provider::hue::mirek_from_kelvin(2700)` のように変換する
+- `kelvin` は 0.2.0 で削除した（互換性のない変更）。入れ子の属性では、Terraform は知らない属性を黙って捨てる。属性を消すだけでは、書いたままの `kelvin` が無視され、色温度を消す plan になる。そのため `kelvin` は属性として残し、書くとエラーにする。エラーは置き換え方（`mirek = provider::hue::mirek_from_kelvin(2700)`）を示す。deprecated の印も付ける。Terraform は deprecated の属性を生成する設定に書かないので、import で作る設定に `kelvin = null` が出ない
+- 保存済みの state では、state upgrader（schema version 3）が `kelvin` を消す。v0.1 は `kelvin` を書いたときも実機の mirek を `mirek` に入れているので、それを残す。`mirek` がない state は、v0.1 が送ったのと同じ変換で `kelvin` から補う
+- ライトは色か色温度のどちらか一方で光るため、同じアクションに `color_xy` と `mirek` は書けない（検査で止める）。実機のシーン 1,516 アクションに、両方を持つものはなかった
 - 色は `color_xy` と独立した `brightness` で指定する。`color_hex` は廃止し、state schema version 1 で旧属性だけを除去して xy を保持する。
 - `palette` は Optional + Computed の JSON 文字列。明示時は書き込み、未指定時は実機の値を維持する。actions とは独立して管理し、相互の自動生成は行わない。
 - `actions` は Map なので、要素の追加・削除・変更は light ごとに独立した差分として表示される
@@ -261,7 +263,7 @@ action object:
 ### kelvin ↔ mirek
 
 - `mirek = round(1_000_000 / kelvin)`、`kelvin = round(1_000_000 / mirek)`
-- kelvin から変換した mirek は、API の範囲 50〜1000 に収めて送る
+- `provider::hue::mirek_from_kelvin` は、API の範囲 50〜1000 に入らない kelvin をエラーにする。0.1 の `kelvin` 属性は範囲に収めて送っていたので、state upgrader が `mirek` を補うときも範囲に収める
 
 ### provider 定義関数
 
@@ -283,10 +285,10 @@ action object:
 
 - 設定値に送るときと同じ変換をした値と、bridge の値を比べる。light の色域や対応範囲は使わない
 - `color_xy`: 小数 4 桁に丸めた設定値と bridge の値の差が x, y ともに 0.001 以内なら等しいとみなす
-- `mirek`: 設定値（kelvin から変換して API の範囲に収めた値、または直接指定）と bridge の値の差が ±1 以内なら等しいとみなす
+- `mirek`: 設定値と bridge の値の差が ±1 以内なら等しいとみなす
 - `brightness`: 小数 2 桁に丸めた設定値と bridge の値が同じなら等しいとみなす
-- 等しい場合、state には設定側の表現（ユーザーが書いた xy / kelvin / brightness）をそのまま保持する
-- 等しくない場合（drift）、state の値を実機の値へ更新する。`kelvin` を書いている場合は、実機の mirek から kelvin を計算し直す
+- 等しい場合、state には設定側の表現（ユーザーが書いた xy / mirek / brightness）をそのまま保持する
+- 等しくない場合（drift）、state の値を実機の値へ更新する
 - scene の Read はシーンだけを読む。light の一覧は取得しない
 
 ## 10. 補助 CLI `hue-tf`
@@ -349,14 +351,14 @@ action object:
 | 3 | 補助 CLI | 作る。`init` を最初から載せる | key 発行は対話が要るため provider に入れない。CLI に集約する |
 | 4 | children / actions の型 | children は Set、actions は light ID キーの Map | 順序ノイズを排除しつつ、light 単位の差分を読みやすくする |
 | 5 | data のキー | `id` のみ | name は重複しうる。生成 CLI が id を埋める前提 |
-| 6 | 色・色温度の属性 | xy と brightness を独立に指定し、色温度は kelvin / mirek を受ける。比較は xy / mirek 空間 | 色情報の保持と可視化を分離する。色見本は preview が担当し、provider は実機補正との同値判定を行う |
+| 6 | 色・色温度の属性 | xy と brightness を独立に指定し、色温度は mirek を受ける（13）。比較は xy / mirek 空間 | 色情報の保持と可視化を分離する。色見本は preview が担当し、provider は実機補正との同値判定を行う |
 | 7 | TLS | Signify CA を同梱して検証し、CN を bridge ID と照合する。insecure なし | 同じ LAN にある別のブリッジへの接続を防ぐ。公開前レビューの指摘で CN 照合を追加した |
 | 8 | rate limit | GETは4並列・送信ペース自動調整、書込は直列、429リトライあり | 利用者に `-parallelism` を意識させない |
 | 9 | Hue クライアント | 自前で薄く書く | provider の都合に合わせた型にする |
 | 10 | CLI の置き場・名前 | 同一リポジトリ `cmd/hue-tf` | クライアントの共有と開発速度を優先 |
 | 11 | テスト | フェイク bridge で CI | テスト専用の実機がない |
 | 12 | provider 設定 | `host` / `bridge_id` / `application_key`、環境変数 prefix `HUE_BRIDGE_` | |
-| 13 | 色温度の入力 | `kelvin` 属性を非推奨にし、`mirek` と `provider::hue::mirek_from_kelvin` で書く | 色温度の書き方を場所によらずそろえる。palette などの JSON の中では mirek しか書けない |
+| 13 | 色温度の入力 | 0.2.0 で `kelvin` 属性を削除し、`mirek` と `provider::hue::mirek_from_kelvin` で書く。`kelvin` は書くとエラーになる属性として残す | 色温度の書き方を場所によらずそろえる。palette の中では mirek しか書けない。入れ子の属性では Terraform が知らない属性を黙って捨てるので、エラーで置き換え方を示す。0.x なので minor（0.2.0）で入れる |
 
 ## 15. 未決定・保留
 
@@ -418,6 +420,6 @@ import-blocks は未管理分の import ブロック準備に対応する。既�
 属性の削除は解除指示ではない。エフェクト停止には `action.effect = "no_effect"`、即時遷移には `duration = 0` を指定する。
 JSON objectであることを検証し、機種固有の内部制約はBridgeで検証する。
 
-有効な `effects_v2.action.effect` と、同じアクション直下の `color_xy` / `mirek` / `kelvin` / `gradient` の併用を検証で拒否する。エフェクト内の色指定は `action.parameters` に置く。`no_effect` の併用可否は未検証のため、この事前検証の対象外とする。
+有効な `effects_v2.action.effect` と、同じアクション直下の `color_xy` / `mirek` / `gradient` の併用を検証で拒否する。エフェクト内の色指定は `action.parameters` に置く。`no_effect` の併用可否は未検証のため、この事前検証の対象外とする。
 
 色温度の入力検証とKelvin変換の制限にはAPI範囲50〜1000 mirekを使う。bridge は light の範囲の外の値もそのまま保存するため、等価比較に `mirek_schema` は使わない。

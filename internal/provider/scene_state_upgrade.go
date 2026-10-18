@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	colors "github.com/akr4/terraform-provider-hue/internal/color"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 )
@@ -13,32 +14,33 @@ var _ resource.ResourceWithUpgradeState = (*sceneResource)(nil)
 
 // Each upgrader converts directly to the current schema without bridge access.
 func (r *sceneResource) UpgradeState(context.Context) map[int64]resource.StateUpgrader {
-	return map[int64]resource.StateUpgrader{0: sceneStateUpgrader(true), 1: sceneStateUpgrader(false)}
+	return map[int64]resource.StateUpgrader{
+		0: sceneStateUpgrader(removeSceneHex, removeSceneImage, removeSceneKelvin),
+		1: sceneStateUpgrader(removeSceneImage, removeSceneKelvin),
+		2: sceneStateUpgrader(removeSceneKelvin),
+	}
 }
 
 var _ resource.ResourceWithUpgradeState = (*smartSceneResource)(nil)
 
 func (r *smartSceneResource) UpgradeState(context.Context) map[int64]resource.StateUpgrader {
-	return map[int64]resource.StateUpgrader{0: sceneStateUpgrader(false)}
+	return map[int64]resource.StateUpgrader{0: sceneStateUpgrader(removeSceneImage)}
 }
 
-func sceneStateUpgrader(removeHex bool) resource.StateUpgrader {
+// sceneStateUpgrader applies steps to the state JSON in order.
+func sceneStateUpgrader(steps ...func([]byte) ([]byte, error)) resource.StateUpgrader {
 	return resource.StateUpgrader{StateUpgrader: func(_ context.Context, req resource.UpgradeStateRequest, resp *resource.UpgradeStateResponse) {
 		if req.RawState == nil {
 			resp.Diagnostics.AddError("Scene state upgrade failed", "Missing prior state.")
 			return
 		}
 		data := req.RawState.JSON
-		var err error
-		if removeHex {
-			data, err = removeSceneHex(data)
-		}
-		if err == nil {
-			data, err = removeSceneImage(data)
-		}
-		if err != nil {
-			resp.Diagnostics.AddError("Scene state upgrade failed", err.Error())
-			return
+		for _, step := range steps {
+			var err error
+			if data, err = step(data); err != nil {
+				resp.Diagnostics.AddError("Scene state upgrade failed", err.Error())
+				return
+			}
 		}
 		resp.DynamicValue = &tfprotov6.DynamicValue{JSON: data}
 	}}
@@ -57,6 +59,32 @@ func removeSceneImage(data []byte) ([]byte, error) {
 }
 
 func removeSceneHex(data []byte) ([]byte, error) {
+	return editSceneActions(data, func(a map[string]json.RawMessage) error {
+		delete(a, "color_hex")
+		return nil
+	})
+}
+
+// removeSceneKelvin clears kelvin, which is an error from version 3 on. An
+// action that holds kelvin without mirek gets the mirek that the provider sent
+// for that kelvin.
+func removeSceneKelvin(data []byte) ([]byte, error) {
+	return editSceneActions(data, func(a map[string]json.RawMessage) error {
+		var kelvin, mirek *int64
+		if json.Unmarshal(a["kelvin"], &kelvin) == nil && kelvin != nil && (json.Unmarshal(a["mirek"], &mirek) != nil || mirek == nil) {
+			raw, err := json.Marshal(colors.MirekForKelvin(*kelvin))
+			if err != nil {
+				return err
+			}
+			a["mirek"] = raw
+		}
+		delete(a, "kelvin")
+		return nil
+	})
+}
+
+// editSceneActions applies edit to each action in the state JSON.
+func editSceneActions(data []byte, edit func(map[string]json.RawMessage) error) ([]byte, error) {
 	var root map[string]json.RawMessage
 	if err := json.Unmarshal(data, &root); err != nil {
 		return nil, err
@@ -70,7 +98,9 @@ func removeSceneHex(data []byte) ([]byte, error) {
 			return nil, err
 		}
 		for _, a := range actions {
-			delete(a, "color_hex")
+			if err := edit(a); err != nil {
+				return nil, err
+			}
 		}
 		raw, err := json.Marshal(actions)
 		if err != nil {
