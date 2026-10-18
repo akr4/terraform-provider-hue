@@ -86,7 +86,7 @@ func TestMigrate(t *testing.T) {
 		"Not rewritten. Rewrite these by hand:\n  main.tf:17: hue_scene.party: actions use local.party",
 		"Rewritten. Check these:\n  main.tf:11: hue_scene.evening: palette had no entries",
 		"Also:\n  generated.tf.json: migrate does not read the JSON syntax.",
-		"main.tf:2: module.room uses ./modules/room, which has hue_scene resources. Run hue-tf migrate modules/room as well.",
+		"Read 1 local module with the directories.",
 		"Preview only. Run hue-tf migrate --write to rewrite 1 file. Neither the bridge nor the state is changed.",
 	} {
 		if !strings.Contains(out, want) {
@@ -192,26 +192,47 @@ func TestMigrateSymlink(t *testing.T) {
 	}
 }
 
-// Modules are found in directories with any name, and with scenes in either
-// syntax.
-func TestMigrateModuleHints(t *testing.T) {
+// The local modules inside the named directories are read with them, also
+// the modules that they call. A module outside them is only pointed at, in a
+// directory of any name and with scenes in either syntax.
+func TestMigrateModules(t *testing.T) {
 	t.Chdir(t.TempDir())
+	scene := "resource \"hue_scene\" \"s\" {\n  actions = { \"a\" = { kelvin = 2700 } }\n}\n"
 	writeFiles(t, map[string]string{
-		"main.tf":                  "module \"a\" {\n  source = \"./modules/[a]\"\n}\nmodule \"b\" {\n  source = \"./modules/b\"\n}\nmodule \"c\" {\n  source = \"./modules/c\"\n}\n",
-		"modules/[a]/scenes.tf":    "resource \"hue_scene\" \"a\" {\n  actions = {}\n}\n",
-		"modules/b/scenes.tf.json": `{"resource":{"hue_scene":{"b":{}}}}`,
-		"modules/c/rooms.tf":       "resource \"hue_room\" \"c\" {\n}\n",
+		"root/main.tf":                  "module \"a\" {\n  source = \"./rooms/a\"\n}\nmodule \"b\" {\n  source = \"./rooms/[b]\"\n}\nmodule \"c\" {\n  source = \"../shared/[c]\"\n}\nmodule \"d\" {\n  source = \"../shared/d\"\n}\nmodule \"e\" {\n  source = \"../shared/e\"\n}\nmodule \"missing\" {\n  source = \"./missing\"\n}\n",
+		"root/rooms/a/main.tf":          "module \"nested\" {\n  source = \"./nested\"\n}\nmodule \"again\" {\n  source = \"../[b]\"\n}\n",
+		"root/rooms/a/nested/scenes.tf": scene,
+		"root/rooms/[b]/scenes.tf":      scene,
+		"shared/[c]/scenes.tf":          scene,
+		"shared/d/scenes.tf.json":       `{"resource":{"hue_scene":{"d":{}}}}`,
+		"shared/e/rooms.tf":             "resource \"hue_room\" \"e\" {\n}\n",
 	})
-	out, err := runMigrate(t)
+	out, err := runMigrate(t, "root")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"module.a uses ./modules/[a], which has hue_scene resources. Run hue-tf migrate 'modules/[a]' as well.", "module.b uses ./modules/b"} {
+	for _, want := range []string{
+		"--- a/root/rooms/a/nested/scenes.tf",
+		"--- a/root/rooms/[b]/scenes.tf",
+		"module.c uses ../shared/[c], which is outside the directories that migrate reads and has hue_scene resources. Run hue-tf migrate 'shared/[c]' as well, if no configuration on provider 0.1 shares it.",
+		"module.d uses ../shared/d",
+		"root/missing is a local module that migrate could not read",
+		"Read 3 local modules with the directories.",
+		"Run hue-tf migrate --write root to rewrite 2 files.",
+	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "module.c") {
-		t.Errorf("pointed at a module without scenes:\n%s", out)
+	// A module called twice is read once, and one without scenes is not
+	// pointed at.
+	if strings.Count(out, "--- a/root/rooms/[b]/scenes.tf") != 1 || strings.Contains(out, "module.e") || strings.Contains(out, "shared/[c]/scenes.tf\n") {
+		t.Errorf("got\n%s", out)
+	}
+	if out, err = runMigrate(t, "--write", "root"); err != nil || !strings.Contains(out, "Rewrote 2 files.") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if got, _ := os.ReadFile("shared/[c]/scenes.tf"); string(got) != scene {
+		t.Fatal("a module outside the directory was rewritten")
 	}
 }

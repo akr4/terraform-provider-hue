@@ -47,11 +47,12 @@ kelvin was removed in 0.2.0. Write mirek = provider::hue::mirek_from_kelvin(2700
 2. Update the provider with `terraform init -upgrade`, and get a `hue-tf`
    that has the `migrate` command from the
    [GitHub releases](https://github.com/akr4/terraform-provider-hue/releases).
-3. Run `hue-tf migrate` in each directory that has `hue_scene` resources, or
-   name the directories: `hue-tf migrate . modules/room`. It prints the changes
-   as a diff and changes no file.
+3. Run `hue-tf migrate` in the root of the configuration. It also reads the
+   local modules that the root calls from inside it. To read other
+   directories too, name them: `hue-tf migrate . ../other`. It prints the
+   changes as a diff and changes no file.
 4. Run the command that it prints at the end, such as
-   `hue-tf migrate --write . modules/room`, to rewrite the files.
+   `hue-tf migrate --write`, to rewrite the files.
 5. Rewrite by hand what it lists under "Not rewritten", and look at what it
    lists under "Rewritten. Check these".
 6. Run `terraform plan`. The rewritten scenes show no changes.
@@ -80,9 +81,10 @@ in one step, and stops when a file changed after it was read.
 
 ## What migrate leaves
 
-migrate reads the `.tf` files in the directories it is given, without
-subdirectories, and rewrites only what is written in each `hue_scene`. It
-changes no file when one cannot be parsed. It lists, without rewriting:
+migrate reads the `.tf` files in the directories it is given, and in the local
+modules that they call from inside them, without other subdirectories. It
+rewrites only what is written in each `hue_scene`, and changes no file when one
+cannot be parsed. It lists, without rewriting:
 
 - values that come from variables, locals or other expressions,
 - JSON in a string, and files in the JSON syntax,
@@ -90,8 +92,10 @@ changes no file when one cannot be parsed. It lists, without rewriting:
 - symbolic links. It names the directory that a link points to, and reads the
   file there when that directory is named too.
 
-It also points at local modules that have `hue_scene` resources. Run it in
-those directories too. Modules from a registry are not read.
+A local module outside the directories may be shared with configurations that
+still use 0.1, so migrate only points at it when it has `hue_scene` resources.
+Run it there too when nothing on 0.1 shares the module. Modules from a registry
+are not read.
 
 ## Palettes kept in JSON files
 

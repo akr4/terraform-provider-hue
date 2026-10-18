@@ -19,8 +19,9 @@ const migrateUsage = "usage: hue-tf migrate [DIR ...] [--write]"
 
 // migrateCommand rewrites configurations for provider 0.1 into the forms that
 // provider 0.2.0 takes. It reads the .tf files in each directory, without
-// subdirectories, and prints the changes as a diff. With --write, it writes
-// them. It changes no file when one cannot be parsed.
+// subdirectories, and in the local modules that the directories call from
+// inside them, and prints the changes as a diff. With --write, it writes them.
+// It changes no file when one cannot be parsed.
 func migrateCommand(args []string, out io.Writer) error {
 	write := false
 	var named []string
@@ -52,9 +53,13 @@ func migrateCommand(args []string, out io.Writer) error {
 		}
 		return abs
 	}
-	// A directory named twice is read once.
-	var dirs []string
+	// A directory named twice is read once. The local modules inside the named
+	// directories are read after them. A module outside them may be shared
+	// with configurations that still take 0.1, so it is only pointed at.
+	var dirs, roots []string
 	given := map[string]bool{}
+	var read []string
+	seen := map[string]bool{}
 	for _, dir := range named {
 		abs, err := filepath.Abs(dir)
 		if err != nil {
@@ -63,7 +68,18 @@ func migrateCommand(args []string, out io.Writer) error {
 		if !given[abs] {
 			given[abs] = true
 			dirs = append(dirs, dir)
+			roots = append(roots, abs)
+			seen[abs] = true
+			read = append(read, dir)
 		}
+	}
+	inside := func(abs string) bool {
+		for _, root := range roots {
+			if rel, err := filepath.Rel(root, abs); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return true
+			}
+		}
+		return false
 	}
 	type change struct {
 		path          string
@@ -71,10 +87,19 @@ func migrateCommand(args []string, out io.Writer) error {
 	}
 	var changes []change
 	var left, check, other []string
-	for _, dir := range dirs {
+	modules := 0
+	for i := 0; i < len(read); i++ {
+		dir := read[i]
 		entries, err := os.ReadDir(dir)
 		if err != nil {
-			return err
+			if i < len(dirs) {
+				return err
+			}
+			other = append(other, fmt.Sprintf("%s is a local module that migrate could not read: %v", show(dir), err))
+			continue
+		}
+		if i >= len(dirs) {
+			modules++
 		}
 		for _, entry := range entries {
 			name := entry.Name()
@@ -126,10 +151,18 @@ func migrateCommand(args []string, out io.Writer) error {
 			for _, m := range r.Modules {
 				dir := filepath.Join(dir, m.Source)
 				abs, err := filepath.Abs(dir)
-				if err != nil || given[abs] || !hasScene(dir) {
+				if err != nil || seen[abs] {
 					continue
 				}
-				other = append(other, fmt.Sprintf("%s:%d: module.%s uses %s, which has hue_scene resources. Run hue-tf migrate %s as well.", path, m.Range.Start.Line, m.Name, m.Source, shellWord(show(dir))))
+				if inside(abs) {
+					seen[abs] = true
+					read = append(read, dir)
+					continue
+				}
+				if hasScene(dir) {
+					seen[abs] = true
+					other = append(other, fmt.Sprintf("%s:%d: module.%s uses %s, which is outside the directories that migrate reads and has hue_scene resources. Run hue-tf migrate %s as well, if no configuration on provider 0.1 shares it.", path, m.Range.Start.Line, m.Name, m.Source, shellWord(show(dir))))
+				}
 			}
 			if !bytes.Equal(src, r.Output) {
 				changes = append(changes, change{path, src, r.Output})
@@ -158,6 +191,13 @@ func migrateCommand(args []string, out io.Writer) error {
 	files := fmt.Sprintf("%d files", len(changes))
 	if len(changes) == 1 {
 		files = "1 file"
+	}
+	if modules > 0 {
+		noun := "modules"
+		if modules == 1 {
+			noun = "module"
+		}
+		fmt.Fprintf(out, "\nRead %d local %s with the directories.\n", modules, noun)
 	}
 	switch {
 	case len(changes) == 0:
