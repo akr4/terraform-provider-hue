@@ -39,6 +39,8 @@ Commands:
                            Render scene colors from a Terraform plan
   import-blocks [UUID | RESOURCE_ADDRESS ...] [--module NAME[.NAME...]] [--write]
                            Generate import blocks for unmanaged resources
+  migrate [DIR ...] [--write]
+                           Rewrite configurations for provider 0.2.0
   version                  Print the version
 
 Commands that contact the bridge read HUE_BRIDGE_HOST, HUE_BRIDGE_ID and
@@ -90,6 +92,9 @@ func runWith(ctx context.Context, args []string, out, errout io.Writer, deps dep
 	}
 	if args[0] == "import-blocks" {
 		return importBlocksCommand(ctx, args[1:], out, deps)
+	}
+	if args[0] == "migrate" {
+		return migrateCommand(args[1:], out)
 	}
 	if args[0] == "recall" || args[0] == "identify" {
 		return operate(ctx, args[0], args[1:], out, deps)
