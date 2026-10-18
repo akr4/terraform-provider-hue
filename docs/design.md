@@ -235,11 +235,12 @@ action object:
 | `brightness` | Optional | 0.0〜100.0 |
 | `mirek` | Optional | 色温度（50〜1000 mirek、API全体の範囲） |
 | `kelvin` | Optional, **0.2.0 で削除** | 書くとエラーになる。代わりに `mirek` と `provider::hue::mirek_from_kelvin` を使う |
-| `color_xy` | Optional, Computed, object `{x, y}` | CIE xy |
+| `color_xy` | Optional, object `{x, y}` | CIE xy |
 
 - 色温度は `mirek` で書く。ケルビンで書くときは `mirek = provider::hue::mirek_from_kelvin(2700)` のように変換する
 - `kelvin` は 0.2.0 で削除した（互換性のない変更）。入れ子の属性では、Terraform は知らない属性を黙って捨てる。属性を消すだけでは、書いたままの `kelvin` が無視され、色温度を消す plan になる。そのため `kelvin` は属性として残し、書くとエラーにする。エラーは置き換え方（`mirek = provider::hue::mirek_from_kelvin(2700)`）を示す。deprecated の印も付ける。Terraform は deprecated の属性を生成する設定に書かないので、import で作る設定に `kelvin = null` が出ない
-- 保存済みの state では、state upgrader（schema version 3）が `kelvin` を消す。v0.1 は `kelvin` を書いたときも実機の mirek を `mirek` に入れているので、それを残す。`mirek` がない state は、v0.1 が送ったのと同じ変換で `kelvin` から補う
+- 保存済みの state では、state upgrader（schema version 3）が `kelvin` を消す。v0.1 は `kelvin` を書いたときも実機の mirek を `mirek` に入れているので、それを残す
+- `color_xy` と `mirek` は Computed にしない。plan には書いた値だけが出て、書いていない色や色温度は送らない
 - ライトは色か色温度のどちらか一方で光るため、同じアクションに `color_xy` と `mirek` は書けない（検査で止める）。実機のシーン 1,516 アクションに、両方を持つものはなかった
 - 色は `color_xy` と独立した `brightness` で指定する。`color_hex` は廃止し、state schema version 1 で旧属性だけを除去して xy を保持する。
 - `palette` は Optional + Computed の JSON 文字列。明示時は書き込み、未指定時は実機の値を維持する。actions とは独立して管理し、相互の自動生成は行わない。
@@ -263,7 +264,7 @@ action object:
 ### kelvin ↔ mirek
 
 - `mirek = round(1_000_000 / kelvin)`、`kelvin = round(1_000_000 / mirek)`
-- `provider::hue::mirek_from_kelvin` は、API の範囲 50〜1000 に入らない kelvin をエラーにする。0.1 の `kelvin` 属性は範囲に収めて送っていたので、state upgrader が `mirek` を補うときも範囲に収める
+- `provider::hue::mirek_from_kelvin` は、API の範囲 50〜1000 に入らない kelvin をエラーにする。0.1 の `kelvin` 属性はこの範囲に収めて送っていた。そのため `kelvin` を書いたときのエラーは、範囲外の kelvin には収めた mirek の数値を示し、範囲内なら関数と数値の両方を示す（関数は Terraform 1.8 以降）
 
 ### provider 定義関数
 
@@ -422,4 +423,4 @@ JSON objectであることを検証し、機種固有の内部制約はBridgeで
 
 有効な `effects_v2.action.effect` と、同じアクション直下の `color_xy` / `mirek` / `gradient` の併用を検証で拒否する。エフェクト内の色指定は `action.parameters` に置く。`no_effect` の併用可否は未検証のため、この事前検証の対象外とする。
 
-色温度の入力検証とKelvin変換の制限にはAPI範囲50〜1000 mirekを使う。bridge は light の範囲の外の値もそのまま保存するため、等価比較に `mirek_schema` は使わない。
+色温度の入力検証と `provider::hue::mirek_from_kelvin` の範囲には、API範囲50〜1000 mirekを使う。bridge は light の範囲の外の値もそのまま保存するため、等価比較に `mirek_schema` は使わない。

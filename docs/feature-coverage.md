@@ -42,7 +42,7 @@ APIの項目別の不足、根拠リンク、公開前後の区分は[API対応�
 | 利用者が行う設定・確認 | 状況 | 境界 |
 |---|---|---|
 | 部屋・ゾーン・シーンの作成、名前、削除 | 対応 | room / zone / scene。sceneのgroup変更は置換 |
-| シーン内の点灯・明るさ・xy色・色温度 | 対応 | mirekは公式型の50〜1000。Kelvin変換も同範囲に制限する。bridgeは範囲外の値もそのまま保存し、明るさは小数2桁に丸める |
+| シーン内の点灯・明るさ・xy色・色温度 | 対応 | mirekは公式型の50〜1000。provider::hue::mirek_from_kelvinも範囲外のkelvinをエラーにする。bridgeは範囲外の値もそのまま保存し、明るさは小数2桁に丸める |
 | 配色原本・ダイナミック速度・自動プレイ | 対応 | paletteはJSON。colorは公式上最大9要素でありgradient.pointsの最大5とは別 |
 | gradient・従来effects | JSON対応 | gradientの内部設定を保持可能。従来effectsは非推奨 |
 | 新しいeffects_v2 | JSON対応 | palette・scene.actionsともに対応。action / parametersを保持 |
@@ -72,7 +72,7 @@ APIの項目別の不足、根拠リンク、公開前後の区分は[API対応�
 
 1. scene.actionsのeffects_v2 / dynamicsは保持に対応済み。他の未対応属性の更新時保持を確認する。
 2. mirekはAPI範囲で検証し、bridgeが保存した値と比較する（機種範囲は比較に使わない）。画像は管理対象から除外済み。
-3. native import/config生成時のmirek / kelvin重複、実機で判明したactions対象一致を回帰テストへ反映する。
+3. native import/config生成で色温度をmirekだけで出すこと、実機で判明したactions対象一致を回帰テストへ反映する。
 4. 管理範囲とdestroyの意味を明記し、CI・配布バイナリ・通常インストールの経路を確認する。
 
 powerupやセンサー設定などの新機能は公開後の候補。未対応であること自体を公開阻害条件にしない。

@@ -94,14 +94,24 @@ func TestActionsUnknown(t *testing.T) {
 	}
 }
 
-func TestPlanAction(t *testing.T) {
-	prior := emptyAction()
-	prior.XY = xyValue(hue.XY{X: 0.3, Y: 0.4})
-	planned := emptyAction()
-	planned.XY = types.ObjectUnknown(xyTypes)
-	got := planAction(emptyAction(), planned, prior)
-	if !got.XY.IsNull() {
-		t.Fatal("removed color was kept")
+func TestKelvinReplacement(t *testing.T) {
+	for _, c := range []struct {
+		kelvin types.Int64
+		want   string
+	}{
+		{types.Int64Value(2700), "Write mirek = provider::hue::mirek_from_kelvin(2700) instead, or mirek = 370 before Terraform 1.8."},
+		{types.Int64Value(1000), "Write mirek = provider::hue::mirek_from_kelvin(1000) instead, or mirek = 1000 before Terraform 1.8."},
+		{types.Int64Value(20000), "Write mirek = provider::hue::mirek_from_kelvin(20000) instead, or mirek = 50 before Terraform 1.8."},
+		// Earlier versions clamped kelvin outside the API range, and the
+		// function rejects it.
+		{types.Int64Value(500), "Write mirek = 1000 instead, the mirek that earlier versions sent for kelvin = 500."},
+		{types.Int64Value(40000), "Write mirek = 50 instead, the mirek that earlier versions sent for kelvin = 40000."},
+		{types.Int64Value(0), "Write mirek instead. provider::hue::mirek_from_kelvin converts kelvin."},
+		{types.Int64Unknown(), "Write mirek instead. provider::hue::mirek_from_kelvin converts kelvin."},
+	} {
+		if got := kelvinReplacement(c.kelvin); got != kelvinRemoved+" "+c.want {
+			t.Errorf("kelvin %v: %s", c.kelvin, got)
+		}
 	}
 }
 

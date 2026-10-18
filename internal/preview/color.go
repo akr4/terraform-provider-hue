@@ -55,6 +55,8 @@ func sample(v any, exists bool) Sample {
 		}
 	}
 	if !has && m["color_xy"] == nil {
+		// Plans from provider 0.1 can hold a changed kelvin with mirek unknown
+		// until apply.
 		k, ok := number(m["kelvin"])
 		if mirek, mok := number(m["mirek"]); mok && mirek > 0 {
 			k = 1e6 / mirek

@@ -78,43 +78,40 @@ func TestSceneImageStateUpgrade(t *testing.T) {
 	}
 }
 
-// kelvin is an error from version 3 on. v0.1 fills in mirek for a configured
-// kelvin, and the upgrade keeps it.
+// kelvin is an error from version 3 on. Earlier versions write mirek whenever
+// they write kelvin, and the upgrade keeps it.
 func TestSceneKelvinStateUpgrade(t *testing.T) {
 	ctx := context.Background()
 	r := &sceneResource{}
 	var schemaResp resource.SchemaResponse
 	r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
-	for name, c := range map[string]struct {
-		mirek, kelvin, want any
-	}{
-		"both":         {mirek: 370, kelvin: 2703, want: 370},
-		"kelvin only":  {mirek: nil, kelvin: 2700, want: 370},
-		"mirek only":   {mirek: 200, kelvin: nil, want: 200},
-		"neither":      {mirek: nil, kelvin: nil, want: nil},
-		"out of range": {mirek: nil, kelvin: 500, want: 1000},
-	} {
-		action := map[string]any{"gradient": nil, "effects": nil, "effects_v2": nil, "dynamics": nil, "on": true, "brightness": 25, "mirek": c.mirek, "kelvin": c.kelvin, "color_xy": nil}
-		state := map[string]any{"id": "scene", "name": "Evening", "group": "room", "actions": map[string]any{"light": action}, "speed": 0.5, "auto_dynamic": false, "palette": nil}
-		raw, _ := json.Marshal(state)
-		var resp resource.UpgradeStateResponse
-		r.UpgradeState(ctx)[2].StateUpgrader(ctx, resource.UpgradeStateRequest{RawState: &tfprotov6.RawState{JSON: raw}}, &resp)
-		if resp.Diagnostics.HasError() {
-			t.Fatalf("%s: %v", name, resp.Diagnostics)
-		}
-		if _, err := resp.DynamicValue.Unmarshal(schemaResp.Schema.Type().TerraformType(ctx)); err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
-		var got map[string]any
-		if err := json.Unmarshal(resp.DynamicValue.JSON, &got); err != nil {
-			t.Fatal(err)
-		}
-		delete(action, "kelvin")
-		action["mirek"] = c.want
-		a, _ := json.Marshal(state)
-		b, _ := json.Marshal(got)
-		if string(a) != string(b) {
-			t.Errorf("%s: upgraded to %s, want %s", name, b, a)
+	for _, version := range []int64{0, 1, 2} {
+		for name, c := range map[string]struct{ mirek, kelvin any }{
+			"both":       {mirek: 370, kelvin: 2703},
+			"mirek only": {mirek: 200, kelvin: nil},
+			"neither":    {mirek: nil, kelvin: nil},
+		} {
+			action := map[string]any{"gradient": nil, "effects": nil, "effects_v2": nil, "dynamics": nil, "on": true, "brightness": 25, "mirek": c.mirek, "kelvin": c.kelvin, "color_xy": nil}
+			state := map[string]any{"id": "scene", "name": "Evening", "group": "room", "actions": map[string]any{"light": action}, "speed": 0.5, "auto_dynamic": false, "palette": nil}
+			raw, _ := json.Marshal(state)
+			var resp resource.UpgradeStateResponse
+			r.UpgradeState(ctx)[version].StateUpgrader(ctx, resource.UpgradeStateRequest{RawState: &tfprotov6.RawState{JSON: raw}}, &resp)
+			if resp.Diagnostics.HasError() {
+				t.Fatalf("version %d, %s: %v", version, name, resp.Diagnostics)
+			}
+			if _, err := resp.DynamicValue.Unmarshal(schemaResp.Schema.Type().TerraformType(ctx)); err != nil {
+				t.Fatalf("version %d, %s: %v", version, name, err)
+			}
+			var got map[string]any
+			if err := json.Unmarshal(resp.DynamicValue.JSON, &got); err != nil {
+				t.Fatal(err)
+			}
+			delete(action, "kelvin")
+			a, _ := json.Marshal(state)
+			b, _ := json.Marshal(got)
+			if string(a) != string(b) {
+				t.Errorf("version %d, %s: upgraded to %s, want %s", version, name, b, a)
+			}
 		}
 	}
 }

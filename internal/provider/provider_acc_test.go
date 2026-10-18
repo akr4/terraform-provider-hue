@@ -11,6 +11,7 @@ import (
 	"github.com/akr4/terraform-provider-hue/internal/fakebridge"
 	"github.com/akr4/terraform-provider-hue/internal/hue"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
@@ -149,7 +150,7 @@ func TestAccValidation(t *testing.T) {
 	resource.Test(t, resource.TestCase{ProtoV6ProviderFactories: factories(b), Steps: []resource.TestStep{
 		{Config: sceneConfig("mirek = 370\ncolor_xy = { x = 0.3, y = 0.3 }", "Invalid", "room"), ExpectError: regexp.MustCompile("color_xy cannot be combined with mirek")},
 		// kelvin was removed in 0.2.0, and the error names what replaces it.
-		{Config: sceneConfig("kelvin = 2700", "Invalid", "room"), ExpectError: regexp.MustCompile(`kelvin was removed in 0.2.0. Write mirek =\s+provider::hue::mirek_from_kelvin\(2700\) instead.`)},
+		{Config: sceneConfig("kelvin = 2700", "Invalid", "room"), ExpectError: regexp.MustCompile(strings.ReplaceAll(regexp.QuoteMeta(kelvinReplacement(types.Int64Value(2700))), " ", `\s+`))},
 	}})
 }
 

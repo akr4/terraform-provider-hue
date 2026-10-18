@@ -91,8 +91,8 @@ func (r *sceneResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 			"on":         schema.BoolAttribute{Optional: true, Description: "On/off state."},
 			"brightness": schema.Float64Attribute{Optional: true, Description: "Brightness from 0 to 100, rounded to two decimal places."},
 			"mirek":      schema.Int64Attribute{Optional: true, Description: "Color temperature, 50–1000 mirek. Individual lights may support a narrower range. Use provider::hue::mirek_from_kelvin for kelvin."},
-			"kelvin":     schema.Int64Attribute{Optional: true, Description: "Removed in 0.2.0, and an error when set. Use mirek = provider::hue::mirek_from_kelvin(KELVIN) instead.", DeprecationMessage: "kelvin was removed in 0.2.0. Use mirek = provider::hue::mirek_from_kelvin(KELVIN) instead."},
-			"color_xy":   schema.SingleNestedAttribute{Optional: true, Computed: true, Description: "CIE xy chromaticity, rounded to four decimal places. Brightness is configured separately.", Attributes: map[string]schema.Attribute{"x": schema.Float64Attribute{Required: true}, "y": schema.Float64Attribute{Required: true}}},
+			"kelvin":     schema.Int64Attribute{Optional: true, Description: "Removed in 0.2.0, and an error when set. Use mirek instead; provider::hue::mirek_from_kelvin converts kelvin.", DeprecationMessage: kelvinRemoved + " Use mirek instead."},
+			"color_xy":   schema.SingleNestedAttribute{Optional: true, Description: "CIE xy chromaticity, rounded to four decimal places. Brightness is configured separately.", Attributes: map[string]schema.Attribute{"x": schema.Float64Attribute{Required: true}, "y": schema.Float64Attribute{Required: true}}},
 		}}},
 	}}
 }
@@ -143,23 +143,38 @@ func (r *sceneResource) ValidateConfig(ctx context.Context, req resource.Validat
 			continue
 		}
 		var a actionModel
-		resp.Diagnostics.Append(value.(types.Object).As(ctx, &a, basetypes.ObjectAsOptions{})...)
-		if resp.Diagnostics.HasError() {
+		// Errors in other actions do not stop this one from being checked.
+		d := value.(types.Object).As(ctx, &a, basetypes.ObjectAsOptions{})
+		resp.Diagnostics.Append(d...)
+		if d.HasError() {
 			continue
 		}
 		// Terraform drops an attribute that a nested object does not have
 		// without an error, so the schema keeps kelvin to report its removal.
 		if !a.Kelvin.IsNull() {
-			use := "mirek = provider::hue::mirek_from_kelvin(KELVIN)"
-			if known(a.Kelvin) {
-				use = fmt.Sprintf("mirek = provider::hue::mirek_from_kelvin(%d)", a.Kelvin.ValueInt64())
-			}
-			resp.Diagnostics.AddAttributeError(p.AtName("kelvin"), "kelvin was removed", "kelvin was removed in 0.2.0. Write "+use+" instead.")
+			resp.Diagnostics.AddAttributeError(p.AtName("kelvin"), "kelvin was removed", kelvinReplacement(a.Kelvin))
 		}
 		for _, message := range validateAction(a) {
 			resp.Diagnostics.AddAttributeError(p, "Invalid action", message)
 		}
 	}
+}
+
+const kelvinRemoved = "kelvin was removed in 0.2.0."
+
+// kelvinReplacement tells what to write instead of a configured kelvin: the
+// mirek that earlier versions sent for it, and provider::hue::mirek_from_kelvin
+// where it returns the same mirek. The function needs Terraform 1.8.
+func kelvinReplacement(kelvin types.Int64) string {
+	if !known(kelvin) || kelvin.ValueInt64() <= 0 {
+		return kelvinRemoved + " Write mirek instead. provider::hue::mirek_from_kelvin converts kelvin."
+	}
+	k := kelvin.ValueInt64()
+	m := colors.MirekForKelvin(k)
+	if colors.KelvinToMirek(k) != m {
+		return fmt.Sprintf("%s Write mirek = %d instead, the mirek that earlier versions sent for kelvin = %d.", kelvinRemoved, m, k)
+	}
+	return fmt.Sprintf("%s Write mirek = provider::hue::mirek_from_kelvin(%d) instead, or mirek = %d before Terraform 1.8.", kelvinRemoved, k, m)
 }
 func validateAction(a actionModel) []string {
 	var errs []string
@@ -518,9 +533,6 @@ func (r *sceneResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 	resp.Diagnostics.Append(resp.Plan.Set(ctx, &planned)...)
 }
 func planAction(config, planned, prior actionModel) actionModel {
-	if config.XY.IsNull() {
-		planned.XY = types.ObjectNull(xyTypes)
-	}
 	if config.Gradient.IsNull() {
 		planned.Gradient = prior.Gradient
 	}

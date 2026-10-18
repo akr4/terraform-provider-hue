@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	colors "github.com/akr4/terraform-provider-hue/internal/color"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 )
@@ -65,19 +64,10 @@ func removeSceneHex(data []byte) ([]byte, error) {
 	})
 }
 
-// removeSceneKelvin clears kelvin, which is an error from version 3 on. An
-// action that holds kelvin without mirek gets the mirek that the provider sent
-// for that kelvin.
+// removeSceneKelvin clears kelvin, which is an error from version 3 on. Earlier
+// versions write mirek, read from the bridge, whenever they write kelvin.
 func removeSceneKelvin(data []byte) ([]byte, error) {
 	return editSceneActions(data, func(a map[string]json.RawMessage) error {
-		var kelvin, mirek *int64
-		if json.Unmarshal(a["kelvin"], &kelvin) == nil && kelvin != nil && (json.Unmarshal(a["mirek"], &mirek) != nil || mirek == nil) {
-			raw, err := json.Marshal(colors.MirekForKelvin(*kelvin))
-			if err != nil {
-				return err
-			}
-			a["mirek"] = raw
-		}
 		delete(a, "kelvin")
 		return nil
 	})
