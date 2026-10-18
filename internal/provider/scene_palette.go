@@ -7,8 +7,6 @@ import (
 	"iter"
 	"math"
 	"reflect"
-	"slices"
-	"strings"
 
 	colors "github.com/akr4/terraform-provider-hue/internal/color"
 	"github.com/akr4/terraform-provider-hue/internal/hue"
@@ -23,13 +21,8 @@ import (
 // palette is the API's scene palette as a typed attribute. It follows the API
 // but flattens wrappers that hold one field, as the scene actions do:
 // color.xy is color_xy, color_temperature.mirek is mirek, and
-// dimming.brightness is brightness.
+// dimming.brightness is brightness. An entry of effects_v2 is its action.
 
-// Effect names from the Hue API v2 reference.
-var effectNames = []string{"prism", "opal", "glisten", "sparkle", "fire", "candle", "underwater", "cosmos", "sunbeam", "enchant", "no_effect"}
-
-var effectParameterTypes = map[string]attr.Type{"color_xy": types.ObjectType{AttrTypes: xyTypes}, "mirek": types.Int64Type, "speed": types.Float64Type}
-var effectTypes = map[string]attr.Type{"effect": types.StringType, "parameters": types.ObjectType{AttrTypes: effectParameterTypes}}
 var paletteColorTypes = map[string]attr.Type{"color_xy": types.ObjectType{AttrTypes: xyTypes}, "brightness": types.Float64Type}
 var paletteTemperatureTypes = map[string]attr.Type{"mirek": types.Int64Type, "brightness": types.Float64Type}
 var paletteDimmingTypes = map[string]attr.Type{"brightness": types.Float64Type}
@@ -37,20 +30,9 @@ var paletteTypes = map[string]attr.Type{
 	"color":             types.ListType{ElemType: types.ObjectType{AttrTypes: paletteColorTypes}},
 	"color_temperature": types.ListType{ElemType: types.ObjectType{AttrTypes: paletteTemperatureTypes}},
 	"dimming":           types.ListType{ElemType: types.ObjectType{AttrTypes: paletteDimmingTypes}},
-	"effects":           types.ListType{ElemType: types.ObjectType{AttrTypes: effectTypes}},
+	"effects_v2":        types.ListType{ElemType: types.ObjectType{AttrTypes: effectTypes}},
 }
 
-func effectAttributes() map[string]schema.Attribute {
-	last := len(effectNames) - 1
-	return map[string]schema.Attribute{
-		"effect": schema.StringAttribute{Required: true, Description: "Effect name: " + strings.Join(effectNames[:last], ", ") + " or " + effectNames[last] + "."},
-		"parameters": schema.SingleNestedAttribute{Optional: true, Description: "Effect parameters.", Attributes: map[string]schema.Attribute{
-			"color_xy": schema.SingleNestedAttribute{Optional: true, Description: "Effect color as CIE xy, rounded to four decimal places.", Attributes: xyAttributes()},
-			"mirek":    schema.Int64Attribute{Optional: true, Description: "Effect color temperature, 50–1000 mirek."},
-			"speed":    schema.Float64Attribute{Optional: true, Description: "Effect speed from 0 to 1."},
-		}},
-	}
-}
 func paletteAttribute() schema.SingleNestedAttribute {
 	return schema.SingleNestedAttribute{Optional: true, Computed: true, Description: "Colors, color temperatures, brightness and effects that dynamic playback cycles through. Lists that you leave out are empty. Preserved on the bridge when omitted.", Attributes: map[string]schema.Attribute{
 		"color": schema.ListNestedAttribute{Optional: true, Description: "Up to nine colors, each with a brightness. provider::hue::color_from_hex returns one.", NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
@@ -64,7 +46,7 @@ func paletteAttribute() schema.SingleNestedAttribute {
 		"dimming": schema.ListNestedAttribute{Optional: true, Description: "At most one brightness.", NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
 			"brightness": schema.Float64Attribute{Required: true, Description: "Brightness from 0 to 100, rounded to two decimal places."},
 		}}},
-		"effects": schema.ListNestedAttribute{Optional: true, Description: "Up to three effects.", NestedObject: schema.NestedAttributeObject{Attributes: effectAttributes()}},
+		"effects_v2": schema.ListNestedAttribute{Optional: true, Description: "Up to three effects.", NestedObject: schema.NestedAttributeObject{Attributes: effectAttributes()}},
 	}}
 }
 
@@ -82,18 +64,6 @@ type apiPaletteColor struct {
 type apiPaletteTemperature struct {
 	ColorTemperature hue.Temperature `json:"color_temperature"`
 	Dimming          hue.Dimming     `json:"dimming"`
-}
-type apiEffect struct {
-	Action apiEffectAction `json:"action"`
-}
-type apiEffectAction struct {
-	Effect     string               `json:"effect"`
-	Parameters *apiEffectParameters `json:"parameters,omitempty"`
-}
-type apiEffectParameters struct {
-	Color            *hue.ActionColor `json:"color,omitempty"`
-	ColorTemperature *hue.Temperature `json:"color_temperature,omitempty"`
-	Speed            *float64         `json:"speed,omitempty"`
 }
 
 func emptyPalette() apiPalette {
@@ -125,7 +95,7 @@ type paletteModel struct {
 	Color            types.List `tfsdk:"color"`
 	ColorTemperature types.List `tfsdk:"color_temperature"`
 	Dimming          types.List `tfsdk:"dimming"`
-	Effects          types.List `tfsdk:"effects"`
+	EffectsV2        types.List `tfsdk:"effects_v2"`
 }
 type paletteColorModel struct {
 	XY         types.Object  `tfsdk:"color_xy"`
@@ -137,15 +107,6 @@ type paletteTemperatureModel struct {
 }
 type paletteDimmingModel struct {
 	Brightness types.Float64 `tfsdk:"brightness"`
-}
-type effectModel struct {
-	Effect     types.String `tfsdk:"effect"`
-	Parameters types.Object `tfsdk:"parameters"`
-}
-type effectParametersModel struct {
-	XY    types.Object  `tfsdk:"color_xy"`
-	Mirek types.Int64   `tfsdk:"mirek"`
-	Speed types.Float64 `tfsdk:"speed"`
 }
 
 func listOf[T any](ctx context.Context, list types.List) ([]T, error) {
@@ -196,7 +157,7 @@ func paletteJSON(ctx context.Context, palette types.Object) (json.RawMessage, er
 	for _, d := range dimming {
 		out.Dimming = append(out.Dimming, hue.Dimming{Brightness: colors.RoundBrightness(d.Brightness.ValueFloat64())})
 	}
-	effects, err := listOf[effectModel](ctx, m.Effects)
+	effects, err := listOf[effectModel](ctx, m.EffectsV2)
 	if err != nil {
 		return nil, err
 	}
@@ -208,32 +169,6 @@ func paletteJSON(ctx context.Context, palette types.Object) (json.RawMessage, er
 		out.EffectsV2 = append(out.EffectsV2, apiEffect{Action: action})
 	}
 	return json.Marshal(out)
-}
-func effectAction(ctx context.Context, e effectModel) (apiEffectAction, error) {
-	action := apiEffectAction{Effect: e.Effect.ValueString()}
-	if !known(e.Parameters) {
-		return action, nil
-	}
-	p, err := objectAs[effectParametersModel](ctx, e.Parameters)
-	if err != nil {
-		return action, err
-	}
-	var parameters apiEffectParameters
-	if xy, ok := readXY(p.XY); ok {
-		parameters.Color = &hue.ActionColor{XY: colors.Round(xy)}
-	}
-	if known(p.Mirek) {
-		parameters.ColorTemperature = &hue.Temperature{Mirek: p.Mirek.ValueInt64()}
-	}
-	if known(p.Speed) {
-		v := p.Speed.ValueFloat64()
-		parameters.Speed = &v
-	}
-	// Empty parameters are left out, so that the bridge has nothing to drop.
-	if parameters != (apiEffectParameters{}) {
-		action.Parameters = &parameters
-	}
-	return action, nil
 }
 
 // paletteFromJSON reads a palette from the bridge, or from the JSON string that
@@ -274,25 +209,8 @@ func paletteFromJSON(raw []byte) (types.Object, error) {
 		"color":             list(paletteColorTypes, paletteColors),
 		"color_temperature": list(paletteTemperatureTypes, temperatures),
 		"dimming":           list(paletteDimmingTypes, dimming),
-		"effects":           list(effectTypes, effects),
+		"effects_v2":        list(effectTypes, effects),
 	}), nil
-}
-func effectValue(a apiEffectAction) types.Object {
-	parameters := types.ObjectNull(effectParameterTypes)
-	if p := a.Parameters; p != nil && *p != (apiEffectParameters{}) {
-		xy, mirek, speed := types.ObjectNull(xyTypes), types.Int64Null(), types.Float64Null()
-		if p.Color != nil {
-			xy = xyValue(p.Color.XY)
-		}
-		if p.ColorTemperature != nil {
-			mirek = types.Int64Value(p.ColorTemperature.Mirek)
-		}
-		if p.Speed != nil {
-			speed = types.Float64Value(*p.Speed)
-		}
-		parameters = types.ObjectValueMust(effectParameterTypes, map[string]attr.Value{"color_xy": xy, "mirek": mirek, "speed": speed})
-	}
-	return types.ObjectValueMust(effectTypes, map[string]attr.Value{"effect": types.StringValue(a.Effect), "parameters": parameters})
 }
 
 // paletteEqual reports whether the bridge stored what the provider sends for a
@@ -338,7 +256,7 @@ func validatePalette(ctx context.Context, palette types.Object) diag.Diagnostics
 		name string
 		list types.List
 		max  int
-	}{{"color", m.Color, 9}, {"color_temperature", m.ColorTemperature, 1}, {"dimming", m.Dimming, 1}, {"effects", m.Effects, 3}} {
+	}{{"color", m.Color, 9}, {"color_temperature", m.ColorTemperature, 1}, {"dimming", m.Dimming, 1}, {"effects_v2", m.EffectsV2, 3}} {
 		if known(limit.list) && len(limit.list.Elements()) > limit.max {
 			invalid(root.AtName(limit.name), fmt.Sprintf("palette.%s can have at most %d entries.", limit.name, limit.max))
 		}
@@ -371,24 +289,8 @@ func validatePalette(ctx context.Context, palette types.Object) diag.Diagnostics
 	for i, d := range knownElements[paletteDimmingModel](ctx, m.Dimming) {
 		brightness(root.AtName("dimming").AtListIndex(i).AtName("brightness"), d.Brightness)
 	}
-	for i, e := range knownElements[effectModel](ctx, m.Effects) {
-		p := root.AtName("effects").AtListIndex(i)
-		if known(e.Effect) && !slices.Contains(effectNames, e.Effect.ValueString()) {
-			invalid(p.AtName("effect"), fmt.Sprintf("effect %q is not one of %s.", e.Effect.ValueString(), strings.Join(effectNames, ", ")))
-		}
-		if !known(e.Parameters) {
-			continue
-		}
-		parameters, err := objectAs[effectParametersModel](ctx, e.Parameters)
-		if err != nil {
-			continue
-		}
-		p = p.AtName("parameters")
-		xy(p.AtName("color_xy"), parameters.XY)
-		mirek(p.AtName("mirek"), parameters.Mirek)
-		if known(parameters.Speed) && (parameters.Speed.ValueFloat64() < 0 || parameters.Speed.ValueFloat64() > 1) {
-			invalid(p.AtName("speed"), "effect speed must be between 0 and 1.")
-		}
+	for i, e := range knownElements[effectModel](ctx, m.EffectsV2) {
+		validateEffect(ctx, root.AtName("effects_v2").AtListIndex(i), e, invalid)
 	}
 	return diags
 }
@@ -434,9 +336,19 @@ func palettesEqual(a, b []byte) bool {
 			}
 		}
 	}
-	return paletteValueEqual("", x, y)
+	return apiValueEqual("", x, y)
 }
-func paletteValueEqual(key string, a, b any) bool {
+
+// apiJSONEqual reports whether two values in the API's form are equal, with
+// numbers compared as palettesEqual compares them.
+func apiJSONEqual(a, b []byte) bool {
+	var x, y any
+	if json.Unmarshal(a, &x) != nil || json.Unmarshal(b, &y) != nil {
+		return false
+	}
+	return apiValueEqual("", x, y)
+}
+func apiValueEqual(key string, a, b any) bool {
 	switch x := a.(type) {
 	case float64:
 		y, ok := b.(float64)
@@ -451,7 +363,7 @@ func paletteValueEqual(key string, a, b any) bool {
 		}
 		for k, v := range x {
 			w, ok := y[k]
-			if !ok || !paletteValueEqual(k, v, w) {
+			if !ok || !apiValueEqual(k, v, w) {
 				return false
 			}
 		}
@@ -462,7 +374,7 @@ func paletteValueEqual(key string, a, b any) bool {
 			return false
 		}
 		for i, v := range x {
-			if !paletteValueEqual(key, v, y[i]) {
+			if !apiValueEqual(key, v, y[i]) {
 				return false
 			}
 		}

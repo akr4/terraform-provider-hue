@@ -237,18 +237,27 @@ action object:
 | `mirek` | Optional | 色温度（50〜1000 mirek、API全体の範囲） |
 | `kelvin` | Optional, **0.2.0 で削除** | 書くとエラーになる。代わりに `mirek` と `provider::hue::mirek_from_kelvin` を使う |
 | `color_xy` | Optional, object `{x, y}` | CIE xy |
+| `gradient` | Optional, Computed, object | グラデーション対応ライトの色。`points`（2〜5 個の `{x, y}`）と `mode`。下記 |
+| `effects_v2` | Optional, Computed, object | エフェクト。`effect` と `parameters`（`color_xy`・`mirek`・`speed`）。下記 |
+| `dynamics` | Optional, Computed, object | シーンへの遷移。`duration`（ミリ秒）。下記 |
+| `effects` | Optional, Computed, JSON 文字列 | API で非推奨のエフェクト。JSON のまま扱う |
 
 - 色温度は `mirek` で書く。ケルビンで書くときは `mirek = provider::hue::mirek_from_kelvin(2700)` のように変換する
 - `kelvin` は 0.2.0 で削除した（互換性のない変更）。入れ子の属性では、Terraform は知らない属性を黙って捨てる。属性を消すだけでは、書いたままの `kelvin` が無視され、色温度を消す plan になる。そのため `kelvin` は属性として残し、書くとエラーにする。エラーは置き換え方（`mirek = provider::hue::mirek_from_kelvin(2700)`）を示す。deprecated の印も付ける。Terraform は deprecated の属性を生成する設定に書かないので、import で作る設定に `kelvin = null` が出ない
-- 保存済みの state では、state upgrader（schema version 3）が `kelvin` を消す。v0.1 は `kelvin` を書いたときも実機の mirek を `mirek` に入れているので、それを残す
+- 保存済みの state では、state upgrader（schema version 4）が `kelvin` を消す。v0.1 は `kelvin` を書いたときも実機の mirek を `mirek` に入れているので、それを残す
 - `color_xy` と `mirek` は Computed にしない。plan には書いた値だけが出て、書いていない色や色温度は送らない
 - ライトは色か色温度のどちらか一方で光るため、同じアクションに `color_xy` と `mirek` は書けない（検査で止める）。実機のシーン 1,516 アクションに、両方を持つものはなかった
 - 色は `color_xy` と独立した `brightness` で指定する。`color_hex` は廃止し、state schema version 1 で旧属性だけを除去して xy を保持する。
-- `palette` は Optional + Computed の型のある属性。API の palette に合わせ、中身が 1 つの入れ物は actions と同じく平らにする（`color_xy`・`mirek`・`brightness`）。`color` は 9 個まで、`color_temperature` と `dimming` は 1 個まで、`effects` は 3 個までを plan 時に検査する。明示時は書いたリストを送り、書かなかったリストは空にする。未指定時は実機の値を維持する。actions とは独立して管理し、相互の自動生成は行わない。エフェクトは `effects_v2` の形で送り、非推奨の `effects` は扱わない。ほかのアプリが `effects` を書いても差分にしない
+- `palette` は Optional + Computed の型のある属性。API の palette に合わせ、中身が 1 つの入れ物は actions と同じく平らにする（`color_xy`・`mirek`・`brightness`）。`color` は 9 個まで、`color_temperature` と `dimming` は 1 個まで、`effects_v2` は 3 個までを plan 時に検査する。明示時は書いたリストを送り、書かなかったリストは空にする。未指定時は実機の値を維持する。actions とは独立して管理し、相互の自動生成は行わない。`effects_v2` の各要素は actions の `effects_v2` と同じ形にする。非推奨の `effects` は扱わず、ほかのアプリが `effects` を書いても差分にしない
 - `palette` は 0.1 では JSON 文字列で、0.2.0 で型のある属性に変えた（互換性のない変更。決定記録 14）
   - `palette = jsonencode(...)` と書いた設定は、Terraform の型エラー（`Inappropriate value for attribute "palette": object required.`）になる。エラーは設定を読む時点で出るので、bridge には何も送られない。書き換えには `hue-tf migrate` を用意する
-  - 保存済みの state は、state upgrader（schema version 3）が bridge に接続せずに変換する。形は import で bridge から読むときと同じで、空のパレットは null になり、非推奨の `effects` は持たない。v0.1 の state にはパレットを書いていないシーンにも `palette` が入っているが、それも同じく変換する
+  - 保存済みの state は、state upgrader（schema version 4）が bridge に接続せずに変換する。形は import で bridge から読むときと同じで、空のパレットは null になり、非推奨の `effects` は持たない。v0.1 の state にはパレットを書いていないシーンにも `palette` が入っているが、それも同じく変換する
   - 書き換えた設定の数値が同じなら、上げたあとの plan は変更なしになる。Terraform CLI で v0.1 の形の state から上げる流れを受け入れテストで確かめている
+- actions の `gradient`・`effects_v2`・`dynamics` も 0.1 では JSON 文字列で、0.2.0 で `palette` と同じやり方で型のある属性に変えた（決定記録 15）。名前は API のまま変えない
+  - 中身が 1 つの入れ物は平らにする。`gradient` の点は `{ color = { xy } }` ではなく `{ x, y }`、`effects_v2` は API の `effects_v2.action` の中身。`dynamics` は `duration` だけだが、`duration` だけでは何の時間かわからないので、入れ物を残す
+  - `jsonencode(...)` と書いた設定は Terraform の型エラー（`attribute "gradient": object required.` など）になる。state は upgrader（schema version 4）が import と同じ形に変換し、読めない値は null にして refresh で bridge から読み直す
+  - `gradient.mode` は API と同じく `interpolated_palette` を既定値にする。v0.1 の state に mode がなければ既定値で埋める
+  - schema version 3 は開発版だけが書いた。その state も、palette の `effects` を `effects_v2` に直して変換する
 - `actions` は Map なので、要素の追加・削除・変更は light ごとに独立した差分として表示される
 
 ## 9. 色と色温度の変換
@@ -367,6 +376,7 @@ action object:
 | 12 | provider 設定 | `host` / `bridge_id` / `application_key`、環境変数 prefix `HUE_BRIDGE_` | |
 | 13 | 色温度の入力 | 0.2.0 で `kelvin` 属性を削除し、`mirek` と `provider::hue::mirek_from_kelvin` で書く。`kelvin` は書くとエラーになる属性として残す | 色温度の書き方を場所によらずそろえる。palette の中では mirek しか書けない。入れ子の属性では Terraform が知らない属性を黙って捨てるので、エラーで置き換え方を示す。0.x なので minor（0.2.0）で入れる |
 | 14 | palette の型 | 0.2.0 で `palette` を JSON 文字列から型のある属性に変える。名前は変えず、古い書き方はエラーにする | HashiCorp の provider design principles は、スキーマを API の名前と構造に従わせる。名前を変えても、古い名前を消すときに互換性のない変更になるので避けられない。名前を変えると、その間は同じものに名前が 2 つでき、両方書いたときのエラーや、書いていないパレットをどちらで記録するかの仕組みが要る。0.x なので minor（0.2.0）で入れる。state は upgrader が変換し、設定は `hue-tf migrate` で書き換える |
+| 15 | actions の gradient・effects_v2・dynamics の型 | 0.2.0 で JSON 文字列から型のある属性に変える。名前は API のまま。palette のエフェクトのリストも API と同じ `effects_v2` にする。API で非推奨の `effects` は JSON 文字列のまま | palette（決定記録 14）と同じ理由。互換性のない変更を 0.2.0 の 1 回にまとめる。actions と palette の `effects_v2` は同じ形なので、名前もそろえる。型のある palette はまだリリースしていないので、名前を変えても困る人はいない |
 
 ## 15. 未決定・保留
 
@@ -420,14 +430,16 @@ import-blocks は未管理分の import ブロック準備に対応する。既�
 通常シーン・スマートシーンの画像は管理対象外とする。作成・更新時に `metadata.image` を送信せず、既存画像の再設定や `null` による消去も行わない。
 旧stateの `image_id` はschema移行で取り除くが、Bridgeへの操作は行わない。既存の `.tf` に `image_id` がある場合は、その属性を削除する。
 
-### シーンのエフェクトと遷移時間
+### シーンのグラデーション・エフェクト・遷移時間
 
-`actions` の `effects_v2` と `dynamics` はOptional + ComputedのJSON文字列属性とする。
-`effects_v2` は `action.effect` と `action.parameters`、`dynamics` はミリ秒単位の `duration` を表現する。
+`actions` の `gradient`・`effects_v2`・`dynamics` はOptional + Computedの型のある属性とする。
+`gradient` は2〜5個のCIE xyの `points` と `mode`、`effects_v2` は `effect` と `parameters`（`color_xy`・`mirek`・`speed`）、`dynamics` はミリ秒単位の `duration` を表現する。
 明示指定はその値を管理し、省略時はBridgeから読み取った値を保持して更新リクエストに含める。
-属性の削除は解除指示ではない。エフェクト停止には `action.effect = "no_effect"`、即時遷移には `duration = 0` を指定する。
-JSON objectであることを検証し、機種固有の内部制約はBridgeで検証する。
+属性の削除は解除指示ではない。エフェクト停止には `effect = "no_effect"`、即時遷移には `duration = 0` を指定する。
+点の数、mode とエフェクトの名前、parameters と duration の範囲は plan 時に検査する。機種固有の内部制約はBridgeで検証する。
+Bridgeから読んだ値は、providerが送るときの形に直して比べる。providerが扱わないフィールドは差分にしない。
+API で非推奨の `effects` はJSON文字列のまま扱い、JSON objectであることを検証する。
 
-有効な `effects_v2.action.effect` と、同じアクション直下の `color_xy` / `mirek` / `gradient` の併用を検証で拒否する。エフェクト内の色指定は `action.parameters` に置く。`no_effect` の併用可否は未検証のため、この事前検証の対象外とする。
+有効な `effects_v2.effect` と、同じアクション直下の `color_xy` / `mirek` / `gradient` の併用を検証で拒否する。エフェクト内の色指定は `effects_v2.parameters` に置く。`no_effect` の併用可否は未検証のため、この事前検証の対象外とする。
 
 色温度の入力検証と `provider::hue::mirek_from_kelvin` の範囲には、API範囲50〜1000 mirekを使う。bridge は light の範囲の外の値もそのまま保存するため、等価比較に `mirek_schema` は使わない。

@@ -28,7 +28,7 @@ func paletteSamples(raw any) []Row {
 	}
 	rows := []Row{}
 	for _, category := range []struct{ key, label string }{
-		{"color", "Color"}, {"color_temperature", "Temperature"}, {"dimming", "Brightness"}, {"effects", "Effects"},
+		{"color", "Color"}, {"color_temperature", "Temperature"}, {"dimming", "Brightness"}, {"effects_v2", "Effects"},
 	} {
 		raw := data[category.key]
 		if raw == nil {
@@ -51,7 +51,7 @@ func paletteSamples(raw any) []Row {
 				row.After = Sample{Exists: true, Notice: text}
 			} else if !ok {
 				row.After = Sample{Exists: true, Notice: "Invalid palette entry"}
-			} else if category.key == "effects" {
+			} else if category.key == "effects_v2" {
 				row.After = Sample{Exists: true, Notice: "Effect present; appearance is not simulated"}
 			} else {
 				values := map[string]any{"brightness": obj["brightness"]}
@@ -75,7 +75,7 @@ func paletteSamples(raw any) []Row {
 
 // apiPalette rewrites a palette in the API's form into the form of the
 // palette attribute, which flattens wrappers that hold one field. Effects of
-// both lists are effects.
+// both lists, the deprecated effects and effects_v2, are effects_v2.
 func apiPalette(data map[string]any) map[string]any {
 	out := map[string]any{}
 	for _, category := range []struct{ key, wrapper, field, name string }{
@@ -86,8 +86,8 @@ func apiPalette(data map[string]any) map[string]any {
 			continue
 		}
 		key := category.key
-		if key == "effects_v2" {
-			key = "effects"
+		if key == "effects" {
+			key = "effects_v2"
 		}
 		entries, ok := raw.([]any)
 		if !ok {

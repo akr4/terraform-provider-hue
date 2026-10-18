@@ -68,7 +68,7 @@ resource "terraform_data" "action" {
 			plancheck.ExpectKnownValue(addr, tfjsonpath.New("speed"), knownvalue.Float64Exact(0.4)),
 			plancheck.ExpectKnownValue(addr, tfjsonpath.New("palette").AtMapKey("dimming").AtSliceIndex(0).AtMapKey("brightness"), knownvalue.Float64Exact(42)),
 			plancheck.ExpectKnownValue(addr, color.AtMapKey("mirek"), knownvalue.Int64Exact(370)),
-			plancheck.ExpectKnownValue(addr, color.AtMapKey("dynamics"), knownvalue.StringExact(`{"duration":800}`)),
+			plancheck.ExpectKnownValue(addr, color.AtMapKey("dynamics").AtMapKey("duration"), knownvalue.Int64Exact(800)),
 			plancheck.ExpectKnownValue(addr, color.AtMapKey("gradient"), knownvalue.Null()),
 		}}, Check: func(s *terraform.State) error {
 			scene, err := hue.GetOne[hue.Scene](context.Background(), b.Client(), "scene", id)
