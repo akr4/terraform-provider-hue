@@ -25,7 +25,7 @@ Philips Hue の設定（room / zone / scene）を GUI ではなくコードで�
 - bridge は HTTPS のみ。証明書は Signify のプライベート root CA で署名されている。CN は bridge ID（実機では大文字の16桁の16進数）で、ホスト名や IP とは一致しない
 - リソース ID はすべて UUID
 - room の `children` は device、zone の `children` は light service を指す
-- scene は `group`（room または zone）に属し、`actions`（light ごとの状態）と `dynamic_palette`（ダイナミックシーン用）を持つ
+- scene は `group`（room または zone）に属し、`actions`（light ごとの状態）と `palette`（ダイナミックシーン用）を持つ
 - v2 には light の探索・追加（ペアリング）のエンドポイントは存在しない（公開されていない）
 - リクエスト頻度に上限があり、超過すると 429 が返る
 
@@ -226,6 +226,7 @@ resource "hue_scene" "evening" {
 | `actions` | Required, Map of object | キーは light の UUID。値は下記 action object |
 | `speed` | Optional, Computed | 0.0〜1.0 |
 | `auto_dynamic` | Optional, Computed | デフォルト false |
+| `palette` | Optional, Computed, object | ダイナミック再生で順に使う色・色温度・明るさ・エフェクト。下記 |
 
 action object:
 
@@ -240,8 +241,11 @@ action object:
 - `mirek` / `kelvin` は ExactlyOneOf ではなく「両方省略可、両方指定は不可」。片方を指定すると他方は provider が計算して埋める。`kelvin` は非推奨で、指定すると validate と plan で警告を出す
 - ライトは色か色温度のどちらか一方で光るため、同じアクションに `color_xy` と `mirek` / `kelvin` は書けない（検査で止める）。実機のシーン 1,516 アクションに、両方を持つものはなかった
 - 色は `color_xy` と独立した `brightness` で指定する。`color_hex` は廃止し、state schema version 1 で旧属性だけを除去して xy を保持する。
-- `dynamic_palette` は Optional + Computed の型のある属性。API の palette に合わせ、中身が 1 つの入れ物は actions と同じく平らにする（`color_xy`・`mirek`・`brightness`）。`color` は 9 個まで、`color_temperature` と `dimming` は 1 個まで、`effects` は 3 個までを plan 時に検査する。明示時は書いたリストを送り、書かなかったリストは空にする。未指定時は実機の値を維持する。actions とは独立して管理し、相互の自動生成は行わない。エフェクトは `effects_v2` の形で送り、非推奨の `effects` は扱わない。ほかのアプリが `effects` を書いても差分にしない
-- `palette`（JSON 文字列）は非推奨。`dynamic_palette` と同時には書けない。state には、設定で使っている形だけを持たせる。`palette` を書いている間は `dynamic_palette` を state に入れず、それ以外は `dynamic_palette` を使う。`dynamic_palette` に書き換えると、plan に `palette` の削除と `dynamic_palette` の追加が出る。同じ数値なら、apply しても同じパレットを送り直すだけになる。どちらも書かないときは bridge の値を保ち、state の `palette` は `dynamic_palette` に移す。v0.1 の state にはどのシーンにも `palette` が入っているので、上げた直後の plan に、`palette` を書いていないシーンごとに `palette` の削除と `dynamic_palette` の追加が 1 回出る（パレットが空なら削除だけ）。apply してもパレットは送らないので、bridge の値は変わらない。import と新しいシーンは `dynamic_palette` を使い、生成される設定も `dynamic_palette` だけになる
+- `palette` は Optional + Computed の型のある属性。API の palette に合わせ、中身が 1 つの入れ物は actions と同じく平らにする（`color_xy`・`mirek`・`brightness`）。`color` は 9 個まで、`color_temperature` と `dimming` は 1 個まで、`effects` は 3 個までを plan 時に検査する。明示時は書いたリストを送り、書かなかったリストは空にする。未指定時は実機の値を維持する。actions とは独立して管理し、相互の自動生成は行わない。エフェクトは `effects_v2` の形で送り、非推奨の `effects` は扱わない。ほかのアプリが `effects` を書いても差分にしない
+- `palette` は 0.1 では JSON 文字列で、0.2.0 で型のある属性に変えた（互換性のない変更。決定記録 14）
+  - `palette = jsonencode(...)` と書いた設定は、Terraform の型エラー（`Inappropriate value for attribute "palette": object required.`）になる。エラーは設定を読む時点で出るので、bridge には何も送られない。書き換えには `hue-tf migrate` を用意する
+  - 保存済みの state は、state upgrader（schema version 3）が bridge に接続せずに変換する。形は import で bridge から読むときと同じで、空のパレットは null になり、非推奨の `effects` は持たない。v0.1 の state にはパレットを書いていないシーンにも `palette` が入っているが、それも同じく変換する
+  - 書き換えた設定の数値が同じなら、上げたあとの plan は変更なしになる。Terraform CLI で v0.1 の形の state から上げる流れを受け入れテストで確かめている
 - `actions` は Map なので、要素の追加・削除・変更は light ごとに独立した差分として表示される
 
 ## 9. 色と色温度の変換
@@ -277,7 +281,7 @@ action object:
 ### bridge が保存する値
 
 - bridge はシーンの xy と mirek を、light の色域や対応範囲（`mirek_min` / `mirek_max`）の外でも送ったとおりに保存する。明るさは小数 2 桁に丸めて保存する（2026-10-17 に実機で確認。#25・#28）
-- provider は xy を小数 4 桁、明るさを小数 2 桁に丸めて送る。palette の明るさも同じく小数 2 桁に丸めて送る（bridge が palette の明るさをどう保存するかは未確認だが、丸めて送れば保存値と比べ方がそろう）
+- provider は xy を小数 4 桁、明るさを小数 2 桁に丸めて送る。palette の xy と明るさも同じ桁に丸めて送る（bridge が palette の明るさをどう保存するかは未確認だが、丸めて送れば保存値と比べ方がそろう）
 - palette の `effects_v2` は送ったとおりに保存する。parameters に色と色温度を一緒に書いても受け付け、書かなかった parameters は埋めない。非推奨の `effects` は空のまま（2026-10-17 に実機で確認）
 - light がその値をどう表示するかは確認していない
 
@@ -359,6 +363,7 @@ action object:
 | 11 | テスト | フェイク bridge で CI | テスト専用の実機がない |
 | 12 | provider 設定 | `host` / `bridge_id` / `application_key`、環境変数 prefix `HUE_BRIDGE_` | |
 | 13 | 色温度の入力 | `kelvin` 属性を非推奨にし、`mirek` と `provider::hue::mirek_from_kelvin` で書く | 色温度の書き方を場所によらずそろえる。palette などの JSON の中では mirek しか書けない |
+| 14 | palette の型 | 0.2.0 で `palette` を JSON 文字列から型のある属性に変える。名前は変えず、古い書き方はエラーにする | HashiCorp の provider design principles は、スキーマを API の名前と構造に従わせる。名前を変えても、古い名前を消すときに互換性のない変更になるので避けられない。名前を変えると、その間は同じものに名前が 2 つでき、両方書いたときのエラーや、書いていないパレットをどちらで記録するかの仕組みが要る。0.x なので minor（0.2.0）で入れる。state は upgrader が変換し、設定は `hue-tf migrate` で書き換える |
 
 ## 15. 未決定・保留
 

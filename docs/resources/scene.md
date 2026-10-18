@@ -32,7 +32,7 @@ resource "hue_scene" "evening" {
       mirek      = provider::hue::mirek_from_kelvin(2700)
     }
   }
-  dynamic_palette = {
+  palette = {
     color = [
       provider::hue::color_from_hex("#ff8800"),
       provider::hue::color_from_hex("#3355ff"),
@@ -55,8 +55,7 @@ resource "hue_scene" "evening" {
 ### Optional
 
 - `auto_dynamic` (Boolean) Enable dynamic playback. Defaults to false.
-- `dynamic_palette` (Attributes) Colors, color temperatures, brightness and effects that dynamic playback cycles through. Lists that you leave out are empty. Preserved on the bridge when omitted. Conflicts with palette. (see [below for nested schema](#nestedatt--dynamic_palette))
-- `palette` (String, Deprecated) Scene palette as a JSON object; use jsonencode. Independent of actions. Preserved on the bridge when omitted. Specify empty palette arrays to clear it. Use dynamic_palette instead.
+- `palette` (Attributes) Colors, color temperatures, brightness and effects that dynamic playback cycles through. Lists that you leave out are empty. Preserved on the bridge when omitted. (see [below for nested schema](#nestedatt--palette))
 - `speed` (Number) Dynamic scene speed from 0 to 1.
 
 ### Read-Only
@@ -88,26 +87,26 @@ Required:
 
 
 
-<a id="nestedatt--dynamic_palette"></a>
-### Nested Schema for `dynamic_palette`
+<a id="nestedatt--palette"></a>
+### Nested Schema for `palette`
 
 Optional:
 
-- `color` (Attributes List) Up to nine colors, each with a brightness. provider::hue::color_from_hex returns one. (see [below for nested schema](#nestedatt--dynamic_palette--color))
-- `color_temperature` (Attributes List) At most one color temperature with a brightness. (see [below for nested schema](#nestedatt--dynamic_palette--color_temperature))
-- `dimming` (Attributes List) At most one brightness. (see [below for nested schema](#nestedatt--dynamic_palette--dimming))
-- `effects` (Attributes List) Up to three effects. (see [below for nested schema](#nestedatt--dynamic_palette--effects))
+- `color` (Attributes List) Up to nine colors, each with a brightness. provider::hue::color_from_hex returns one. (see [below for nested schema](#nestedatt--palette--color))
+- `color_temperature` (Attributes List) At most one color temperature with a brightness. (see [below for nested schema](#nestedatt--palette--color_temperature))
+- `dimming` (Attributes List) At most one brightness. (see [below for nested schema](#nestedatt--palette--dimming))
+- `effects` (Attributes List) Up to three effects. (see [below for nested schema](#nestedatt--palette--effects))
 
-<a id="nestedatt--dynamic_palette--color"></a>
-### Nested Schema for `dynamic_palette.color`
+<a id="nestedatt--palette--color"></a>
+### Nested Schema for `palette.color`
 
 Required:
 
 - `brightness` (Number) Brightness from 0 to 100, rounded to two decimal places.
-- `color_xy` (Attributes) CIE xy chromaticity, rounded to four decimal places. (see [below for nested schema](#nestedatt--dynamic_palette--color--color_xy))
+- `color_xy` (Attributes) CIE xy chromaticity, rounded to four decimal places. (see [below for nested schema](#nestedatt--palette--color--color_xy))
 
-<a id="nestedatt--dynamic_palette--color--color_xy"></a>
-### Nested Schema for `dynamic_palette.color.color_xy`
+<a id="nestedatt--palette--color--color_xy"></a>
+### Nested Schema for `palette.color.color_xy`
 
 Required:
 
@@ -116,8 +115,8 @@ Required:
 
 
 
-<a id="nestedatt--dynamic_palette--color_temperature"></a>
-### Nested Schema for `dynamic_palette.color_temperature`
+<a id="nestedatt--palette--color_temperature"></a>
+### Nested Schema for `palette.color_temperature`
 
 Required:
 
@@ -125,16 +124,16 @@ Required:
 - `mirek` (Number) Color temperature, 50–1000 mirek. Use provider::hue::mirek_from_kelvin for kelvin.
 
 
-<a id="nestedatt--dynamic_palette--dimming"></a>
-### Nested Schema for `dynamic_palette.dimming`
+<a id="nestedatt--palette--dimming"></a>
+### Nested Schema for `palette.dimming`
 
 Required:
 
 - `brightness` (Number) Brightness from 0 to 100, rounded to two decimal places.
 
 
-<a id="nestedatt--dynamic_palette--effects"></a>
-### Nested Schema for `dynamic_palette.effects`
+<a id="nestedatt--palette--effects"></a>
+### Nested Schema for `palette.effects`
 
 Required:
 
@@ -142,19 +141,19 @@ Required:
 
 Optional:
 
-- `parameters` (Attributes) Effect parameters. (see [below for nested schema](#nestedatt--dynamic_palette--effects--parameters))
+- `parameters` (Attributes) Effect parameters. (see [below for nested schema](#nestedatt--palette--effects--parameters))
 
-<a id="nestedatt--dynamic_palette--effects--parameters"></a>
-### Nested Schema for `dynamic_palette.effects.parameters`
+<a id="nestedatt--palette--effects--parameters"></a>
+### Nested Schema for `palette.effects.parameters`
 
 Optional:
 
-- `color_xy` (Attributes) Effect color as CIE xy, rounded to four decimal places. (see [below for nested schema](#nestedatt--dynamic_palette--effects--parameters--color_xy))
+- `color_xy` (Attributes) Effect color as CIE xy, rounded to four decimal places. (see [below for nested schema](#nestedatt--palette--effects--parameters--color_xy))
 - `mirek` (Number) Effect color temperature, 50–1000 mirek.
 - `speed` (Number) Effect speed from 0 to 1.
 
-<a id="nestedatt--dynamic_palette--effects--parameters--color_xy"></a>
-### Nested Schema for `dynamic_palette.effects.parameters.color_xy`
+<a id="nestedatt--palette--effects--parameters--color_xy"></a>
+### Nested Schema for `palette.effects.parameters.color_xy`
 
 Required:
 

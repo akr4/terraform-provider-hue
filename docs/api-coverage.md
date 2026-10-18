@@ -37,15 +37,15 @@
 | room | children、metadata.name / archetype | geometry.objectsの位置・回転。[Room][room] |
 | zone | children、metadata.name / archetype | 保存資料のPOST/PUT設定項目に確認できた欠落なし。roomのgeometryをzoneにもあると扱わない。[Zone][zone] |
 | scene.actions | on、brightness、xy、mirek/kelvin、gradient / effects / effects_v2 / dynamicsのJSON | effects_v2のaction / parameters、dynamics.durationを保持・設定可能。旧effectsは公式では非推奨。[Scene PUT][scene-put] |
-| scene本体 | name、group、palette（dynamic_palette）、speed、auto_dynamic | **metadata.appdata**、**mapping.algorithm**（SpatialAware対応機種のclassic / spatial）が未対応。[Scene POST][scene-post] |
+| scene本体 | name、group、palette、speed、auto_dynamic | **metadata.appdata**、**mapping.algorithm**（SpatialAware対応機種のclassic / spatial）が未対応。[Scene POST][scene-post] |
 | scene / smart_sceneの画像 | 管理対象外 | 作成・更新ともmetadata.imageを送らない。公式POSTには画像参照があるが、画像の登録APIは保存資料にない。旧stateのimage_idはローカル移行で除去する |
 | sceneの色温度 | mirek / kelvin指定 | 入力検証・kelvin変換は公式型の50〜1000に対応済み。bridgeは照明の範囲外の値もそのまま保存するため、送った値と比較する |
 | smart_scene | name、group、week_timeslots、transition_duration、稼働状態の読取 | metadata.appdataが未対応。画像は管理対象外。[Smart scene][smart-post] |
 | behavior_instance | script_id、name、enabled、configuration全体、status / last_errorの読取 | POSTのmigrated_from（v1由来ID）とPUTのtriggerが未対応。前者は移行補助、後者は実行時操作。[Behavior POST][behavior-post]、[PUT][behavior-put] |
 
-paletteとactionsのeffects_v2は区別する。**palette.effects_v2はdynamic_palette.effectsとして型で、actionsのeffects_v2はJSONで保持・設定できる。**
+paletteとactionsのeffects_v2は区別する。**palette.effects_v2はpaletteのeffectsとして型で、actionsのeffects_v2はJSONで保持・設定できる。**
 palette.colorは公式資料では最大9要素、dimming / color_temperatureは各最大1、effects / effects_v2は各最大3。
-gradient.pointsは最大5要素で、palette.colorの上限とは別。dynamic_paletteの配列長と値の範囲はplan時に検証する。JSONのgradientとeffects_v2の内部構造は網羅的には検証しない。
+gradient.pointsは最大5要素で、palette.colorの上限とは別。paletteの配列長と値の範囲はplan時に検証する。JSONのgradientとeffects_v2の内部構造は網羅的には検証しない。
 
 **更新時の保持:** scene更新はactions全体を組み直して送る。effects_v2 / dynamicsは、設定を省略した場合も読取値を保持して再送する。
 fakebridgeでimport・更新・省略時保持を検証済み。全機種での実機動作は未検証。

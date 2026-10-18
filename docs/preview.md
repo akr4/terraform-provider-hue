@@ -59,5 +59,6 @@ configuration, outputs and behavior JSON are not copied into the HTML.
 Palette colors, color temperatures and brightness entries appear separately from
 per-light actions, in their saved order. Each entry uses the same brightness-aware
 swatch rendering. Unchanged entries appear once; changed entries show comparisons.
-Effects are identified but not simulated. Raw palette JSON and unsupported fields
-are not rendered. Unknown, sensitive and malformed palettes are labeled.
+Effects are identified but not simulated. Plans from provider 0.1, which hold
+the palette as JSON, are read too. Raw palette JSON and unsupported fields are
+not rendered. Unknown, sensitive and malformed palettes are labeled.

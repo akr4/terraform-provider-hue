@@ -136,10 +136,10 @@ first in `merge`, so that the settings after it win:
 `merge(provider::hue::color_from_hex("#ff8800"), { on = true, brightness = 40 })`
 keeps the color and sets the brightness to 40.
 
-Dynamic playback cycles through `dynamic_palette`, which takes the same colors:
+Dynamic playback cycles through `palette`, which takes the same colors:
 
 ```hcl
-dynamic_palette = {
+palette = {
   color = [
     provider::hue::color_from_hex("#ff8800"),
     provider::hue::color_from_hex("#3355ff"),

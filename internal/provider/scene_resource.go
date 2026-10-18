@@ -31,9 +31,7 @@ type sceneModel struct {
 	Actions     types.Map     `tfsdk:"actions"`
 	Speed       types.Float64 `tfsdk:"speed"`
 	AutoDynamic types.Bool    `tfsdk:"auto_dynamic"`
-	Palette     types.String  `tfsdk:"palette"`
-	// DynamicPalette is the typed form of Palette.
-	DynamicPalette types.Object `tfsdk:"dynamic_palette"`
+	Palette     types.Object  `tfsdk:"palette"`
 }
 type actionModel struct {
 	Gradient   types.String  `tfsdk:"gradient"`
@@ -64,8 +62,8 @@ func readXY(v types.Object) (hue.XY, bool) {
 	return hue.XY{X: x.ValueFloat64(), Y: y.ValueFloat64()}, xok && yok && known(x) && known(y)
 }
 
-// The API's value ranges, which scene actions and dynamic_palette share, and
-// the messages for values outside them.
+// The API's value ranges, which scene actions and palette share, and the
+// messages for values outside them.
 func validXY(p hue.XY) bool {
 	return p.X >= 0 && p.Y >= 0 && p.X <= 1 && p.Y <= 1 && p.X+p.Y <= 1+1e-12 && !math.IsNaN(p.X) && !math.IsNaN(p.Y)
 }
@@ -96,14 +94,13 @@ func (r *sceneResource) Metadata(_ context.Context, req resource.MetadataRequest
 	resp.TypeName = req.ProviderTypeName + "_scene"
 }
 func (r *sceneResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
-	resp.Schema = schema.Schema{Version: 2, Description: "Manage a Hue scene. Changing its group replaces it.", Attributes: map[string]schema.Attribute{
-		"id":              schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}, Description: "Bridge resource UUID."},
-		"name":            schema.StringAttribute{Required: true, Description: "Scene name."},
-		"group":           schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}, Description: "Room or zone UUID. Changes replace the scene."},
-		"speed":           schema.Float64Attribute{Optional: true, Computed: true, Description: "Dynamic scene speed from 0 to 1."},
-		"auto_dynamic":    schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), Description: "Enable dynamic playback. Defaults to false."},
-		"palette":         schema.StringAttribute{Optional: true, Computed: true, Description: "Scene palette as a JSON object; use jsonencode. Independent of actions. Preserved on the bridge when omitted. Specify empty palette arrays to clear it. Use dynamic_palette instead.", DeprecationMessage: "Use dynamic_palette instead. palette will be removed in a future version."},
-		"dynamic_palette": dynamicPaletteAttribute(),
+	resp.Schema = schema.Schema{Version: 3, Description: "Manage a Hue scene. Changing its group replaces it.", Attributes: map[string]schema.Attribute{
+		"id":           schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}, Description: "Bridge resource UUID."},
+		"name":         schema.StringAttribute{Required: true, Description: "Scene name."},
+		"group":        schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}, Description: "Room or zone UUID. Changes replace the scene."},
+		"speed":        schema.Float64Attribute{Optional: true, Computed: true, Description: "Dynamic scene speed from 0 to 1."},
+		"auto_dynamic": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), Description: "Enable dynamic playback. Defaults to false."},
+		"palette":      paletteAttribute(),
 		"actions": schema.MapNestedAttribute{Required: true, Description: "Actions keyed by light UUID.", NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
 			"gradient":   schema.StringAttribute{Optional: true, Computed: true, Description: "Gradient action as a JSON object; use jsonencode. Preserved from the bridge when omitted."},
 			"effects":    schema.StringAttribute{Optional: true, Computed: true, Description: "Effect action as a JSON object; use jsonencode. Preserved from the bridge when omitted."},
@@ -142,15 +139,7 @@ func (r *sceneResource) ValidateConfig(ctx context.Context, req resource.Validat
 	if known(m.Speed) && (m.Speed.ValueFloat64() < 0 || m.Speed.ValueFloat64() > 1) {
 		resp.Diagnostics.AddAttributeError(path.Root("speed"), "Invalid speed", "speed must be between 0 and 1.")
 	}
-	if known(m.Palette) {
-		if err := hue.ValidateConfiguration([]byte(m.Palette.ValueString())); err != nil {
-			resp.Diagnostics.AddAttributeError(path.Root("palette"), "Invalid palette", err.Error())
-		}
-	}
-	if !m.Palette.IsNull() && !m.DynamicPalette.IsNull() {
-		resp.Diagnostics.AddAttributeError(path.Root("dynamic_palette"), "Conflicting palettes", "palette and dynamic_palette cannot both be configured.")
-	}
-	resp.Diagnostics.Append(validateDynamicPalette(ctx, m.DynamicPalette)...)
+	resp.Diagnostics.Append(validatePalette(ctx, m.Palette)...)
 	// Individual map values may be unknown while referenced resources are planned.
 	if !known(m.Actions) {
 		return
@@ -238,17 +227,8 @@ func (r *sceneResource) body(ctx context.Context, m sceneModel, config sceneMode
 		v := m.AutoDynamic.ValueBool()
 		scene.AutoDynamic = &v
 	}
-	if known(config.DynamicPalette) {
-		palette, err := dynamicPaletteJSON(ctx, m.DynamicPalette)
-		if err != nil {
-			return scene, fmt.Errorf("invalid dynamic_palette: %w", err)
-		}
-		scene.Palette = palette
-	} else if known(config.Palette) {
-		if err := hue.ValidateConfiguration([]byte(m.Palette.ValueString())); err != nil {
-			return scene, fmt.Errorf("invalid palette: %w", err)
-		}
-		palette, err := roundPaletteBrightness([]byte(m.Palette.ValueString()))
+	if known(config.Palette) {
+		palette, err := paletteJSON(ctx, m.Palette)
 		if err != nil {
 			return scene, fmt.Errorf("invalid palette: %w", err)
 		}
@@ -396,21 +376,8 @@ func (r *sceneResource) refresh(ctx context.Context, m *sceneModel) error {
 	if scene.AutoDynamic != nil {
 		m.AutoDynamic = types.BoolValue(*scene.AutoDynamic)
 	}
-	// The state holds the palette in the form that the configuration uses.
-	// palette is deprecated, so import and new scenes use dynamic_palette.
-	if m.Palette.IsNull() {
-		dynamic, err := reconcileDynamicPalette(ctx, m.DynamicPalette, scene.Palette)
-		if err != nil {
-			return err
-		}
-		m.DynamicPalette = dynamic
-	} else {
-		palette, err := reconcilePalette(m.Palette, scene.Palette)
-		if err != nil {
-			return err
-		}
-		m.Palette = palette
-		m.DynamicPalette = types.ObjectNull(dynamicPaletteTypes)
+	if m.Palette, err = reconcilePalette(ctx, m.Palette, scene.Palette); err != nil {
+		return err
 	}
 	m.Actions, d = types.MapValueFrom(ctx, actionType, actions)
 	if d.HasError() {
@@ -527,10 +494,9 @@ func (r *sceneResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 		if config.Speed.IsNull() {
 			planned.Speed = prior.Speed
 		}
-		planPalettes(config, &planned, &prior)
-	} else {
-		// A new scene, or one that replaces the prior scene.
-		planPalettes(config, &planned, nil)
+		if config.Palette.IsNull() {
+			planned.Palette = prior.Palette
+		}
 	}
 	if known(config.Actions) && known(planned.Actions) {
 		oldActions := map[string]actionModel{}

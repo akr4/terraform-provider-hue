@@ -275,7 +275,39 @@ func unknown(m map[string]any, flags any) map[string]any {
 			}
 			child, _ := m[k].(map[string]any)
 			m[k] = unknown(child, v)
+		} else if l, ok := v.([]any); ok {
+			m[k] = unknownList(m[k], l)
 		}
 	}
 	return m
+}
+
+// unknownList marks the elements of a list, such as the entries of a palette,
+// that the plan knows only after apply.
+func unknownList(v any, flags []any) any {
+	if s, ok := v.(string); ok && s == redacted {
+		return v
+	}
+	items, _ := v.([]any)
+	items = append([]any(nil), items...)
+	for len(items) < len(flags) {
+		items = append(items, nil)
+	}
+	for i, flag := range flags {
+		switch f := flag.(type) {
+		case bool:
+			if f && items[i] != redacted {
+				items[i] = pending
+			}
+		case map[string]any:
+			if s, ok := items[i].(string); ok && s == redacted {
+				continue
+			}
+			child, _ := items[i].(map[string]any)
+			items[i] = unknown(child, f)
+		case []any:
+			items[i] = unknownList(items[i], f)
+		}
+	}
+	return items
 }

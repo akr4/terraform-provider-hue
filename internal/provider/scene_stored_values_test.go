@@ -36,23 +36,30 @@ func TestAccSceneStoredValues(t *testing.T) {
 	}})
 }
 
-func TestAccScenePaletteStoredBrightness(t *testing.T) {
+func TestAccScenePaletteStoredValues(t *testing.T) {
 	b := fakebridge.New()
 	defer b.Close()
-	palette := `jsonencode({ color = [{ color = { xy = { x = 0.72345, y = 0.26 } }, dimming = { brightness = 49.80392156862745 } }], dimming = [{ brightness = 33.33333333333333 }] })`
-	config := strings.Replace(sceneConfig("on = true", "Palette", "room"), "actions = {", "palette = "+palette+"\n actions = {", 1)
+	addr := "hue_scene.test"
+	config := paletteSceneConfig(`palette = {
+  color   = [{ color_xy = { x = 0.72345, y = 0.26 }, brightness = 49.80392156862745 }]
+  dimming = [{ brightness = 33.33333333333333 }]
+ }`)
 	resource.Test(t, resource.TestCase{ProtoV6ProviderFactories: factories(b), CheckDestroy: destroyed(b), Steps: []resource.TestStep{
-		{Config: config, Check: func(s *terraform.State) error {
-			id := s.RootModule().Resources["hue_scene.test"].Primary.ID
-			scene, err := hue.GetOne[hue.Scene](context.Background(), b.Client(), "scene", id)
-			if err != nil {
-				return err
-			}
-			if got := string(scene.Palette); !strings.Contains(got, `"brightness":49.8`) || !strings.Contains(got, `"brightness":33.33}`) || !strings.Contains(got, `0.72345`) {
-				return fmt.Errorf("palette sent as %s", got)
-			}
-			return nil
-		}},
+		{Config: config, Check: resource.ComposeAggregateTestCheckFunc(
+			func(s *terraform.State) error {
+				id := s.RootModule().Resources[addr].Primary.ID
+				scene, err := hue.GetOne[hue.Scene](context.Background(), b.Client(), "scene", id)
+				if err != nil {
+					return err
+				}
+				if got := string(scene.Palette); !strings.Contains(got, `"x":0.7235`) || !strings.Contains(got, `"brightness":49.8}`) || !strings.Contains(got, `"brightness":33.33}`) {
+					return fmt.Errorf("palette sent as %s", got)
+				}
+				return nil
+			},
+			resource.TestCheckResourceAttr(addr, "palette.color.0.color_xy.x", "0.72345"),
+			resource.TestCheckResourceAttr(addr, "palette.color.0.brightness", "49.80392156862745"),
+		)},
 		{Config: config, PlanOnly: true},
 	}})
 }
