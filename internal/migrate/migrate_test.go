@@ -244,6 +244,21 @@ func TestRewrites(t *testing.T) {
 			scene("  palette = <<EOF\n{\"color\": []}\nEOF\n  actions = {}\n"),
 			[]string{"palette is <<EOF..., which migrate does not read"},
 		},
+		"palette from a local": {
+			scene(`  palette = jsonencode(local.presets.evening.palette)
+  actions = {
+    "a" = { gradient = jsonencode(merge(local.gradient, { mode = "random_pixelated" })) }
+  }
+`),
+			scene(`  palette = jsonencode(local.presets.evening.palette)
+  actions = {
+    "a" = { gradient = jsonencode(merge(local.gradient, { mode = "random_pixelated" })) }
+  }
+`), []string{
+				"palette is jsonencode(local.presets.evening.palette), which migrate does not read. Rewrite local.presets.evening.palette in the form that 0.2.0 takes, and write palette = local.presets.evening.palette.",
+				"gradient is jsonencode(merge(local.gradient, { mode = \"random_pixelated\" })), which migrate does not read. Write it as an object in the form that 0.2.0 takes.",
+			},
+		},
 		"palette from a variable": {
 			scene(`  palette = var.palette
   actions = {}

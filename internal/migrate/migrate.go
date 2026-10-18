@@ -197,10 +197,30 @@ func (r *rewriter) unread(address, name string, e hclsyntax.Expression) {
 	r.note(address, e.Range(), true, fmt.Sprintf("%s is %s, which migrate does not read. If it is JSON, write it as an object.", name, r.brief(e)))
 }
 
+// unreadArg notes jsonencode of a value that is not written out, such as
+// jsonencode(local.palette). It reports false for an object to convert.
+func (r *rewriter) unreadArg(address, name string, arg hclsyntax.Expression) bool {
+	if _, ok := arg.(*hclsyntax.ObjectConsExpr); ok {
+		return false
+	}
+	value := r.brief(arg)
+	text := fmt.Sprintf("%s is jsonencode(%s), which migrate does not read.", name, value)
+	if _, ok := arg.(*hclsyntax.ScopeTraversalExpr); ok {
+		text += fmt.Sprintf(" Rewrite %s in the form that 0.2.0 takes, and write %s = %s.", value, name, value)
+	} else {
+		text += " Write it as an object in the form that 0.2.0 takes."
+	}
+	r.note(address, arg.Range(), true, text)
+	return true
+}
+
 func (r *rewriter) palette(address string, a *hclsyntax.Attribute) {
 	arg, ok := jsonencodeArg(a.Expr)
 	if !ok {
 		r.unread(address, "palette", a.Expr)
+		return
+	}
+	if r.unreadArg(address, "palette", arg) {
 		return
 	}
 	c := converter{r: r}
@@ -351,6 +371,9 @@ func (r *rewriter) actionObject(address string, o *hclsyntax.ObjectConsExpr) {
 		arg, ok := jsonencodeArg(value)
 		if !ok {
 			r.unread(address, name, value)
+			continue
+		}
+		if r.unreadArg(address, name, arg) {
 			continue
 		}
 		c := converter{r: r}
