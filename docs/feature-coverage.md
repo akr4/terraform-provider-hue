@@ -43,9 +43,9 @@ APIの項目別の不足、根拠リンク、公開前後の区分は[API対応�
 |---|---|---|
 | 部屋・ゾーン・シーンの作成、名前、削除 | 対応 | room / zone / scene。sceneのgroup変更は置換 |
 | シーン内の点灯・明るさ・xy色・色温度 | 対応 | mirekは公式型の50〜1000。provider::hue::mirek_from_kelvinも範囲外のkelvinをエラーにする。bridgeは範囲外の値もそのまま保存し、明るさは小数2桁に丸める |
-| 配色原本・ダイナミック速度・自動プレイ | 対応 | paletteはJSON。colorは公式上最大9要素でありgradient.pointsの最大5とは別 |
+| 配色原本・ダイナミック速度・自動プレイ | 対応 | palette（型あり。0.1のJSON文字列から0.2.0で変更）。colorは公式上最大9要素でありgradient.pointsの最大5とは別 |
 | gradient・従来effects | JSON対応 | gradientの内部設定を保持可能。従来effectsは非推奨 |
-| 新しいeffects_v2 | JSON対応 | palette・scene.actionsともに対応。action / parametersを保持 |
+| 新しいeffects_v2 | 対応 | palette.effectsは型あり、scene.actionsはJSON。action / parametersを保持 |
 | シーン内の遷移時間 | JSON対応 | actions[].action.dynamics.duration（ミリ秒）。省略時は読取値を保持 |
 | シーンの空間マッピング | 未対応 | mapping.algorithm。SpatialAware対応機種向け |
 | アプリ固有の付加情報 | 未対応 | scene / smart_sceneのmetadata.appdata。省略更新時の保持を要確認 |

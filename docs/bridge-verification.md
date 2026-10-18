@@ -173,7 +173,7 @@ scene の `actions` は `target.rid` を map のキーにします。
 ケルビンで書く場合は `provider::hue::mirek_from_kelvin` で mirek に変換します。API にない属性は省略し、false と 0 は省略しません。
 色温度が null の場合は `mirek` を省略します。
 シーン画像は管理対象外です。`metadata.image` は送信せず、既存画像には触れません。既存の設定に `image_id` がある場合は削除してください。
-`palette` は省略すると実機の値を維持します。配色を管理する場合は `jsonencode` で明示します。
+`palette` は省略すると実機の値を維持します。配色を管理する場合は `palette = { color = [...] }` のように明示します。
 
 scene の所属 group は既存の UUID を直接指定できます。
 その room / zone を同時に Terraform 管理対象にする必要はありません。

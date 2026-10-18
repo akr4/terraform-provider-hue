@@ -31,7 +31,7 @@ type sceneModel struct {
 	Actions     types.Map     `tfsdk:"actions"`
 	Speed       types.Float64 `tfsdk:"speed"`
 	AutoDynamic types.Bool    `tfsdk:"auto_dynamic"`
-	Palette     types.String  `tfsdk:"palette"`
+	Palette     types.Object  `tfsdk:"palette"`
 }
 type actionModel struct {
 	Gradient   types.String  `tfsdk:"gradient"`
@@ -61,6 +61,24 @@ func readXY(v types.Object) (hue.XY, bool) {
 	y, yok := v.Attributes()["y"].(types.Float64)
 	return hue.XY{X: x.ValueFloat64(), Y: y.ValueFloat64()}, xok && yok && known(x) && known(y)
 }
+
+// The API's value ranges, which scene actions and palette share, and the
+// messages for values outside them.
+func validXY(p hue.XY) bool {
+	return p.X >= 0 && p.Y >= 0 && p.X <= 1 && p.Y <= 1 && p.X+p.Y <= 1+1e-12 && !math.IsNaN(p.X) && !math.IsNaN(p.Y)
+}
+func validBrightness(v float64) bool { return v >= 0 && v <= 100 }
+func validMirek(v int64) bool        { return v >= colors.MinMirek && v <= colors.MaxMirek }
+
+var (
+	xyRange         = "color_xy must have x >= 0, y >= 0 and x + y <= 1."
+	brightnessRange = "brightness must be between 0 and 100."
+	mirekRange      = fmt.Sprintf("mirek must be between %d and %d.", colors.MinMirek, colors.MaxMirek)
+)
+
+func xyAttributes() map[string]schema.Attribute {
+	return map[string]schema.Attribute{"x": schema.Float64Attribute{Required: true}, "y": schema.Float64Attribute{Required: true}}
+}
 func emptyAction() actionModel {
 	return actionModel{Gradient: types.StringNull(), Effects: types.StringNull(), EffectsV2: types.StringNull(), Dynamics: types.StringNull(), On: types.BoolNull(), Brightness: types.Float64Null(), Mirek: types.Int64Null(), Kelvin: types.Int64Null(), XY: types.ObjectNull(xyTypes)}
 }
@@ -82,7 +100,7 @@ func (r *sceneResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 		"group":        schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}, Description: "Room or zone UUID. Changes replace the scene."},
 		"speed":        schema.Float64Attribute{Optional: true, Computed: true, Description: "Dynamic scene speed from 0 to 1."},
 		"auto_dynamic": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false), Description: "Enable dynamic playback. Defaults to false."},
-		"palette":      schema.StringAttribute{Optional: true, Computed: true, Description: "Scene palette as a JSON object; use jsonencode. Independent of actions. Preserved on the bridge when omitted. Specify empty palette arrays to clear it."},
+		"palette":      paletteAttribute(),
 		"actions": schema.MapNestedAttribute{Required: true, Description: "Actions keyed by light UUID.", NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
 			"gradient":   schema.StringAttribute{Optional: true, Computed: true, Description: "Gradient action as a JSON object; use jsonencode. Preserved from the bridge when omitted."},
 			"effects":    schema.StringAttribute{Optional: true, Computed: true, Description: "Effect action as a JSON object; use jsonencode. Preserved from the bridge when omitted."},
@@ -92,7 +110,7 @@ func (r *sceneResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 			"brightness": schema.Float64Attribute{Optional: true, Description: "Brightness from 0 to 100, rounded to two decimal places."},
 			"mirek":      schema.Int64Attribute{Optional: true, Description: "Color temperature, 50–1000 mirek. Individual lights may support a narrower range. Use provider::hue::mirek_from_kelvin for kelvin."},
 			"kelvin":     schema.Int64Attribute{Optional: true, Description: "Removed in 0.2.0, and an error when set. Use mirek instead; provider::hue::mirek_from_kelvin converts kelvin.", DeprecationMessage: kelvinRemoved + " Use mirek instead."},
-			"color_xy":   schema.SingleNestedAttribute{Optional: true, Description: "CIE xy chromaticity, rounded to four decimal places. Brightness is configured separately.", Attributes: map[string]schema.Attribute{"x": schema.Float64Attribute{Required: true}, "y": schema.Float64Attribute{Required: true}}},
+			"color_xy":   schema.SingleNestedAttribute{Optional: true, Description: "CIE xy chromaticity, rounded to four decimal places. Brightness is configured separately.", Attributes: xyAttributes()},
 		}}},
 	}}
 }
@@ -121,11 +139,7 @@ func (r *sceneResource) ValidateConfig(ctx context.Context, req resource.Validat
 	if known(m.Speed) && (m.Speed.ValueFloat64() < 0 || m.Speed.ValueFloat64() > 1) {
 		resp.Diagnostics.AddAttributeError(path.Root("speed"), "Invalid speed", "speed must be between 0 and 1.")
 	}
-	if known(m.Palette) {
-		if err := hue.ValidateConfiguration([]byte(m.Palette.ValueString())); err != nil {
-			resp.Diagnostics.AddAttributeError(path.Root("palette"), "Invalid palette", err.Error())
-		}
-	}
+	resp.Diagnostics.Append(validatePalette(ctx, m.Palette)...)
 	// Individual map values may be unknown while referenced resources are planned.
 	if !known(m.Actions) {
 		return
@@ -198,14 +212,14 @@ func validateAction(a actionModel) []string {
 	if !a.XY.IsNull() && !a.Mirek.IsNull() {
 		errs = append(errs, "color_xy cannot be combined with mirek. A light shows either a color or a color temperature.")
 	}
-	if known(a.Mirek) && (a.Mirek.ValueInt64() < colors.MinMirek || a.Mirek.ValueInt64() > colors.MaxMirek) {
-		errs = append(errs, "mirek must be between 50 and 1000.")
+	if known(a.Mirek) && !validMirek(a.Mirek.ValueInt64()) {
+		errs = append(errs, mirekRange)
 	}
-	if known(a.Brightness) && (a.Brightness.ValueFloat64() < 0 || a.Brightness.ValueFloat64() > 100) {
-		errs = append(errs, "brightness must be between 0 and 100.")
+	if known(a.Brightness) && !validBrightness(a.Brightness.ValueFloat64()) {
+		errs = append(errs, brightnessRange)
 	}
-	if p, ok := readXY(a.XY); ok && (p.X < 0 || p.Y < 0 || p.X > 1 || p.Y > 1 || p.X+p.Y > 1+1e-12 || math.IsNaN(p.X) || math.IsNaN(p.Y)) {
-		errs = append(errs, "color_xy must have x >= 0, y >= 0 and x + y <= 1.")
+	if p, ok := readXY(a.XY); ok && !validXY(p) {
+		errs = append(errs, xyRange)
 	}
 	return errs
 }
@@ -232,10 +246,7 @@ func (r *sceneResource) body(ctx context.Context, m sceneModel, config sceneMode
 		scene.AutoDynamic = &v
 	}
 	if known(config.Palette) {
-		if err := hue.ValidateConfiguration([]byte(m.Palette.ValueString())); err != nil {
-			return scene, fmt.Errorf("invalid palette: %w", err)
-		}
-		palette, err := roundPaletteBrightness([]byte(m.Palette.ValueString()))
+		palette, err := paletteJSON(ctx, m.Palette)
 		if err != nil {
 			return scene, fmt.Errorf("invalid palette: %w", err)
 		}
@@ -364,11 +375,9 @@ func (r *sceneResource) refresh(ctx context.Context, m *sceneModel) error {
 	if scene.AutoDynamic != nil {
 		m.AutoDynamic = types.BoolValue(*scene.AutoDynamic)
 	}
-	palette, err := reconcilePalette(m.Palette, scene.Palette)
-	if err != nil {
+	if m.Palette, err = reconcilePalette(ctx, m.Palette, scene.Palette); err != nil {
 		return err
 	}
-	m.Palette = palette
 	m.Actions, d = types.MapValueFrom(ctx, actionType, actions)
 	if d.HasError() {
 		return fmt.Errorf("encode actions: %v", d)
@@ -487,8 +496,6 @@ func (r *sceneResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 		}
 		if config.Palette.IsNull() {
 			planned.Palette = prior.Palette
-		} else if known(config.Palette) && known(prior.Palette) && palettesEqual([]byte(config.Palette.ValueString()), []byte(prior.Palette.ValueString())) {
-			planned.Palette = config.Palette
 		}
 	}
 	if known(config.Actions) && known(planned.Actions) {
