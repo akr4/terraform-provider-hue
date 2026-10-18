@@ -3,6 +3,7 @@ package migrate
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -75,11 +76,10 @@ func hunkRange(start, n int) string {
 }
 
 func lines(data []byte) []string {
-	s := strings.TrimSuffix(string(data), "\n")
-	if s == "" {
+	if len(data) == 0 {
 		return nil
 	}
-	return strings.Split(s, "\n")
+	return strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
 }
 
 type op struct {
@@ -87,8 +87,11 @@ type op struct {
 	text string
 }
 
-// diffLines returns the longest common subsequence of a and b as ops, with
-// removed lines before added ones.
+// diffLines returns ops that turn a into b, with removed lines before added
+// ones. Lines that appear once in each, such as the names of scenes, split
+// long files into short parts first, as patience diff does, and each part is
+// matched by its longest common subsequence. A file with many changes then
+// needs little memory.
 func diffLines(a, b []string) []op {
 	p := 0
 	for p < len(a) && p < len(b) && a[p] == b[p] {
@@ -98,52 +101,125 @@ func diffLines(a, b []string) []op {
 	for s < len(a)-p && s < len(b)-p && a[len(a)-1-s] == b[len(b)-1-s] {
 		s++
 	}
-	am, bm := a[p:len(a)-s], b[p:len(b)-s]
 	ops := make([]op, 0, len(a)+len(b))
 	for _, l := range a[:p] {
 		ops = append(ops, op{' ', l})
 	}
-	n, m := len(am), len(bm)
-	// Past this size, the changed lines are listed whole rather than matched.
-	if n*m > 1<<24 {
-		for _, l := range am {
-			ops = append(ops, op{'-', l})
+	am, bm := a[p:len(a)-s], b[p:len(b)-s]
+	var anchors []anchor
+	if len(am)*len(bm) > 1<<16 {
+		anchors = uniqueCommon(am, bm)
+	}
+	if len(anchors) > 0 {
+		i, j := 0, 0
+		for _, an := range anchors {
+			ops = append(ops, diffLines(am[i:an.i], bm[j:an.j])...)
+			ops = append(ops, op{' ', am[an.i]})
+			i, j = an.i+1, an.j+1
 		}
-		for _, l := range bm {
-			ops = append(ops, op{'+', l})
-		}
+		ops = append(ops, diffLines(am[i:], bm[j:])...)
 	} else {
-		// lcs[i][j] is the length of the common subsequence of am[i:] and bm[j:].
-		lcs := make([][]int32, n+1)
-		for i := range lcs {
-			lcs[i] = make([]int32, m+1)
-		}
-		for i := n - 1; i >= 0; i-- {
-			for j := m - 1; j >= 0; j-- {
-				if am[i] == bm[j] {
-					lcs[i][j] = lcs[i+1][j+1] + 1
-				} else {
-					lcs[i][j] = max(lcs[i+1][j], lcs[i][j+1])
-				}
-			}
-		}
-		for i, j := 0, 0; i < n || j < m; {
-			switch {
-			case i < n && j < m && am[i] == bm[j]:
-				ops = append(ops, op{' ', am[i]})
-				i++
-				j++
-			case i < n && (j == m || lcs[i+1][j] >= lcs[i][j+1]):
-				ops = append(ops, op{'-', am[i]})
-				i++
-			default:
-				ops = append(ops, op{'+', bm[j]})
-				j++
-			}
-		}
+		ops = append(ops, common(am, bm)...)
 	}
 	for _, l := range a[len(a)-s:] {
 		ops = append(ops, op{' ', l})
+	}
+	return ops
+}
+
+type anchor struct{ i, j int }
+
+// uniqueCommon returns the lines that appear once in a and once in b, at
+// their positions, where they keep their order in both.
+func uniqueCommon(a, b []string) []anchor {
+	type seen struct{ inA, inB, j int }
+	lines := map[string]*seen{}
+	for _, l := range a {
+		if lines[l] == nil {
+			lines[l] = &seen{}
+		}
+		lines[l].inA++
+	}
+	for j, l := range b {
+		if x := lines[l]; x != nil {
+			x.inB++
+			x.j = j
+		}
+	}
+	var pairs []anchor
+	for i, l := range a {
+		if x := lines[l]; x.inA == 1 && x.inB == 1 {
+			pairs = append(pairs, anchor{i, x.j})
+		}
+	}
+	// The longest run of pairs whose j increase, by patience sorting.
+	var tails []int
+	prev := make([]int, len(pairs))
+	for x, p := range pairs {
+		k := sort.Search(len(tails), func(k int) bool { return pairs[tails[k]].j >= p.j })
+		prev[x] = -1
+		if k > 0 {
+			prev[x] = tails[k-1]
+		}
+		if k == len(tails) {
+			tails = append(tails, x)
+		} else {
+			tails[k] = x
+		}
+	}
+	if len(tails) == 0 {
+		return nil
+	}
+	out := make([]anchor, len(tails))
+	x := tails[len(tails)-1]
+	for k := len(tails) - 1; k >= 0; k-- {
+		out[k] = pairs[x]
+		x = prev[x]
+	}
+	return out
+}
+
+// common returns ops for the longest common subsequence of a and b. Past a
+// size, the lines are listed as removed and added.
+func common(a, b []string) []op {
+	n, m := len(a), len(b)
+	var ops []op
+	if n*m > 1<<22 {
+		for _, l := range a {
+			ops = append(ops, op{'-', l})
+		}
+		for _, l := range b {
+			ops = append(ops, op{'+', l})
+		}
+		return ops
+	}
+	// lcs[i][j] is the length of the common subsequence of a[i:] and b[j:].
+	lcs := make([][]int32, n+1)
+	for i := range lcs {
+		lcs[i] = make([]int32, m+1)
+	}
+	for i := n - 1; i >= 0; i-- {
+		for j := m - 1; j >= 0; j-- {
+			if a[i] == b[j] {
+				lcs[i][j] = lcs[i+1][j+1] + 1
+			} else {
+				lcs[i][j] = max(lcs[i+1][j], lcs[i][j+1])
+			}
+		}
+	}
+	for i, j := 0, 0; i < n || j < m; {
+		switch {
+		case i < n && j < m && a[i] == b[j]:
+			ops = append(ops, op{' ', a[i]})
+			i++
+			j++
+		case i < n && (j == m || lcs[i+1][j] >= lcs[i][j+1]):
+			ops = append(ops, op{'-', a[i]})
+			i++
+		default:
+			ops = append(ops, op{'+', b[j]})
+			j++
+		}
 	}
 	return ops
 }

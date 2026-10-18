@@ -88,7 +88,16 @@ func TestDiffApplies(t *testing.T) {
 	words := []string{"a", "b", "c", "d", "}", "{", ""}
 	for n := 0; n < 500; n++ {
 		var before []string
-		for i := random.Intn(40); i > 0; i-- {
+		// Long files are split at their unique lines first.
+		length := random.Intn(40)
+		if n%10 == 0 {
+			length = 300 + random.Intn(600)
+		}
+		for i := length; i > 0; i-- {
+			if random.Intn(5) == 0 {
+				before = append(before, fmt.Sprintf("line %d", random.Intn(1000)))
+				continue
+			}
 			before = append(before, words[random.Intn(len(words))])
 		}
 		after := append([]string(nil), before...)
@@ -123,5 +132,33 @@ func TestDiffApplies(t *testing.T) {
 		if got := patch(t, before, diff); strings.Join(got, "\n") != strings.Join(after, "\n") {
 			t.Fatalf("diff from %q to %q:\n%s\napplies as %q", before, after, diff, got)
 		}
+	}
+}
+
+// Configuration that Terraform generated for 0.1 writes an empty palette in
+// every scene, and migrate removes each. The diff has a hunk for each scene,
+// and only the removed lines.
+func TestDiffLarge(t *testing.T) {
+	var before, after []string
+	for i := 0; i < 2000; i++ {
+		scene := []string{fmt.Sprintf(`resource "hue_scene" "s%d" {`, i), "  actions = {"}
+		for light := 0; light < 6; light++ {
+			scene = append(scene, "    (local.light) = { on = true }")
+		}
+		scene = append(scene, "  }")
+		palette := []string{"  palette = jsonencode({", "    color = []", "  })"}
+		before = append(append(append(before, scene...), palette...), "}")
+		after = append(append(after, scene...), "}")
+	}
+	join := func(l []string) []byte { return []byte(strings.Join(l, "\n") + "\n") }
+	diff := Diff("main.tf", join(before), join(after))
+	if got := strings.Count(diff, "\n-"); got != 2000*3 {
+		t.Errorf("%d lines removed", got)
+	}
+	if strings.Contains(diff, "\n+ ") || strings.Count(diff, "@@ -") != 2000 {
+		t.Errorf("diff is not minimal: %d hunks", strings.Count(diff, "@@ -"))
+	}
+	if got := patch(t, before, diff); strings.Join(got, "\n") != strings.Join(after, "\n") {
+		t.Fatal("the diff does not apply")
 	}
 }

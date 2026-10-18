@@ -8,9 +8,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/akr4/terraform-provider-hue/internal/migrate"
+	"github.com/akr4/terraform-provider-hue/internal/pull"
 )
 
 const migrateUsage = "usage: hue-tf migrate [DIR ...] [--write]"
@@ -18,10 +20,10 @@ const migrateUsage = "usage: hue-tf migrate [DIR ...] [--write]"
 // migrateCommand rewrites configurations for provider 0.1 into the forms that
 // provider 0.2.0 takes. It reads the .tf files in each directory, without
 // subdirectories, and prints the changes as a diff. With --write, it writes
-// them. It changes no file when one cannot be read.
+// them. It changes no file when one cannot be parsed.
 func migrateCommand(args []string, out io.Writer) error {
 	write := false
-	var dirs []string
+	var named []string
 	for _, arg := range args {
 		switch {
 		case arg == "--write":
@@ -29,28 +31,43 @@ func migrateCommand(args []string, out io.Writer) error {
 		case strings.HasPrefix(arg, "-"):
 			return errors.New(migrateUsage)
 		default:
-			dirs = append(dirs, arg)
+			named = append(named, arg)
 		}
 	}
-	if len(dirs) == 0 {
-		dirs = []string{"."}
+	if len(named) == 0 {
+		named = []string{"."}
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return err
 	}
+	// show names a path from the working directory where it is under it.
+	show := func(path string) string {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return path
+		}
+		if rel, err := filepath.Rel(cwd, abs); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return rel
+		}
+		return abs
+	}
+	// A directory named twice is read once.
+	var dirs []string
 	given := map[string]bool{}
-	for _, dir := range dirs {
+	for _, dir := range named {
 		abs, err := filepath.Abs(dir)
 		if err != nil {
 			return err
 		}
-		given[abs] = true
+		if !given[abs] {
+			given[abs] = true
+			dirs = append(dirs, dir)
+		}
 	}
 	type change struct {
 		path          string
 		before, after []byte
-		mode          fs.FileMode
 	}
 	var changes []change
 	var left, check, other []string
@@ -64,14 +81,26 @@ func migrateCommand(args []string, out io.Writer) error {
 			if entry.IsDir() || !(strings.HasSuffix(name, ".tf") || strings.HasSuffix(name, ".tf.json")) {
 				continue
 			}
-			path := filepath.Join(dir, name)
-			// Paths are shown from the working directory where they are under it.
-			if abs, err := filepath.Abs(path); err == nil {
-				if rel, err := filepath.Rel(cwd, abs); err == nil && !strings.HasPrefix(rel, "..") {
-					path = rel
-				} else {
-					path = abs
+			path := show(filepath.Join(dir, name))
+			if entry.Type()&fs.ModeSymlink != 0 {
+				target, err := filepath.EvalSymlinks(path)
+				if err != nil {
+					return err
 				}
+				abs, err := filepath.Abs(filepath.Dir(target))
+				if err != nil {
+					return err
+				}
+				if given[abs] {
+					check = append(check, fmt.Sprintf("%s is a symbolic link to %s, which migrate reads instead.", path, show(target)))
+				} else {
+					left = append(left, fmt.Sprintf("%s is a symbolic link, which migrate does not rewrite. Run hue-tf migrate %s, where it points.", path, shellWord(show(filepath.Dir(target)))))
+				}
+				continue
+			}
+			if !entry.Type().IsRegular() {
+				left = append(left, path+" is not a regular file, which migrate does not rewrite.")
+				continue
 			}
 			src, err := os.ReadFile(path)
 			if err != nil {
@@ -100,14 +129,10 @@ func migrateCommand(args []string, out io.Writer) error {
 				if err != nil || given[abs] || !hasScene(dir) {
 					continue
 				}
-				other = append(other, fmt.Sprintf("%s:%d: module.%s uses %s, which has hue_scene resources. Run hue-tf migrate %s as well.", path, m.Range.Start.Line, m.Name, m.Source, dir))
+				other = append(other, fmt.Sprintf("%s:%d: module.%s uses %s, which has hue_scene resources. Run hue-tf migrate %s as well.", path, m.Range.Start.Line, m.Name, m.Source, shellWord(show(dir))))
 			}
 			if !bytes.Equal(src, r.Output) {
-				info, err := entry.Info()
-				if err != nil {
-					return err
-				}
-				changes = append(changes, change{path, src, r.Output, info.Mode().Perm()})
+				changes = append(changes, change{path, src, r.Output})
 			}
 		}
 	}
@@ -138,11 +163,17 @@ func migrateCommand(args []string, out io.Writer) error {
 	case len(changes) == 0:
 		fmt.Fprintln(out, "\nNothing to rewrite.")
 	case !write:
-		fmt.Fprintf(out, "\nPreview only. Run hue-tf migrate --write to rewrite %s. Neither the bridge nor the state is changed.\n", files)
+		command := "hue-tf migrate --write"
+		if !(len(dirs) == 1 && dirs[0] == ".") {
+			for _, dir := range dirs {
+				command += " " + shellWord(dir)
+			}
+		}
+		fmt.Fprintf(out, "\nPreview only. Run %s to rewrite %s. Neither the bridge nor the state is changed.\n", command, files)
 	default:
 		for i, c := range changes {
-			if err := writeFile(c.path, c.after, c.mode); err != nil {
-				return fmt.Errorf("%w\n%d of %s were rewritten", err, i, files)
+			if err := pull.ReplaceFile(c.path, c.before, c.after, ".hue-tf-migrate-*"); err != nil {
+				return fmt.Errorf("%s: %w\n%d of %s were rewritten", c.path, err, i, files)
 			}
 		}
 		fmt.Fprintf(out, "\nRewrote %s. Run terraform plan: the rewritten scenes should show no changes.\n", files)
@@ -150,35 +181,30 @@ func migrateCommand(args []string, out io.Writer) error {
 	return nil
 }
 
-// hasScene reports whether a directory has a .tf file with a hue_scene.
+// hasScene reports whether a directory has configuration with a hue_scene.
 func hasScene(dir string) bool {
-	files, _ := filepath.Glob(filepath.Join(dir, "*.tf"))
-	for _, f := range files {
-		if src, err := os.ReadFile(f); err == nil && bytes.Contains(src, []byte("hue_scene")) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !(strings.HasSuffix(name, ".tf") || strings.HasSuffix(name, ".tf.json")) {
+			continue
+		}
+		if src, err := os.ReadFile(filepath.Join(dir, name)); err == nil && bytes.Contains(src, []byte("hue_scene")) {
 			return true
 		}
 	}
 	return false
 }
 
-// writeFile replaces a file in one step, so that it is never left half
-// written.
-func writeFile(path string, data []byte, mode fs.FileMode) error {
-	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
-	if err != nil {
-		return err
+var plainWord = regexp.MustCompile(`^[A-Za-z0-9_./-]+$`)
+
+// shellWord quotes a path for a command that the user may copy.
+func shellWord(s string) string {
+	if plainWord.MatchString(s) {
+		return s
 	}
-	defer os.Remove(f.Name())
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Chmod(mode); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(f.Name(), path)
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

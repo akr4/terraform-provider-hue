@@ -50,7 +50,8 @@ kelvin was removed in 0.2.0. Write mirek = provider::hue::mirek_from_kelvin(2700
 3. Run `hue-tf migrate` in each directory that has `hue_scene` resources, or
    name the directories: `hue-tf migrate . modules/room`. It prints the changes
    as a diff and changes no file.
-4. Run `hue-tf migrate --write` to rewrite the files.
+4. Run the command that it prints at the end, such as
+   `hue-tf migrate --write . modules/room`, to rewrite the files.
 5. Rewrite by hand what it lists under "Not rewritten", and look at what it
    lists under "Rewritten. Check these".
 6. Run `terraform plan`. The rewritten scenes show no changes.
@@ -72,8 +73,10 @@ kelvin was removed in 0.2.0. Write mirek = provider::hue::mirek_from_kelvin(2700
   keeps a palette made in the Hue app. Write `palette = {}` to keep it empty.
 - Lists without entries are left out, since they are sent empty.
 
-A file that `terraform fmt` leaves as it is stays formatted. Comments inside a
-rewritten value are not kept, and migrate says so.
+A file that `terraform fmt` leaves as it is stays formatted, and a file with
+CRLF line endings keeps them. Comments inside a rewritten value, or on a line
+that migrate removes, are not kept, and migrate says so. It replaces each file
+in one step, and stops when a file changed after it was read.
 
 ## What migrate leaves
 
@@ -83,7 +86,9 @@ changes no file when one cannot be parsed. It lists, without rewriting:
 
 - values that come from variables, locals or other expressions,
 - JSON in a string, and files in the JSON syntax,
-- palettes with entries in the deprecated `effects` list.
+- palettes with entries in the deprecated `effects` list,
+- symbolic links. It names the directory that a link points to, and reads the
+  file there when that directory is named too.
 
 It also points at local modules that have `hue_scene` resources. Run it in
 those directories too. Modules from a registry are not read.

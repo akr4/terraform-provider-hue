@@ -109,7 +109,7 @@ func TestMigrate(t *testing.T) {
 	if info, err := os.Stat("main.tf"); err != nil || info.Mode().Perm() != 0o640 {
 		t.Fatalf("main.tf has mode %v, %v", info.Mode(), err)
 	}
-	if left, _ := filepath.Glob(".main.tf.*"); len(left) != 0 {
+	if left, _ := filepath.Glob(".hue-tf-migrate-*"); len(left) != 0 {
 		t.Fatalf("left %v", left)
 	}
 	// The module named on the command line is migrated, and not pointed out.
@@ -143,5 +143,75 @@ func TestMigrateUsage(t *testing.T) {
 	}
 	if out, err := runMigrate(t); err != nil || out != "\nNothing to rewrite.\n" {
 		t.Fatalf("%v\n%q", err, out)
+	}
+}
+
+// A directory named twice, as . and ./, is read once, and the command that
+// the preview suggests names the directories again.
+func TestMigrateDirectories(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeFiles(t, map[string]string{"main.tf": migrateBefore, "my scenes/main.tf": migrateBefore, "..scenes/main.tf": migrateBefore})
+	out, err := runMigrate(t, ".", "./")
+	if err != nil || strings.Count(out, "--- a/main.tf") != 1 || !strings.Contains(out, "Run hue-tf migrate --write to rewrite 1 file.") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	out, err = runMigrate(t, "my scenes", "..scenes")
+	if err != nil || !strings.Contains(out, "Run hue-tf migrate --write 'my scenes' ..scenes to rewrite 2 files.") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	// A directory whose name starts with .. is under the working directory.
+	if !strings.Contains(out, "--- a/..scenes/main.tf") {
+		t.Fatalf("..scenes is shown by another path:\n%s", out)
+	}
+}
+
+// A symbolic link is not replaced by a file. migrate points at where it
+// points, and reads the file there when that directory is named too.
+func TestMigrateSymlink(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeFiles(t, map[string]string{"shared/scenes.tf": migrateBefore, "root/other.tf": "\n"})
+	if err := os.Symlink("../shared/scenes.tf", "root/scenes.tf"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runMigrate(t, "--write", "root")
+	if err != nil || !strings.Contains(out, "root/scenes.tf is a symbolic link, which migrate does not rewrite. Run hue-tf migrate shared, where it points.") || !strings.HasSuffix(out, "Nothing to rewrite.\n") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if info, err := os.Lstat("root/scenes.tf"); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("root/scenes.tf is no longer a link: %v, %v", info.Mode(), err)
+	}
+	if got, _ := os.ReadFile("shared/scenes.tf"); string(got) != migrateBefore {
+		t.Fatal("shared/scenes.tf was changed")
+	}
+	out, err = runMigrate(t, "--write", "root", "shared")
+	if err != nil || !strings.Contains(out, "root/scenes.tf is a symbolic link to shared/scenes.tf, which migrate reads instead.") || !strings.Contains(out, "Rewrote 1 file.") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if got, _ := os.ReadFile("shared/scenes.tf"); string(got) != migrateAfter {
+		t.Fatalf("shared/scenes.tf is\n%s", got)
+	}
+}
+
+// Modules are found in directories with any name, and with scenes in either
+// syntax.
+func TestMigrateModuleHints(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeFiles(t, map[string]string{
+		"main.tf":                  "module \"a\" {\n  source = \"./modules/[a]\"\n}\nmodule \"b\" {\n  source = \"./modules/b\"\n}\nmodule \"c\" {\n  source = \"./modules/c\"\n}\n",
+		"modules/[a]/scenes.tf":    "resource \"hue_scene\" \"a\" {\n  actions = {}\n}\n",
+		"modules/b/scenes.tf.json": `{"resource":{"hue_scene":{"b":{}}}}`,
+		"modules/c/rooms.tf":       "resource \"hue_room\" \"c\" {\n}\n",
+	})
+	out, err := runMigrate(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"module.a uses ./modules/[a], which has hue_scene resources. Run hue-tf migrate 'modules/[a]' as well.", "module.b uses ./modules/b"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "module.c") {
+		t.Errorf("pointed at a module without scenes:\n%s", out)
 	}
 }

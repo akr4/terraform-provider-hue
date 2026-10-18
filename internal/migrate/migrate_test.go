@@ -331,6 +331,28 @@ func TestRewrites(t *testing.T) {
   }
 `), []string{"Comments inside effects_v2 were not kept."},
 		},
+		"comment on a removed line": {
+			scene(`  actions = {
+    "a" = {
+      kelvin = null # generated
+      mirek  = 370
+    }
+    "b" = {
+      mirek  = 370 # warm
+      kelvin = null
+    }
+  }
+`),
+			scene(`  actions = {
+    "a" = {
+      mirek = 370
+    }
+    "b" = {
+      mirek = 370 # warm
+    }
+  }
+`), []string{"A comment on the removed kelvin was not kept."},
+		},
 		"other resources": {
 			`resource "other_light" "l" {
   kelvin  = 2700
@@ -416,5 +438,17 @@ module "registry" {
 func TestParseError(t *testing.T) {
 	if _, err := File("main.tf", []byte("resource \"hue_scene\" \"s\" {\n")); err == nil {
 		t.Fatal("parsed a broken file")
+	}
+}
+
+// A file with CRLF line endings keeps them in what migrate writes.
+func TestCRLF(t *testing.T) {
+	in := strings.ReplaceAll(generated, "\n", "\r\n")
+	r, err := File("main.tf", []byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(r.Output); got != strings.ReplaceAll(generatedMigrated, "\n", "\r\n") {
+		t.Errorf("got %q", got)
 	}
 }

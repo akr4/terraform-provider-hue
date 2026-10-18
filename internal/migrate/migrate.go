@@ -52,7 +52,7 @@ func File(filename string, src []byte) (Result, error) {
 	if diags.HasErrors() {
 		return Result{}, diags
 	}
-	r := rewriter{src: src, seen: map[string]bool{}}
+	r := rewriter{filename: filename, src: src, seen: map[string]bool{}, crlf: bytes.Contains(src, []byte("\r\n"))}
 	var modules []Module
 	for _, block := range file.Body.(*hclsyntax.Body).Blocks {
 		switch {
@@ -86,11 +86,15 @@ type edit struct {
 }
 
 type rewriter struct {
-	src   []byte
-	edits []edit
-	notes []Note
+	filename string
+	src      []byte
+	edits    []edit
+	notes    []Note
 	// seen avoids repeating a note about the same expression.
 	seen map[string]bool
+	// crlf is true for a file whose lines end with CRLF. The text that
+	// migrate writes takes the same line endings.
+	crlf bool
 }
 
 func (r *rewriter) text(e hclsyntax.Expression) string {
@@ -150,7 +154,11 @@ func (r *rewriter) apply() ([]byte, error) {
 			return nil, errors.New("migrate: overlapping edits")
 		}
 		out.Write(r.src[at:e.start])
-		out.WriteString(e.text)
+		text := strings.ReplaceAll(e.text, "\r\n", "\n")
+		if r.crlf {
+			text = strings.ReplaceAll(text, "\n", "\r\n")
+		}
+		out.WriteString(text)
 		at = e.end
 	}
 	out.Write(r.src[at:])
@@ -202,35 +210,48 @@ func (r *rewriter) palette(address string, a *hclsyntax.Attribute) {
 		return
 	}
 	if n == nil {
-		r.removeAttribute(a)
+		r.removeAttribute(address, a)
 		r.note(address, a.SrcRange, false, "palette had no entries, so migrate removed it. Terraform now leaves the palette to the bridge, and keeps a palette made in the Hue app. Write palette = {} to keep it empty.")
 		return
 	}
-	r.commentsLost(address, a.Expr.Range(), "palette")
+	r.commentsLost(address, a.Expr.Range().Start.Byte, a.Expr.Range().End.Byte, "Comments inside palette were not kept.")
 	r.replace(a.Expr.Range(), n.render(r.indent(a.SrcRange.Start.Byte)))
 }
 
 // removeAttribute removes the lines that hold an attribute.
-func (r *rewriter) removeAttribute(a *hclsyntax.Attribute) {
-	start := bytes.LastIndexByte(r.src[:a.SrcRange.Start.Byte], '\n') + 1
-	end := a.SrcRange.End.Byte
-	if i := bytes.IndexByte(r.src[end:], '\n'); i >= 0 {
-		end += i + 1
-	} else {
-		end = len(r.src)
-	}
+func (r *rewriter) removeAttribute(address string, a *hclsyntax.Attribute) {
+	start, end := r.lines(a.SrcRange.Start.Byte, a.SrcRange.End.Byte)
+	r.commentsLost(address, start, end, "Comments in the removed palette were not kept.")
 	r.edits = append(r.edits, edit{start, end, ""})
 }
 
-// commentsLost notes comments inside a value that migrate rebuilt.
-func (r *rewriter) commentsLost(address string, rng hcl.Range, name string) {
-	tokens, _ := hclsyntax.LexExpression(r.src[rng.Start.Byte:rng.End.Byte], rng.Filename, rng.Start)
+// lines widens the bytes from start to end to the lines that hold them,
+// with the line break at the end.
+func (r *rewriter) lines(start, end int) (int, int) {
+	start = bytes.LastIndexByte(r.src[:start], '\n') + 1
+	if i := bytes.IndexByte(r.src[end:], '\n'); i >= 0 {
+		return start, end + i + 1
+	}
+	return start, len(r.src)
+}
+
+// commentsLost notes comments in the bytes from start to end, which migrate
+// rebuilt or removed.
+func (r *rewriter) commentsLost(address string, start, end int, text string) {
+	tokens, _ := hclsyntax.LexConfig(r.src[start:end], "", hcl.InitialPos)
 	for _, t := range tokens {
 		if t.Type == hclsyntax.TokenComment {
-			r.note(address, t.Range, false, fmt.Sprintf("Comments inside %s were not kept.", name))
+			r.note(address, r.rangeAt(start+t.Range.Start.Byte), false, text)
 			return
 		}
 	}
+}
+
+// rangeAt returns the position of a byte offset in the file.
+func (r *rewriter) rangeAt(offset int) hcl.Range {
+	line := 1 + bytes.Count(r.src[:offset], []byte("\n"))
+	pos := hcl.Pos{Line: line, Column: offset - bytes.LastIndexByte(r.src[:offset], '\n'), Byte: offset}
+	return hcl.Range{Filename: r.filename, Start: pos, End: pos}
 }
 
 // actions walks the expression of actions, a map from light IDs to actions.
@@ -348,21 +369,29 @@ func (r *rewriter) actionObject(address string, o *hclsyntax.ObjectConsExpr) {
 			continue
 		}
 		if name != "dynamics" {
-			r.commentsLost(address, value.Range(), name)
+			r.commentsLost(address, value.Range().Start.Byte, value.Range().End.Byte, fmt.Sprintf("Comments inside %s were not kept.", name))
 		}
 		r.replace(value.Range(), n.render(r.indent(value.Range().Start.Byte)))
 	}
 }
 
-// removeItem removes an item from an object, with the comma or the line
-// break that separates it from the next item, or from the one before.
-func (r *rewriter) removeItem(o *hclsyntax.ObjectConsExpr, i int) {
+// removeItem removes an item from an object. An item on lines of its own goes
+// with them. Otherwise it goes with the comma or the line break that
+// separates it from the next item, or from the one before.
+func (r *rewriter) removeItem(address string, o *hclsyntax.ObjectConsExpr, i int) {
 	start, end := o.Items[i].KeyExpr.Range().Start.Byte, o.Items[i].ValueExpr.Range().End.Byte
-	if i+1 < len(o.Items) {
+	lineStart, lineEnd := r.lines(start, end)
+	rest := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(r.src[end:lineEnd])), ","))
+	switch {
+	case strings.TrimSpace(string(r.src[lineStart:start])) == "" && (rest == "" || strings.HasPrefix(rest, "#") || strings.HasPrefix(rest, "//")):
+		start, end = lineStart, lineEnd
+	case i+1 < len(o.Items):
 		end = o.Items[i+1].KeyExpr.Range().Start.Byte
-	} else if i > 0 {
+	case i > 0:
 		start = o.Items[i-1].ValueExpr.Range().End.Byte
 	}
+	name, _ := key(o.Items[i])
+	r.commentsLost(address, start, end, fmt.Sprintf("A comment on the removed %s was not kept.", name))
 	r.edits = append(r.edits, edit{start, end, ""})
 }
 
@@ -375,12 +404,12 @@ func (r *rewriter) kelvin(address string, o *hclsyntax.ObjectConsExpr, items map
 	}
 	item := o.Items[i]
 	if isNull(item.ValueExpr) {
-		r.removeItem(o, i)
+		r.removeItem(address, o, i)
 		return
 	}
 	j, hasMirek := items["mirek"]
 	if hasMirek && !isNull(o.Items[j].ValueExpr) {
-		r.removeItem(o, i)
+		r.removeItem(address, o, i)
 		return
 	}
 	value := r.text(item.ValueExpr)
@@ -400,7 +429,7 @@ func (r *rewriter) kelvin(address string, o *hclsyntax.ObjectConsExpr, items map
 	}
 	// mirek = null, which configuration generated by 0.1 writes, gives way.
 	if hasMirek {
-		r.removeItem(o, j)
+		r.removeItem(address, o, j)
 	}
 	keyStart, valueStart := item.KeyExpr.Range().Start.Byte, item.ValueExpr.Range().Start.Byte
 	separator := string(r.src[item.KeyExpr.Range().End.Byte:valueStart])
