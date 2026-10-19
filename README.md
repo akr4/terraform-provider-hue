@@ -12,11 +12,24 @@ Scene colors can be written in hex, and color temperatures in kelvin:
 ```hcl
 resource "hue_scene" "evening" {
   name  = "Evening"
-  group = hue_room.living.id
+  group = "dddddddd-dddd-4ddd-8ddd-dddddddddddd" # Living room
   actions = {
-    (local.sofa)  = { on = true, brightness = 40, mirek = provider::hue::mirek_from_kelvin(2500) }
-    (local.shelf) = merge(provider::hue::color_from_hex("#ff8800"), { on = true, brightness = 60 })
-    (local.tv)    = merge(provider::hue::color_from_hex("#8a2be2"), { on = true, brightness = 50 })
+    # Sofa lamp
+    "11111111-1111-4111-8111-111111111111" = {
+      on         = true
+      brightness = 40
+      mirek      = provider::hue::mirek_from_kelvin(2500)
+    }
+    # Shelf light
+    "22222222-2222-4222-8222-222222222222" = merge(
+      provider::hue::color_from_hex("#ff8800"),
+      { on = true, brightness = 60 },
+    )
+    # TV backlight
+    "44444444-4444-4444-8444-444444444444" = merge(
+      provider::hue::color_from_hex("#8a2be2"),
+      { on = true, brightness = 50 },
+    )
   }
 }
 ```
