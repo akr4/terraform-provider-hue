@@ -16,6 +16,16 @@ type configFile struct {
 	body hcl.Body
 }
 
+// IsConfigFile reports whether Terraform loads a file of this name in a
+// directory: a native or JSON configuration file, other than the hidden files
+// and the editor backup and swap files that Terraform ignores.
+func IsConfigFile(name string) bool {
+	if !strings.HasSuffix(name, ".tf") && !strings.HasSuffix(name, ".tf.json") {
+		return false
+	}
+	return !strings.HasPrefix(name, ".") && !strings.HasSuffix(name, "~") && !(strings.HasPrefix(name, "#") && strings.HasSuffix(name, "#"))
+}
+
 // configFiles parses a directory's configuration the way Terraform loads it:
 // native and JSON files, with override files after the primary files.
 // import-blocks only reads these files, so no syntax is refused.
@@ -27,11 +37,7 @@ func configFiles(dir string) ([]configFile, error) {
 	var primary, overrides []string
 	for _, e := range entries {
 		n := e.Name()
-		if e.IsDir() || (!strings.HasSuffix(n, ".tf") && !strings.HasSuffix(n, ".tf.json")) {
-			continue
-		}
-		// Terraform ignores editor backup and swap files.
-		if strings.HasPrefix(n, ".") || strings.HasSuffix(n, "~") || (strings.HasPrefix(n, "#") && strings.HasSuffix(n, "#")) {
+		if e.IsDir() || !IsConfigFile(n) {
 			continue
 		}
 		base := strings.TrimSuffix(strings.TrimSuffix(n, ".json"), ".tf")

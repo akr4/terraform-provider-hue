@@ -119,7 +119,7 @@ func TestKelvinReplacement(t *testing.T) {
 		{types.Int64Value(0), "Write mirek instead. provider::hue::mirek_from_kelvin converts kelvin."},
 		{types.Int64Unknown(), "Write mirek instead. provider::hue::mirek_from_kelvin converts kelvin."},
 	} {
-		if got := kelvinReplacement(c.kelvin); got != kelvinRemoved+" "+c.want {
+		if got := kelvinReplacement(c.kelvin); got != kelvinRemoved+" "+c.want+" hue-tf migrate makes this change." {
 			t.Errorf("kelvin %v: %s", c.kelvin, got)
 		}
 	}

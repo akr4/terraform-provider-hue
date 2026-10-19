@@ -67,3 +67,38 @@ func TestChangeWriteRefusesStaleFileAndSymlink(t *testing.T) {
 		}
 	}
 }
+
+func TestReplaceFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.tf")
+	if err := os.WriteFile(path, []byte("old\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	// An edit saved after the file was read is not lost.
+	if err := ReplaceFile(path, []byte("older\n"), []byte("new\n"), ".test-*"); err == nil || err.Error() != "file changed since preview" {
+		t.Fatalf("got %v", err)
+	}
+	if err := ReplaceFile(path, []byte("old\n"), []byte("new\n"), ".test-*"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != "new\n" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o640 {
+		t.Fatalf("mode %v, %v", info.Mode(), err)
+	}
+	// A symbolic link stays a link, and its target is not written either.
+	link := filepath.Join(dir, "link.tf")
+	if err := os.Symlink("main.tf", link); err != nil {
+		t.Fatal(err)
+	}
+	if err := ReplaceFile(link, []byte("new\n"), []byte("newer\n"), ".test-*"); err == nil {
+		t.Fatal("replaced a link")
+	}
+	if got, _ := os.ReadFile(path); string(got) != "new\n" {
+		t.Fatalf("the target was written: %q", got)
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, ".test-*")); len(left) != 0 {
+		t.Fatalf("left %v", left)
+	}
+}
