@@ -3,11 +3,8 @@ package preview
 import (
 	"fmt"
 	"math"
-	"strconv"
 	"strings"
 	"testing"
-
-	huecolor "github.com/akr4/terraform-provider-hue/internal/color"
 )
 
 func TestConfiguredBrightness(t *testing.T) {
@@ -49,34 +46,46 @@ func TestConfiguredBrightness(t *testing.T) {
 }
 
 // A swatch scales the encoded color by brightness, as the V of HSV scales: at
-// 50% it is the full swatch halved. A color from color_from_hex shows with the
-// largest channel of its hex value, also outside sRGB.
+// 50%, 20% and 0% each channel is that share of the channel at 100%. A green
+// outside sRGB keeps its negative red in the CSS, scaled the same way, and the
+// terminal clips it. A channel at zero is written as 0, not -0.
 func TestBrightnessFromV(t *testing.T) {
-	for _, hex := range []string{"#ff8800", "#7f4400", "#0000ff", "#00ff00", "#123456", "#010000", "#ffffff"} {
-		xy, brightness, err := huecolor.HexToXYBrightness(hex)
-		if err != nil {
-			t.Fatal(err)
+	for name, setting := range map[string]map[string]any{
+		"orange":             {"color_xy": map[string]any{"x": 0.56, "y": 0.38}},
+		"green outside sRGB": {"color_xy": map[string]any{"x": 0.17, "y": 0.7}},
+		"temperature":        {"mirek": 370.0},
+		"brightness only":    {},
+	} {
+		swatch := func(brightness float64) (Sample, [3]float64) {
+			setting["brightness"] = brightness
+			s := sample(setting, true)
+			var c [3]float64
+			if _, err := fmt.Sscanf(s.CSS, "color(srgb %f %f %f)", &c[0], &c[1], &c[2]); err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			if strings.Contains(s.CSS, "-0.000000") {
+				t.Errorf("%s at %g%%: %s", name, brightness, s.CSS)
+			}
+			return s, c
 		}
-		s := sample(map[string]any{"color_xy": map[string]any{"x": xy.X, "y": xy.Y}, "brightness": brightness}, true)
-		n, _ := strconv.ParseUint(hex[1:], 16, 32)
-		if got, want := max(s.R, s.G, s.B), int(max(n>>16, n>>8&255, n&255)); got != want {
-			t.Errorf("%s at %g%%: largest channel %d, want %d", hex, brightness, got, want)
+		full, fullCSS := swatch(100)
+		if max(full.R, full.G, full.B) != 255 {
+			t.Errorf("%s at 100%%: rgb(%d %d %d)", name, full.R, full.G, full.B)
+		}
+		for _, brightness := range []float64{50, 20, 0} {
+			s, c := swatch(brightness)
+			share := brightness / 100
+			got, want := []int{s.R, s.G, s.B}, []int{full.R, full.G, full.B}
+			for i := range c {
+				if math.Abs(c[i]-fullCSS[i]*share) > 2e-6 || math.Abs(float64(got[i])-float64(want[i])*share) > 1 {
+					t.Errorf("%s at %g%%: %v and rgb%v, at 100%%: %v and rgb%v", name, brightness, c, got, fullCSS, want)
+					break
+				}
+			}
 		}
 	}
-	// xy 0.17, 0.7 is a green outside sRGB, which needs a red below zero.
-	green := func(brightness float64) (Sample, [3]float64) {
-		s := sample(map[string]any{"color_xy": map[string]any{"x": 0.17, "y": 0.7}, "brightness": brightness}, true)
-		var c [3]float64
-		if _, err := fmt.Sscanf(s.CSS, "color(srgb %f %f %f)", &c[0], &c[1], &c[2]); err != nil {
-			t.Fatal(err)
-		}
-		return s, c
-	}
-	s, full := green(100)
-	if full[0] >= 0 || s.R != 0 || s.G != 255 {
-		t.Fatalf("got %v and rgb(%d %d %d)", full, s.R, s.G, s.B)
-	}
-	if _, half := green(50); math.Abs(half[0]-full[0]/2) > 1e-6 || math.Abs(half[1]-full[1]/2) > 1e-6 || math.Abs(half[2]-full[2]/2) > 1e-6 {
-		t.Errorf("at 50%%: %v, at 100%%: %v", half, full)
+	green := sample(map[string]any{"color_xy": map[string]any{"x": 0.17, "y": 0.7}, "brightness": 100.0}, true)
+	if !strings.HasPrefix(green.CSS, "color(srgb -") || green.R != 0 {
+		t.Errorf("the green outside sRGB is %s and rgb(%d %d %d)", green.CSS, green.R, green.G, green.B)
 	}
 }

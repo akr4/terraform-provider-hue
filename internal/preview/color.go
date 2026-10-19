@@ -128,11 +128,11 @@ func activeEffect(v any) bool {
 	return true
 }
 
-// Swatches show the color at full brightness with its largest sRGB channel at
-// the maximum, and scale the encoded channels by brightness / 100, as the V of
-// HSV scales: a swatch at 50% is the full swatch with each channel halved.
-// provider::hue::color_from_hex reads brightness as V, so a color written in
-// hex shows with the largest channel of the hex value. This represents
+// Swatches show how xy looks on the screen. The color at full brightness has
+// its largest sRGB channel at the maximum, and the encoded channels are scaled
+// by brightness / 100, as the V of HSV scales: a swatch at 50% is the full
+// swatch with each channel halved. hue-tf show prints a different color: the
+// hex that provider::hue::color_from_hex reads back as the xy. This represents
 // settings consistently, not calibrated lamp luminance.
 func setColor(s *Sample, x, y float64, m map[string]any) {
 	brightness, ok := number(m["brightness"])
@@ -147,9 +147,11 @@ func setColor(s *Sample, x, y float64, m map[string]any) {
 	r := 3.2404542*X - 1.5371385*Y - 0.4985314*Z
 	g := -0.969266*X + 1.8760108*Y + 0.041556*Z
 	b := 0.0556434*X - 0.2040259*Y + 1.0572252*Z
-	scale := math.Max(1, math.Max(r, math.Max(g, b)))
+	// With Y at 1, at least one channel is 1 or more.
+	scale := math.Max(r, math.Max(g, b))
 	// A channel below zero is outside sRGB. CSS extends the sRGB curve to
-	// negative values by symmetry, so that a wide-gamut display shows the color.
+	// negative values by symmetry, so that a wide-gamut display shows the color,
+	// which the terminal and rgb() clip.
 	encode := func(v float64) float64 {
 		return level * math.Copysign(huecolor.EncodeSRGB(math.Abs(v/scale)), v)
 	}
@@ -157,7 +159,14 @@ func setColor(s *Sample, x, y float64, m map[string]any) {
 	channel := func(v float64) int { return int(math.Round(math.Max(0, v) * 255)) }
 	s.R, s.G, s.B = channel(r), channel(g), channel(b)
 	s.HasColor = true
-	s.CSS = fmt.Sprintf("color(srgb %.6f %.6f %.6f)", r, g, b)
+	// A channel that rounds to zero is written as 0, not -0.
+	css := func(v float64) float64 {
+		if v = math.Round(v*1e6) / 1e6; v == 0 {
+			return 0
+		}
+		return v
+	}
+	s.CSS = fmt.Sprintf("color(srgb %.6f %.6f %.6f)", css(r), css(g), css(b))
 }
 
 // Approximate blackbody chromaticity for a color-temperature swatch.
