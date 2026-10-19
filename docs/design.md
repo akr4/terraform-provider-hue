@@ -271,9 +271,9 @@ action object:
 ### 色の表示
 
 - `.tf` は xy と brightness を保持する。表示のために元データを RGB へ置換しない。
-- `hue-tf preview` は Terraform plan JSON を読み、ターミナルでは正規化した RGB の色見本を表示する。
-- HTML は CSS XYZ の色見本と、明るさを近似的に反映した色見本を並べる。照明の測定輝度とディスプレイの輝度は同一とみなさない。
-- `show` の hex は表示用の近似値であり、provider の設定・state 属性ではない。
+- `hue-tf preview` は Terraform plan JSON を読み、xy が画面でどう見えるかを色見本で表示する。ターミナルと HTML は同じ変換を使う。明るさ 100% の色見本は sRGB の最大のチャンネルを最大値にし、エンコード後の各チャンネルに brightness / 100 を掛ける（HSV の V と同じ）。50% の色見本は 100% の各チャンネルの半分になる。
+- sRGB の外の色は、ターミナルでは 0〜1 に切り詰め、HTML では CSS の `color(srgb …)` の 0〜1 の外の値で表す。照明の測定輝度とディスプレイの輝度は同一とみなさない。
+- `show` の hex は、`color_from_hex` に渡すと同じ xy に戻る値（Philips の式の逆変換）で、preview の色見本とは役割が違うため色も一致しない。表示用の近似値であり、provider の設定・state 属性ではない。
 
 ### kelvin ↔ mirek
 

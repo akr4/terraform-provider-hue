@@ -35,9 +35,12 @@ Each lighting action has one small brightness-adjusted color swatch, with bright
 as a percentage. Unchanged actions appear once; only changed actions show a
 before/after comparison. Lights explicitly set to off use an Off marker instead
 of a color swatch, even when the action also stores color or brightness. Light UUIDs are available on hover when names are known.
-The same conversion is used for HTML and terminal: normalize the linear color,
-then scale it by brightness / 100 before display encoding. Identical settings
-produce identical swatches regardless of the lamp. This represents configuration,
+Swatches show how each color looks on the screen, with the same conversion for
+HTML and terminal. The color at full brightness has its largest sRGB channel at
+the maximum, and each encoded channel is scaled by brightness / 100, as the V of
+HSV is: a swatch at 50% is the full swatch with each channel halved. The
+terminal clips colors outside sRGB, and HTML keeps them for wide-gamut displays.
+Identical settings produce identical swatches regardless of the lamp. This represents configuration,
 not calibrated lamp luminance. Missing, unknown, sensitive or invalid brightness
 has no color swatch; it is never assumed to be 100%.
 Screen gamut limitations apply. Color temperature is approximated; brightness-only

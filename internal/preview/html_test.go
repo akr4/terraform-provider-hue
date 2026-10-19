@@ -7,7 +7,7 @@ import (
 )
 
 func TestHTMLCompactRows(t *testing.T) {
-	color := Sample{Exists: true, HasColor: true, CSS: "color(xyz-d65 0.3 1 0.4)", Brightness: "20%", On: "on", Color: "xy 0.3, 0.4"}
+	color := Sample{Exists: true, HasColor: true, CSS: "color(srgb 0.3 0.4 0.5)", Brightness: "20%", On: "on", Color: "xy 0.3, 0.4"}
 	for _, tc := range []struct {
 		name                    string
 		row                     Row
