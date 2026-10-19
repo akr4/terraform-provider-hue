@@ -128,8 +128,12 @@ func activeEffect(v any) bool {
 	return true
 }
 
-// Swatches scale normalized linear D65 color by the configured brightness.
-// This represents settings consistently, not calibrated lamp luminance.
+// Swatches show the color at full brightness with its largest sRGB channel at
+// the maximum, and scale the encoded channels by brightness / 100, as the V of
+// HSV scales: a swatch at 50% is the full swatch with each channel halved.
+// provider::hue::color_from_hex reads brightness as V, so a color written in
+// hex shows with the largest channel of the hex value. This represents
+// settings consistently, not calibrated lamp luminance.
 func setColor(s *Sample, x, y float64, m map[string]any) {
 	brightness, ok := number(m["brightness"])
 	if !ok || brightness < 0 || brightness > 100 {
@@ -144,16 +148,16 @@ func setColor(s *Sample, x, y float64, m map[string]any) {
 	g := -0.969266*X + 1.8760108*Y + 0.041556*Z
 	b := 0.0556434*X - 0.2040259*Y + 1.0572252*Z
 	scale := math.Max(1, math.Max(r, math.Max(g, b)))
-	X *= level / scale
-	Y *= level / scale
-	Z *= level / scale
-	gamma := func(v float64) int {
-		return int(math.Round(huecolor.EncodeSRGB(math.Max(0, math.Min(1, v/scale*level))) * 255))
+	// A channel below zero is outside sRGB. CSS extends the sRGB curve to
+	// negative values by symmetry, so that a wide-gamut display shows the color.
+	encode := func(v float64) float64 {
+		return level * math.Copysign(huecolor.EncodeSRGB(math.Abs(v/scale)), v)
 	}
-	s.R, s.G, s.B = gamma(r), gamma(g), gamma(b)
+	r, g, b = encode(r), encode(g), encode(b)
+	channel := func(v float64) int { return int(math.Round(math.Max(0, v) * 255)) }
+	s.R, s.G, s.B = channel(r), channel(g), channel(b)
 	s.HasColor = true
-	s.CSS = fmt.Sprintf("color(xyz-d65 %.8f %.8f %.8f)", X, Y, Z)
-
+	s.CSS = fmt.Sprintf("color(srgb %.6f %.6f %.6f)", r, g, b)
 }
 
 // Approximate blackbody chromaticity for a color-temperature swatch.

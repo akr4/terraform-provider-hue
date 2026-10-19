@@ -35,8 +35,11 @@ Each lighting action has one small brightness-adjusted color swatch, with bright
 as a percentage. Unchanged actions appear once; only changed actions show a
 before/after comparison. Lights explicitly set to off use an Off marker instead
 of a color swatch, even when the action also stores color or brightness. Light UUIDs are available on hover when names are known.
-The same conversion is used for HTML and terminal: normalize the linear color,
-then scale it by brightness / 100 before display encoding. Identical settings
+The same conversion is used for HTML and terminal. The color at full brightness
+has its largest sRGB channel at the maximum, and each encoded channel is scaled
+by brightness / 100, as the V of HSV is: a swatch at 50% is the full swatch with
+each channel halved. A color written with `provider::hue::color_from_hex` shows
+with the largest channel of its hex value. Identical settings
 produce identical swatches regardless of the lamp. This represents configuration,
 not calibrated lamp luminance. Missing, unknown, sensitive or invalid brightness
 has no color swatch; it is never assumed to be 100%.
