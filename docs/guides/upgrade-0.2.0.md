@@ -97,33 +97,6 @@ still use 0.1, so migrate only points at it when it has `hue_scene` resources.
 Run it there too when nothing on 0.1 shares the module. Modules from a registry
 are not read.
 
-## Palettes kept in JSON files
-
-A palette kept in a file in the API's form, and read with `jsondecode`, can stay
-as it is. Convert it where the scene takes it, with the same changes as the
-table above:
-
-```hcl
-locals {
-  preset = jsondecode(file("${path.module}/presets/evening.json"))
-}
-
-resource "hue_scene" "evening" {
-  # 0.1: palette = jsonencode(local.preset.palette)
-  palette = {
-    color             = [for c in local.preset.palette.color : { color_xy = c.color.xy, brightness = c.dimming.brightness }]
-    color_temperature = [for t in local.preset.palette.color_temperature : { mirek = t.color_temperature.mirek, brightness = t.dimming.brightness }]
-    dimming           = local.preset.palette.dimming
-  }
-  # ...
-}
-```
-
-Leave out a list that the file does not have. Actions that take colors from the
-file, such as `color_xy = local.preset.palette.color[0].color.xy`, stay as they
-are. migrate lists such a palette under "Not rewritten", since it does not read
-the file.
-
 ## Terraform before 1.8
 
 `provider::hue::mirek_from_kelvin` needs Terraform 1.8 or later. With an older
