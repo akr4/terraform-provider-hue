@@ -7,7 +7,21 @@ behaviors, and device names and icons.
 **Add lights and devices using the Hue app. This provider manages resources that
 are already registered on a Hue bridge.**
 
-<img src="docs/images/plan.png" width="720" alt="terraform plan output for a Hue scene: one light becomes warmer and dimmer, and two others change from white to orange and purple">
+Scene colors can be written in hex, and color temperatures in kelvin:
+
+```hcl
+resource "hue_scene" "evening" {
+  name  = "Evening"
+  group = hue_room.living.id
+  actions = {
+    (local.sofa)  = { on = true, brightness = 40, mirek = provider::hue::mirek_from_kelvin(2500) }
+    (local.shelf) = merge(provider::hue::color_from_hex("#ff8800"), { on = true, brightness = 60 })
+    (local.tv)    = merge(provider::hue::color_from_hex("#8a2be2"), { on = true, brightness = 50 })
+  }
+}
+```
+
+<img src="docs/images/plan.png" width="720" alt="terraform plan output for this scene, whose three lights were at 4000 K: the sofa lamp becomes warmer and dimmer, and the shelf light and the TV backlight change to the colors of the hex values">
 
 ## Getting started
 
