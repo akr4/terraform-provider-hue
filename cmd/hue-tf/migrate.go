@@ -42,34 +42,49 @@ func migrateCommand(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	// show names a path from the working directory where it is under it.
+	// resolve gives the absolute path of a directory without symbolic links,
+	// so that two paths to one directory compare equal.
+	resolve := func(dir string) string {
+		abs, err := filepath.Abs(dir)
+		if err != nil {
+			return dir
+		}
+		if real, err := filepath.EvalSymlinks(abs); err == nil {
+			return real
+		}
+		return abs
+	}
+	// show names a path from the working directory where it is under it, also
+	// when the path has no symbolic links and the working directory does.
+	bases := []string{cwd}
+	if real := resolve(cwd); real != cwd {
+		bases = append(bases, real)
+	}
 	show := func(path string) string {
 		abs, err := filepath.Abs(path)
 		if err != nil {
 			return path
 		}
-		if rel, err := filepath.Rel(cwd, abs); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return rel
+		for _, base := range bases {
+			if rel, err := filepath.Rel(base, abs); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return rel
+			}
 		}
 		return abs
 	}
 	// A directory named twice is read once. The local modules inside the named
 	// directories are read after them. A module outside them may be shared
 	// with configurations that still take 0.1, so it is only pointed at.
-	var dirs, roots []string
-	given := map[string]bool{}
-	var read []string
+	var read, roots []string
 	seen := map[string]bool{}
 	for _, dir := range named {
 		abs, err := filepath.Abs(dir)
 		if err != nil {
 			return err
 		}
-		if !given[abs] {
-			given[abs] = true
-			dirs = append(dirs, dir)
-			roots = append(roots, abs)
+		if !seen[abs] {
 			seen[abs] = true
+			roots = append(roots, abs)
 			read = append(read, dir)
 		}
 	}
@@ -85,42 +100,40 @@ func migrateCommand(args []string, out io.Writer) error {
 		path          string
 		before, after []byte
 	}
+	type link struct{ path, target string }
 	var changes []change
+	var links []link
 	var left, check, other []string
+	// reading holds the directories that migrate reads, by resolve.
+	reading := map[string]bool{}
 	modules := 0
 	for i := 0; i < len(read); i++ {
 		dir := read[i]
 		entries, err := os.ReadDir(dir)
 		if err != nil {
-			if i < len(dirs) {
+			if i < len(roots) {
 				return err
 			}
 			other = append(other, fmt.Sprintf("%s is a local module that migrate could not read: %v", show(dir), err))
 			continue
 		}
-		if i >= len(dirs) {
+		reading[resolve(dir)] = true
+		if i >= len(roots) {
 			modules++
 		}
 		for _, entry := range entries {
 			name := entry.Name()
-			if entry.IsDir() || !(strings.HasSuffix(name, ".tf") || strings.HasSuffix(name, ".tf.json")) {
+			if entry.IsDir() || !pull.IsConfigFile(name) {
 				continue
 			}
 			path := show(filepath.Join(dir, name))
 			if entry.Type()&fs.ModeSymlink != 0 {
 				target, err := filepath.EvalSymlinks(path)
 				if err != nil {
-					return err
+					other = append(other, fmt.Sprintf("%s is a symbolic link that migrate could not follow: %v", path, err))
+					continue
 				}
-				abs, err := filepath.Abs(filepath.Dir(target))
-				if err != nil {
-					return err
-				}
-				if given[abs] {
-					check = append(check, fmt.Sprintf("%s is a symbolic link to %s, which migrate reads instead.", path, show(target)))
-				} else {
-					left = append(left, fmt.Sprintf("%s is a symbolic link, which migrate does not rewrite. Run hue-tf migrate %s, where it points.", path, shellWord(show(filepath.Dir(target)))))
-				}
+				links = append(links, link{path, target})
 				continue
 			}
 			if !entry.Type().IsRegular() {
@@ -154,19 +167,25 @@ func migrateCommand(args []string, out io.Writer) error {
 				if err != nil || seen[abs] {
 					continue
 				}
+				seen[abs] = true
 				if inside(abs) {
-					seen[abs] = true
 					read = append(read, dir)
-					continue
-				}
-				if hasScene(dir) {
-					seen[abs] = true
+				} else if hasScene(dir) {
 					other = append(other, fmt.Sprintf("%s:%d: module.%s uses %s, which is outside the directories that migrate reads and has hue_scene resources. Run hue-tf migrate %s as well, if no configuration on provider 0.1 shares it.", path, m.Range.Start.Line, m.Name, m.Source, shellWord(show(dir))))
 				}
 			}
 			if !bytes.Equal(src, r.Output) {
 				changes = append(changes, change{path, src, r.Output})
 			}
+		}
+	}
+	// A link is told about once every directory is known, since it may point
+	// into a module that a later file calls.
+	for _, l := range links {
+		if reading[resolve(filepath.Dir(l.target))] {
+			check = append(check, fmt.Sprintf("%s is a symbolic link to %s, which migrate reads instead.", l.path, show(l.target)))
+		} else {
+			left = append(left, fmt.Sprintf("%s is a symbolic link, which migrate does not rewrite. Run hue-tf migrate %s, where it points.", l.path, shellWord(show(filepath.Dir(l.target)))))
 		}
 	}
 	for _, c := range changes {
@@ -204,7 +223,7 @@ func migrateCommand(args []string, out io.Writer) error {
 		fmt.Fprintln(out, "\nNothing to rewrite.")
 	case !write:
 		command := "hue-tf migrate --write"
-		if !(len(dirs) == 1 && dirs[0] == ".") {
+		if dirs := read[:len(roots)]; !(len(dirs) == 1 && dirs[0] == ".") {
 			for _, dir := range dirs {
 				command += " " + shellWord(dir)
 			}
@@ -229,7 +248,7 @@ func hasScene(dir string) bool {
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || !(strings.HasSuffix(name, ".tf") || strings.HasSuffix(name, ".tf.json")) {
+		if entry.IsDir() || !pull.IsConfigFile(name) {
 			continue
 		}
 		if src, err := os.ReadFile(filepath.Join(dir, name)); err == nil && bytes.Contains(src, []byte("hue_scene")) {
@@ -241,10 +260,11 @@ func hasScene(dir string) bool {
 
 var plainWord = regexp.MustCompile(`^[A-Za-z0-9_./-]+$`)
 
-// shellWord quotes a path for a command that the user may copy.
+// shellWord quotes a path for a command that the user may copy, when the
+// path needs it.
 func shellWord(s string) string {
 	if plainWord.MatchString(s) {
 		return s
 	}
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+	return shellQuote(s)
 }

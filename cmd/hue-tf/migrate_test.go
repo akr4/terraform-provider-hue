@@ -236,3 +236,77 @@ func TestMigrateModules(t *testing.T) {
 		t.Fatal("a module outside the directory was rewritten")
 	}
 }
+
+// Hidden files and editor files, which Terraform does not load, are skipped,
+// such as the lock file that Emacs makes as a symbolic link to nowhere. A
+// configuration file that links to nowhere is told about, and the other files
+// are still rewritten.
+func TestMigrateSkips(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeFiles(t, map[string]string{"main.tf": migrateBefore, ".hidden.tf": migrateBefore})
+	for name, target := range map[string]string{".#main.tf": "user@host.1234:1700000000", "broken.tf": "missing.tf"} {
+		if err := os.Symlink(target, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := runMigrate(t, "--write")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, want := range []string{"Also:\n  broken.tf is a symbolic link that migrate could not follow:", "Rewrote 1 file."} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "hidden") || strings.Contains(out, ".#main.tf") {
+		t.Errorf("read a file that Terraform does not load:\n%s", out)
+	}
+	if got, _ := os.ReadFile(".hidden.tf"); string(got) != migrateBefore {
+		t.Fatal(".hidden.tf was rewritten")
+	}
+}
+
+// Links are compared by the directories that they reach, without symbolic
+// links in their paths: here the working directory is reached through one. A
+// link into a module that a later file calls is read there.
+func TestMigrateSymlinkPaths(t *testing.T) {
+	base := t.TempDir()
+	if err := os.Mkdir(filepath.Join(base, "real"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(base, "real"), filepath.Join(base, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(filepath.Join(base, "alias"))
+	writeFiles(t, map[string]string{
+		"shared/scenes.tf":      migrateBefore,
+		"root/main.tf":          "module \"m\" {\n  source = \"./mods/m\"\n}\n",
+		"root/mods/m/scenes.tf": migrateBefore,
+	})
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(cwd, "shared", "scenes.tf"), "root/a.tf"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("mods/m/scenes.tf", "root/b.tf"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runMigrate(t, "root", "shared")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"root/a.tf is a symbolic link to shared/scenes.tf, which migrate reads instead.",
+		"root/b.tf is a symbolic link to root/mods/m/scenes.tf, which migrate reads instead.",
+		"Run hue-tf migrate --write root shared to rewrite 2 files.",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "does not rewrite") {
+		t.Errorf("a link into a directory that migrate reads is not rewritten:\n%s", out)
+	}
+}

@@ -285,7 +285,21 @@ func TestRewrites(t *testing.T) {
     "e" = { mirek = provider::hue::mirek_from_kelvin(4000) }
     "f" = { mirek = 370 }
   }
-`), []string{"kelvin = 500 is outside the range", "kelvin = each.value.kelvin became mirek = provider::hue::mirek_from_kelvin(each.value.kelvin)"},
+`), []string{"kelvin = 500 is outside the range", "kelvin = each.value.kelvin became mirek = provider::hue::mirek_from_kelvin(each.value.kelvin). The function fails at plan for a null kelvin"},
+		},
+		// 0.1 sent the one of mirek and kelvin that was not null. A mirek
+		// written as a number was never null.
+		"kelvin with mirek from an expression": {
+			scene(`  actions = {
+    "a" = { mirek = var.m, kelvin = var.k }
+    "b" = { mirek = 370, kelvin = var.k }
+  }
+`),
+			scene(`  actions = {
+    "a" = { mirek = var.m, kelvin = var.k }
+    "b" = { mirek = 370 }
+  }
+`), []string{"kelvin = var.k is written with mirek = var.m, and 0.1 sent the one that was not null."},
 		},
 		"kelvin that is not a whole number": {
 			scene(`  actions = {
@@ -368,6 +382,26 @@ func TestRewrites(t *testing.T) {
   }
 `), []string{"A comment on the removed kelvin was not kept."},
 		},
+		// A comment right above the removed palette would describe actions.
+		"comment above an empty palette": {
+			scene(`  # Keep the palette empty.
+  palette = jsonencode({ color = [] })
+  actions = {}
+`),
+			"resource \"hue_scene\" \"s\" {\n  name    = \"S\"\n  group   = \"g\"\n  actions = {}\n}\n",
+			[]string{"Comments in or above the removed palette were not kept.", "palette had no entries"},
+		},
+		"comment apart from an empty palette": {
+			scene(`  # Evening scenes.
+
+  palette = jsonencode({ color = [] })
+  actions = {}
+`),
+			scene(`  # Evening scenes.
+
+  actions = {}
+`), []string{"palette had no entries"},
+		},
 		"other resources": {
 			`resource "other_light" "l" {
   kelvin  = 2700
@@ -431,6 +465,63 @@ func TestNotes(t *testing.T) {
 	r, err = File("main.tf", []byte(scene("  palette = var.palette\n  actions = {}\n")))
 	if err != nil || len(r.Notes) != 1 || !r.Notes[0].Left {
 		t.Fatalf("notes %v, %v", r.Notes, err)
+	}
+}
+
+// What reads palette, gradient, effects_v2, dynamics or kelvin of a hue_scene
+// outside the values that migrate rewrites is listed, since 0.2.0 changed
+// them.
+func TestReferences(t *testing.T) {
+	src := `resource "hue_scene" "s" {
+  name    = "S"
+  group   = "g"
+  palette = hue_scene.t.palette
+  actions = {}
+}
+
+output "palette" {
+  value = jsondecode(hue_scene.s.palette)
+}
+
+locals {
+  warm     = hue_scene.s.actions["a"].kelvin
+  gradient = hue_scene.t["x"].actions["a"].gradient
+  id       = hue_scene.s.id
+  actions  = hue_scene.s.actions
+}
+
+resource "other_thing" "o" {
+  dynamic "x" {
+    for_each = [1]
+    content {
+      v = hue_scene.s.actions.a.effects_v2
+    }
+  }
+}
+`
+	r, err := File("main.tf", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, n := range r.Notes {
+		if !n.Left {
+			t.Errorf("not left: %v", n)
+		}
+		got = append(got, n.String())
+	}
+	want := []string{
+		"main.tf:4: hue_scene.s: palette is hue_scene.t.palette, which migrate does not read. If it is JSON, write it as an object.",
+		"main.tf:9: output.palette: hue_scene.s.palette is an object in 0.2.0, not a JSON string. Rewrite what reads it as JSON, such as jsondecode.",
+		`main.tf:13: locals: hue_scene.s.actions["a"].kelvin was removed in 0.2.0 and reads as null. Read mirek instead.`,
+		`main.tf:14: locals: hue_scene.t["x"].actions["a"].gradient is an object in 0.2.0, not a JSON string. Rewrite what reads it as JSON, such as jsondecode.`,
+		"main.tf:23: other_thing.o: hue_scene.s.actions.a.effects_v2 is an object in 0.2.0, not a JSON string. Rewrite what reads it as JSON, such as jsondecode.",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	if string(r.Output) != src {
+		t.Errorf("rewrote\n%s", r.Output)
 	}
 }
 
