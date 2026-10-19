@@ -40,26 +40,34 @@ func (c *Change) Write() error {
 	if len(c.Edits) == 0 {
 		return nil
 	}
-	info, err := os.Lstat(c.Path)
+	return ReplaceFile(c.Path, c.Original, c.Updated, ".hue-pull-*")
+}
+
+// ReplaceFile replaces a regular file with updated in one step, keeping its
+// permissions. It refuses a symbolic link or another kind of file, and a file
+// that no longer holds original, so that an edit saved after it was read is
+// not lost. The temporary file is named by pattern, as os.CreateTemp takes it.
+func ReplaceFile(path string, original, updated []byte, pattern string) error {
+	info, err := os.Lstat(path)
 	if err != nil {
 		return err
 	}
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("destination must be a regular file")
 	}
-	current, err := os.ReadFile(c.Path)
+	current, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	if !bytes.Equal(current, c.Original) {
+	if !bytes.Equal(current, original) {
 		return fmt.Errorf("file changed since preview")
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(c.Path), ".hue-pull-*")
+	tmp, err := os.CreateTemp(filepath.Dir(path), pattern)
 	if err != nil {
 		return err
 	}
 	defer os.Remove(tmp.Name())
-	if _, err = tmp.Write(c.Updated); err != nil {
+	if _, err = tmp.Write(updated); err != nil {
 		tmp.Close()
 		return err
 	}
@@ -70,7 +78,7 @@ func (c *Change) Write() error {
 	if err = tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), c.Path)
+	return os.Rename(tmp.Name(), path)
 }
 
 // WriteNew creates a file and never replaces an existing one.

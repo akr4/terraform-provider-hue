@@ -147,6 +147,10 @@ palette = {
 }
 ```
 
+In 0.1, `palette`, `gradient`, `effects_v2` and `dynamics` took JSON strings,
+and actions took `kelvin`. [Upgrading to 0.2.0](docs/guides/upgrade-0.2.0.md)
+describes how `hue-tf migrate` rewrites them.
+
 ## CLI
 
 | Command | Description |
@@ -156,6 +160,7 @@ palette = {
 | `hue-tf show SCENE_UUID` | [Inspect a scene](docs/show.md) and what references it |
 | `hue-tf raw /clip/v2/PATH` | Print the response of an API v2 GET request |
 | `hue-tf import-blocks [--write]` | [Generate `import` blocks](docs/app-to-terraform.md) for unmanaged resources |
+| `hue-tf migrate [DIR ...] [--write]` | [Rewrite configurations for 0.2.0](docs/guides/upgrade-0.2.0.md) |
 | `hue-tf preview` | [Render scene colors](docs/preview.md) from a Terraform plan |
 | `hue-tf recall SCENE_UUID` | [Activate a scene](docs/runtime-commands.md) |
 | `hue-tf identify UUID` | [Make a device signal](docs/runtime-commands.md) so you can find it |

@@ -180,16 +180,18 @@ const kelvinRemoved = "kelvin was removed in 0.2.0."
 // kelvinReplacement tells what to write instead of a configured kelvin: the
 // mirek that earlier versions sent for it, and provider::hue::mirek_from_kelvin
 // where it returns the same mirek. The function needs Terraform 1.8.
+// hue-tf migrate writes the same.
 func kelvinReplacement(kelvin types.Int64) string {
+	const migrate = " hue-tf migrate makes this change."
 	if !known(kelvin) || kelvin.ValueInt64() <= 0 {
-		return kelvinRemoved + " Write mirek instead. provider::hue::mirek_from_kelvin converts kelvin."
+		return kelvinRemoved + " Write mirek instead. provider::hue::mirek_from_kelvin converts kelvin." + migrate
 	}
 	k := kelvin.ValueInt64()
 	m := colors.MirekForKelvin(k)
 	if colors.KelvinToMirek(k) != m {
-		return fmt.Sprintf("%s Write mirek = %d instead, the mirek that earlier versions sent for kelvin = %d.", kelvinRemoved, m, k)
+		return fmt.Sprintf("%s Write mirek = %d instead, the mirek that earlier versions sent for kelvin = %d.%s", kelvinRemoved, m, k, migrate)
 	}
-	return fmt.Sprintf("%s Write mirek = provider::hue::mirek_from_kelvin(%d) instead, or mirek = %d before Terraform 1.8.", kelvinRemoved, k, m)
+	return fmt.Sprintf("%s Write mirek = provider::hue::mirek_from_kelvin(%d) instead, or mirek = %d before Terraform 1.8.%s", kelvinRemoved, k, m, migrate)
 }
 func validateAction(a actionModel) []string {
 	var errs []string

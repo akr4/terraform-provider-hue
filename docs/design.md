@@ -243,7 +243,7 @@ action object:
 | `effects` | Optional, Computed, JSON 文字列 | API で非推奨のエフェクト。JSON のまま扱う |
 
 - 色温度は `mirek` で書く。ケルビンで書くときは `mirek = provider::hue::mirek_from_kelvin(2700)` のように変換する
-- `kelvin` は 0.2.0 で削除した（互換性のない変更）。入れ子の属性では、Terraform は知らない属性を黙って捨てる。属性を消すだけでは、書いたままの `kelvin` が無視され、色温度を消す plan になる。そのため `kelvin` は属性として残し、書くとエラーにする。エラーは置き換え方（`mirek = provider::hue::mirek_from_kelvin(2700)`）を示す。deprecated の印も付ける。Terraform は deprecated の属性を生成する設定に書かないので、import で作る設定に `kelvin = null` が出ない
+- `kelvin` は 0.2.0 で削除した（互換性のない変更）。入れ子の属性では、Terraform は知らない属性を黙って捨てる。属性を消すだけでは、書いたままの `kelvin` が無視され、色温度を消す plan になる。そのため `kelvin` は属性として残し、書くとエラーにする。エラーは置き換え方（`mirek = provider::hue::mirek_from_kelvin(2700)`）と、`hue-tf migrate` で書き換えられることを示す。deprecated の印も付ける。Terraform は deprecated の属性を生成する設定に書かないので、import で作る設定に `kelvin = null` が出ない
 - 保存済みの state では、state upgrader（schema version 4）が `kelvin` を消す。v0.1 は `kelvin` を書いたときも実機の mirek を `mirek` に入れているので、それを残す
 - `color_xy` と `mirek` は Computed にしない。plan には書いた値だけが出て、書いていない色や色温度は送らない
 - ライトは色か色温度のどちらか一方で光るため、同じアクションに `color_xy` と `mirek` は書けない（検査で止める）。実機のシーン 1,516 アクションに、両方を持つものはなかった
@@ -325,6 +325,7 @@ action object:
 
 - `hue-tf import-blocks`: 未管理リソースの import ブロックを生成する。resource 定義は Terraform の設定生成または手書きに任せる（詳細は第16節）。
 - `hue-tf preview [PLAN_JSON] [--html]`: 評価済み設定と差分を色見本として表示
+- `hue-tf migrate [DIR ...] [--write]`: 0.1 の設定を 0.2.0 の形に書き換える（第19節）
 - `hue-tf recall SCENE_UUID [--action ACTION]` と `hue-tf identify DEVICE_UUID_OR_LIGHT_UUID` は実装済み。明示的な実行時操作として Bridge に PUT し、Terraform 定義・state は変更しない。詳細は [実行時操作](runtime-commands.md) を参照。
 
 ### 認証情報の受け渡し
@@ -380,6 +381,7 @@ action object:
 
 ## 15. 未決定・保留
 
+- 対応する Terraform の版を明記するか。README と Registry への記載、例への `required_version`、CI での 1.8 系のテストが候補。provider から版を強制する仕組みはなく、関数を使う設定は 1.8 より前の Terraform では読み込みで失敗する
 - `hue-tf import` の HCL ラベル命名規則
 - rate limit の固定値の最終調整（実機での測定後）
 - light の設定（name / powerup）を管理する `resource "hue_light"` の要否（v1）
@@ -444,3 +446,24 @@ API で非推奨の `effects` はJSON文字列のまま扱い、JSON objectで�
 有効な `effects_v2.effect` と、同じアクション直下の `color_xy` / `mirek` / `gradient` の併用を検証で拒否する。エラーは `effects_v2.effect` を指す。エフェクト内の色指定は `effects_v2.parameters` に置く。`no_effect` の併用可否は未検証のため、この事前検証の対象外とする。実機の 1,516 アクションでは、エフェクト（旧 `effects`）を持つ 6 つはどれも色・色温度・グラデーションを持たず、グラデーションを持つ 21 はどれもエフェクトと色を持たなかった。
 
 色温度の入力検証と `provider::hue::mirek_from_kelvin` の範囲には、API範囲50〜1000 mirekを使う。bridge は light の範囲の外の値もそのまま保存するため、等価比較に `mirek_schema` は使わない。
+
+## 19. 設定の移行（`hue-tf migrate`）
+
+`hue-tf migrate [DIR ...] [--write]` は、0.1 の設定を 0.2.0 の形に書き換える。手順は [0.2.0 への移行](guides/upgrade-0.2.0.md) を参照する。
+
+- 指定したディレクトリ（省略時はカレント）で Terraform が読む `.tf`（隠しファイルとエディタのバックアップを除く）と、そこから呼んでいるローカルのモジュールのうち、指定したディレクトリの中にあるものを読む。モジュールが呼ぶモジュールもたどる。ほかのサブディレクトリと Registry のモジュールは読まない
+- 指定したディレクトリの外にあるローカルのモジュールは、0.1 のままのほかの設定と共有されているかもしれないので、読まずに案内だけする（`hue_scene` を持つ場合）
+- 構文木の上で、各 `hue_scene` に書いてあるものだけを書き換える。周りの式と書式はそのまま残し、`terraform fmt` 済みのファイルは整形済みのまま保つ
+- 既定は差分の表示だけで、最後に `--write` 付きの同じコマンドを示す。`--write` で書き換える。同じディレクトリを 2 回指定しても 1 回だけ読む
+- 読めないファイルが 1 つでもあれば、どのファイルも変えない。書き込みは import-blocks と同じ `pull.ReplaceFile` で、一時ファイルからの置き換えで行う。通常のファイル以外と、読んだあとに変わったファイルは書かない
+- シンボリックリンクは書き換えず、リンク先のディレクトリを示す。そのディレクトリも読むなら（指定したディレクトリでも、たどったモジュールでも）、リンク先のファイルをそこで書き換える。比べるときはパスの中のシンボリックリンクを解決する。リンク先がないリンクは一覧に出して、ほかのファイルは続けて書き換える
+- 改行が CRLF のファイルは、書き換えた部分も CRLF にする。書き換えた値の中や、消した行、消したパレットのすぐ上の行のコメントは残らないので、そのことを表示する。すぐ上のコメントを残すと、次の属性の説明に見えてしまうため
+- 差分は、両方のファイルに 1 回ずつ出る行（シーンの名前など）で区切ってから、区間ごとに最長共通部分列で求める（patience diff と同じ考え方）。大きな生成設定でも、使うメモリは区間の大きさで決まる
+- `palette` と、actions の `gradient`・`effects_v2`・`dynamics` の `jsonencode` を、API の形から 0.2.0 の型の形に直す。中身が 1 つの入れ物を平らにする規則（第8節）と同じ対応で、`for` 式で作ったリストも直す
+- 中身のないリストは書かない（書かなくても空で送る）。中身のないパレットは行ごと消し、Terraform がパレットをブリッジに任せる形にする。v0.1 の生成設定は、パレットのないシーンにも空のパレットを書いているため。空のまま管理したいときは `palette = {}` と書くよう案内する
+- `kelvin = K` は `mirek = provider::hue::mirek_from_kelvin(K)` にする。関数の範囲外の数値は、0.1 が送った mirek の数値にする。Terraform 1.8 より前の利用者は数値で書く（kelvin のエラー文が数値を示す）
+- 0.1 の生成設定にある `kelvin = null` と、数値の `mirek` と並んだ `kelvin` は消して `mirek` を残す。0.1 は null でない方を送っていたので、`mirek` が式のときはどちらが使われていたか分からず、書き換えずに一覧に出す
+- 式の kelvin を包んだ `mirek_from_kelvin` は、kelvin が null だと plan で失敗する。表示でそのことを伝え、ガイドに null を通す書き方を載せる
+- 変数・local などから来る値、文字列の JSON、JSON 構文のファイル、非推奨の `effects` に中身があるパレットは、書き換えずに一覧に出す
+- `hue_scene` の外で `palette` や actions の `gradient`・`effects_v2`・`dynamics`・`kelvin` を読んでいるところ（`jsondecode(hue_scene.x.palette)` など）も一覧に出す。0.2.0 で型が変わり、plan で失敗するため
+- v0.1 の state と設定から migrate で書き換え、plan が変更なしになることを Terraform CLI の受け入れテストで確かめている
